@@ -31,15 +31,30 @@ from mcp.server.fastmcp import FastMCP
 from .config import get_settings
 
 # ─────────────────────────────────────────────────────────────
-# Configuration du logging (stderr uniquement, jamais stdout)
-# Format : timestamp level [module] message
+# Configuration du logging (stderr uniquement, JSON structuré)
 # ─────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
-    datefmt="%H:%M:%S",
-    stream=sys.stderr,
-)
+
+class _JsonFormatter(logging.Formatter):
+    """Structured JSON log formatter for production log aggregation."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        import json as _json
+        entry = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[0] is not None:
+            entry["exception"] = self.formatException(record.exc_info)
+        return _json.dumps(entry, ensure_ascii=False)
+
+
+_handler = logging.StreamHandler(sys.stderr)
+_handler.setFormatter(_JsonFormatter())
+logging.root.addHandler(_handler)
+logging.root.setLevel(logging.INFO)
+
 # Réduire le bruit des librairies tierces
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -82,20 +97,27 @@ def create_app():
     Crée l'application ASGI complète avec les middlewares.
 
     Pile d'exécution (premier exécuté → dernier) :
-        AuthMiddleware → LoggingMiddleware → StaticFilesMiddleware
-        → mcp.streamable_http_app()
+        RequestId → Metrics → Auth → Audit → Logging
+        → ResponseLimit → StaticFiles → MCP Streamable HTTP
 
+    Le RequestIdMiddleware génère un ID unique par requête (contextvars).
+    Le MetricsMiddleware expose /metrics et collecte les compteurs.
     L'AuthMiddleware extrait le Bearer token et l'injecte dans les contextvars.
-    Le LoggingMiddleware trace les requêtes HTTP sur stderr.
+    L'AuditMiddleware émet des entrées d'audit JSON structurées.
+    Le LoggingMiddleware trace les requêtes HTTP en JSON sur stderr.
+    Le ResponseLimitMiddleware tronque les réponses > 512 KB.
     Le StaticFilesMiddleware sert /live, /static/*, /api/* (interface web).
-
-    Note: HostNormalizerMiddleware supprimé — Streamable HTTP n'a pas
-    le problème de validation Host que SSE avait avec Starlette.
     """
     from .auth.middleware import (
         AuthMiddleware,
         LoggingMiddleware,
         StaticFilesMiddleware,
+    )
+    from .middleware import (
+        RequestIdMiddleware,
+        MetricsMiddleware,
+        ResponseLimitMiddleware,
+        AuditMiddleware,
     )
 
     # L'app de base est le Streamable HTTP handler du SDK MCP
@@ -103,10 +125,13 @@ def create_app():
     app = mcp.streamable_http_app()
 
     # Empiler les middlewares (dernier ajouté = premier exécuté)
-    # Flux requête : Auth → Logging → StaticFiles → MCP Streamable HTTP
     app = StaticFilesMiddleware(app)
+    app = ResponseLimitMiddleware(app, max_bytes=settings.response_max_bytes)
     app = LoggingMiddleware(app)
+    app = AuditMiddleware(app)
     app = AuthMiddleware(app)
+    app = MetricsMiddleware(app)
+    app = RequestIdMiddleware(app)
 
     return app
 

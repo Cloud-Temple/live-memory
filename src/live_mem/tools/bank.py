@@ -24,6 +24,7 @@ Voir CONSOLIDATION_LLM.md pour le pipeline détaillé.
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from pydantic import Field
 
 
@@ -38,7 +39,7 @@ def register(mcp: FastMCP) -> int:
         Nombre d'outils enregistrés (7)
     """
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def bank_read(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
         filename: Annotated[str, Field(description="Nom du fichier bank (ex: 'activeContext.md', 'progress.md')")],
@@ -120,7 +121,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "bank")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def bank_read_all(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
     ) -> dict:
@@ -178,7 +179,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "bank")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def bank_list(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
     ) -> dict:
@@ -233,7 +234,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "bank")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False))
     async def bank_consolidate(
         space_id: Annotated[str, Field(description="Identifiant de l'espace à consolider")],
         agent: Annotated[str, Field(default="", description="Nom de l'agent dont consolider les notes (vide = toutes, admin requis)")] = "",
@@ -339,7 +340,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "bank")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
     async def bank_repair(
         space_id: Annotated[str, Field(description="Identifiant de l'espace à réparer")],
         dry_run: Annotated[bool, Field(default=True, description="True = scan seul (liste les fichiers à réparer), False = applique les corrections")] = True,
@@ -504,7 +505,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "bank")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
     async def bank_write(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
         filename: Annotated[str, Field(description="Nom du fichier bank (ex: 'activeContext.md')")],
@@ -592,7 +593,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "bank")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
     async def bank_delete(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
         filename: Annotated[str, Field(description="Nom du fichier bank à supprimer")],

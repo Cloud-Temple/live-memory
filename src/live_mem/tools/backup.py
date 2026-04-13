@@ -18,6 +18,7 @@ Voir S3_DATA_MODEL.md pour l'arborescence.
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from pydantic import Field
 
 
@@ -32,7 +33,7 @@ def register(mcp: FastMCP) -> int:
         Nombre d'outils enregistrés (5)
     """
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False))
     async def backup_create(
         space_id: Annotated[str, Field(description="Identifiant de l'espace à sauvegarder")],
         description: Annotated[str, Field(default="", description="Description du backup (optionnel, ex: 'avant migration')")] = "",
@@ -67,7 +68,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "backup")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def backup_list(
         space_id: Annotated[str, Field(default="", description="Filtrer par espace (vide = tous les espaces accessibles)")] = "",
     ) -> dict:
@@ -117,7 +118,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "backup")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False))
     async def backup_restore(
         backup_id: Annotated[str, Field(description="Identifiant du backup au format 'space_id/timestamp'")],
         confirm: Annotated[bool, Field(default=False, description="Doit être True pour confirmer la restauration (sécurité)")] = False,
@@ -154,7 +155,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "backup")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def backup_download(
         backup_id: Annotated[str, Field(description="Identifiant du backup au format 'space_id/timestamp'")],
     ) -> dict:
@@ -186,7 +187,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "backup")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
     async def backup_delete(
         backup_id: Annotated[str, Field(description="Identifiant du backup au format 'space_id/timestamp'")],
         confirm: Annotated[bool, Field(default=False, description="Doit être True pour confirmer la suppression (sécurité, irréversible)")] = False,

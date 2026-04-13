@@ -21,6 +21,7 @@ import logging
 from typing import Optional
 from .context import current_token_info, check_access
 from ..config import get_settings
+from ..middleware import current_request_id
 
 logger = logging.getLogger("live_mem.auth")
 
@@ -35,7 +36,7 @@ class AuthMiddleware:
     """
 
     # Routes qui ne nécessitent pas d'authentification
-    PUBLIC_PATHS = {"/health", "/favicon.ico", "/live", "/live/"}
+    PUBLIC_PATHS = {"/health", "/metrics", "/favicon.ico", "/live", "/live/"}
 
     # Préfixes de routes publiques (fichiers statiques)
     PUBLIC_PREFIXES = ("/static/",)
@@ -143,8 +144,12 @@ class LoggingMiddleware:
     """
     Middleware ASGI de logging des requêtes HTTP.
 
-    Log sur stderr : méthode, path, status, durée.
+    Emits structured JSON log lines to stderr with:
+    request_id, method, path, status, latency_ms, client identity.
     """
+
+    # Paths not worth logging (high-frequency probes)
+    _QUIET_PATHS = {"/health", "/metrics"}
 
     def __init__(self, app):
         self.app = app
@@ -168,9 +173,22 @@ class LoggingMiddleware:
             await self.app(scope, receive, send_wrapper)
         finally:
             elapsed = round((time.monotonic() - t0) * 1000, 1)
-            # Ne pas logger les health checks pour éviter le bruit
-            if path not in ("/health",):
-                logger.info("%s %s → %s (%.0fms)", method, path, status_code, elapsed)
+            # Skip health/metrics probes to reduce noise
+            if path not in self._QUIET_PATHS:
+                token_info = current_token_info.get()
+                entry = {
+                    "request_id": current_request_id.get(),
+                    "method": method,
+                    "path": path,
+                    "status": status_code,
+                    "latency_ms": elapsed,
+                }
+                if token_info:
+                    entry["client"] = token_info.get("client_name", "anonymous")
+                client = scope.get("client")
+                if client:
+                    entry["client_ip"] = client[0]
+                logger.info(json.dumps(entry, ensure_ascii=False))
 
 
 class StaticFilesMiddleware:
@@ -260,22 +278,45 @@ class StaticFilesMiddleware:
     # ─────────────────── Health Check ───────────────────
 
     async def _handle_health(self, send):
-        """Endpoint /health — réponse JSON simple pour les healthchecks."""
+        """
+        Endpoint /health — probes S3 connectivity.
+
+        Returns 200 + {"status": "healthy"} when S3 is reachable,
+        or 503 + {"status": "unhealthy", "reason": "..."} otherwise.
+        Keeps the probe fast (2s timeout on S3 test).
+        """
         import json
         from pathlib import Path
 
         version_file = Path(__file__).parent.parent.parent.parent / "VERSION"
         version = version_file.read_text().strip() if version_file.exists() else "dev"
 
-        body = json.dumps({
+        status_code = 200
+        result = {
             "status": "healthy",
             "service": "live-memory",
             "version": version,
             "transport": "streamable-http",
-        }).encode("utf-8")
+        }
+
+        # Probe S3 connectivity (the critical dependency)
+        try:
+            from ..core.storage import get_storage
+            storage = get_storage()
+            s3_result = await storage.test_connection()
+            if s3_result.get("status") != "ok":
+                status_code = 503
+                result["status"] = "unhealthy"
+                result["reason"] = f"S3: {s3_result.get('message', 'not reachable')}"
+        except Exception as e:
+            status_code = 503
+            result["status"] = "unhealthy"
+            result["reason"] = f"S3: {e}"
+
+        body = json.dumps(result).encode("utf-8")
         await send({
             "type": "http.response.start",
-            "status": 200,
+            "status": status_code,
             "headers": [
                 (b"content-type", b"application/json; charset=utf-8"),
                 (b"content-length", str(len(body)).encode()),

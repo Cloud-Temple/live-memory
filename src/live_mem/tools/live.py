@@ -26,6 +26,7 @@ Catégories standard :
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from pydantic import Field
 
 
@@ -40,7 +41,7 @@ def register(mcp: FastMCP) -> int:
         Nombre d'outils enregistrés (3)
     """
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False))
     async def live_note(
         space_id: Annotated[str, Field(description="Identifiant de l'espace cible")],
         category: Annotated[str, Field(description="Catégorie : observation|decision|todo|insight|question|progress|issue")],
@@ -90,7 +91,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "live")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def live_read(
         space_id: Annotated[str, Field(description="Identifiant de l'espace cible")],
         limit: Annotated[int, Field(default=50, description="Nombre max de notes à retourner (défaut 50)")] = 50,
@@ -133,7 +134,7 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
             return safe_error(e, "live")
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def live_search(
         space_id: Annotated[str, Field(description="Identifiant de l'espace cible")],
         query: Annotated[str, Field(description="Texte à chercher dans les notes (case-insensitive)")],

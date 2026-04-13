@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP, Context
+from mcp.types import ToolAnnotations
 
 
 def register(mcp: FastMCP) -> int:
@@ -29,7 +30,7 @@ def register(mcp: FastMCP) -> int:
         Nombre d'outils enregistrés (3)
     """
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def system_health() -> dict:
         """
         Vérifie l'état de santé du service Live Memory.
@@ -109,7 +110,7 @@ def register(mcp: FastMCP) -> int:
             "spaces_count": spaces_count,
         }
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def system_about() -> dict:
         """
         Informations sur le service Live Memory MCP.
@@ -144,7 +145,7 @@ def register(mcp: FastMCP) -> int:
             "tools": tools,
         }
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     async def system_whoami() -> dict:
         """
         Identité du token courant utilisé pour contacter le serveur.
