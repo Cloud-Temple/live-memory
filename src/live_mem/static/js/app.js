@@ -61,10 +61,22 @@ async function checkToken() {
 function fillSpaceSelect(spaces) {
     const sel = document.getElementById('spaceSelect');
     sel.innerHTML = '<option value="">-- Espace --</option>';
+    // Issue #8 : les <option> natifs ne supportent pas text-overflow:ellipsis,
+    // on tronque donc la description côté JS pour éviter que le dropdown
+    // ne déborde du viewport quand un espace a une description longue.
+    const MAX_DESC = 70;
     spaces.forEach(s => {
         const o = document.createElement('option');
         o.value = s.space_id;
-        o.textContent = s.space_id + (s.description ? ' — '+s.description : '');
+        let desc = '';
+        if (s.description) {
+            desc = s.description.length > MAX_DESC
+                ? s.description.slice(0, MAX_DESC).trimEnd() + '…'
+                : s.description;
+            // Description complète accessible en tooltip natif
+            o.title = s.description;
+        }
+        o.textContent = s.space_id + (desc ? ' — ' + desc : '');
         sel.appendChild(o);
     });
 }

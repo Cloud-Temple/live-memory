@@ -5,7 +5,24 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ---
 
+## [1.7.0] — 2026-04-27
+
+### Corrigé
+- **Issue #8 — Web UI : descriptions d'espaces non tronquées dans le dropdown** — Sur l'interface `/live`, le sélecteur `<select id="spaceSelect">` affichait `space_id — description` complète. Quand un espace avait une description longue (plusieurs phrases), le dropdown s'étirait au-delà du viewport et cassait la mise en page du header. Les `<option>` HTML natifs ne supportant pas `text-overflow: ellipsis`, la troncature doit se faire côté JS.
+  - **Fix JS** (`src/live_mem/static/js/app.js` — `fillSpaceSelect`) : description tronquée à `MAX_DESC = 70` caractères avec suffixe `…`. Description complète conservée en `option.title` (tooltip natif au survol). La valeur `option.value = s.space_id` reste intacte (zéro impact fonctionnel).
+  - **Fix CSS** (`src/live_mem/static/css/live.css`) : ajout de `#spaceSelect { max-width: 360px; text-overflow: ellipsis; }` pour borner la largeur du sélecteur fermé, même quand un `space_id` lui-même est très long.
+
+### Fichiers modifiés
+| Fichier                                | Changements                                                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `src/live_mem/static/js/app.js`        | `fillSpaceSelect()` : troncature à 70 chars + `option.title` avec description complète           |
+| `src/live_mem/static/css/live.css`     | Règle `#spaceSelect` : `max-width: 360px` + `text-overflow: ellipsis`                            |
+| `VERSION`, `__init__.py`, `README.md`, `README.en.md`, `CHANGELOG.md` | Bump 1.6.1 → 1.7.0 |
+
+---
+
 ## [1.6.1] — 2026-04-25
+
 
 ### Corrigé
 - **Audit middleware "unauthenticated"** — `AuditMiddleware` wrappait `AuthMiddleware`, son `finally` s'exécutait après le `reset()` du contextvar → le client apparaissait toujours comme `"unauthenticated"` dans les logs d'audit. Fix : réordonnancement de la pile middleware (Audit maintenant wrappé PAR Auth). Ajout d'un audit log directement dans `AuthMiddleware` pour les rejets 401.
