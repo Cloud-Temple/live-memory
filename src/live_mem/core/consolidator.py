@@ -26,6 +26,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+import httpx
 from openai import AsyncOpenAI
 
 from ..config import get_settings
@@ -118,10 +119,25 @@ class ConsolidatorService:
 
     def __init__(self):
         settings = get_settings()
+
+        # ── Proxy HTTP sortant (optionnel) ────────────────────
+        # Utilise PROXY_URL (variable custom) plutôt que HTTP_PROXY/HTTPS_PROXY
+        # pour éviter d'affecter toutes les libs Python qui lisent les vars d'env OS.
+        # AsyncOpenAI utilise httpx en interne — on passe un client httpx pré-configuré.
+        _http_client: httpx.AsyncClient | None = None
+        proxy_url = settings.proxy_url.strip() or None
+        if proxy_url:
+            _http_client = httpx.AsyncClient(
+                proxy=httpx.Proxy(url=proxy_url),
+                timeout=settings.consolidation_timeout,
+            )
+            logger.info("ConsolidatorService: LLM requests via proxy %s", proxy_url)
+
         self._client = AsyncOpenAI(
             base_url=settings.llmaas_api_url,
             api_key=settings.llmaas_api_key,
             timeout=settings.consolidation_timeout,
+            **({"http_client": _http_client} if _http_client else {}),
         )
         self._model = settings.llmaas_model
         self._context_window = settings.llmaas_context_window

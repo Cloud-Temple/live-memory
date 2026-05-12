@@ -76,6 +76,12 @@ class GraphMemoryClient:
             base_url: URL de base de graph-memory (ex: "http://localhost:8080")
             token: Bearer token pour l'authentification
             timeout: Timeout par appel d'outil en secondes
+
+        Note proxy :
+            PROXY_URL n'est pas encore supporté pour cette connexion.
+            streamablehttp_client (SDK MCP officiel) ne prend pas de
+            paramètre proxy ni d'httpx_client dans son API actuelle.
+            Les appels vers graph-memory passent donc toujours en direct.
         """
         # Normaliser l'URL : retirer /sse ou /mcp si présent en fin
         self._base_url = base_url.rstrip("/")

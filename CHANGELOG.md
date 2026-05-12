@@ -5,6 +5,27 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Ajouté
+- **Support proxy HTTP sortant (`PROXY_URL`)** — Nouvelle variable d'environnement optionnelle pour router les appels sortants (S3 et LLM) via un proxy HTTP. Utilise une variable custom (`PROXY_URL`) plutôt que `HTTP_PROXY`/`HTTPS_PROXY` pour ne pas affecter les autres bibliothèques Python qui lisent automatiquement les variables d'environnement OS.
+  - `storage.py` : proxy injecté dans les deux clients boto3 (SigV2 et SigV4) via `Config(proxies=...)`.
+  - `consolidator.py` : proxy injecté dans `AsyncOpenAI` via un `httpx.AsyncClient(proxy=...)` pré-configuré.
+  - `graph_bridge.py` : non supporté (limitation du SDK MCP `streamablehttp_client` — documenté dans le code).
+  - Validation au démarrage : si `PROXY_URL` est défini, l'URL doit commencer par `http://` ou `https://`.
+
+### Fichiers modifiés
+| Fichier | Changements |
+| --- | --- |
+| `src/live_mem/config.py` | Nouveau champ `proxy_url: str = ""` + validation dans `_validate_config` |
+| `src/live_mem/core/storage.py` | Construction de `_proxies` depuis `proxy_url`, injection dans `Config()` SigV2 et SigV4, log au démarrage |
+| `src/live_mem/core/consolidator.py` | Import `httpx`, construction `httpx.AsyncClient(proxy=...)` si `proxy_url`, passage à `AsyncOpenAI(http_client=...)` |
+| `src/live_mem/core/graph_bridge.py` | Note de limitation dans la docstring de `GraphMemoryClient.__init__` |
+| `.env.example` | Nouvelle entrée `#PROXY_URL=http://10.185.132.250:3128` (commentée) |
+| `README.md`, `README.en.md` | Ligne `PROXY_URL` dans le tableau des variables optionnelles |
+
+---
+
 ## [1.7.4] — 2026-05-10
 
 ### Ajouté

@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     llmaas_max_tokens: int = 16384  # Max tokens de SORTIE demandés à l'API
     llmaas_temperature: float = 0.3
 
+    # ─── Proxy HTTP sortant ───────────────────────────────────
+    # Variable custom (pas HTTP_PROXY/HTTPS_PROXY) pour ne pas affecter
+    # toutes les libs Python qui lisent automatiquement les vars d'env OS.
+    # Injecté manuellement dans boto3 (S3) et httpx (LLM, Graph Bridge).
+    proxy_url: str = ""
+
     # ─── Rules par défaut ─────────────────────────────────────
     # Chemin vers le fichier Markdown utilisé comme rules par défaut
     # quand space_create est appelé sans paramètre rules.
@@ -159,6 +165,13 @@ class Settings(BaseSettings):
         if not (0.0 <= self.llmaas_temperature <= 2.0):
             errors.append(
                 f"LLMAAS_TEMPERATURE={self.llmaas_temperature} out of range [0.0, 2.0]"
+            )
+
+        # Proxy URL format (optionnel — si renseigné doit être une URL valide)
+        if self.proxy_url and not self.proxy_url.startswith(("http://", "https://")):
+            errors.append(
+                f"PROXY_URL must start with http:// or https://, "
+                f"got '{self.proxy_url[:50]}'"
             )
 
         # Response limit

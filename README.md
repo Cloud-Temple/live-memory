@@ -286,6 +286,7 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `CONSOLIDATION_BATCH_SIZE`| `5`               | Notes par lot LLM (petit = précis, grand = rapide) |
 | `COMPACT_THRESHOLD`       | `0.6`             | Seuil auto-compaction (0.6 = compacte si bank > 60% du budget) |
 | `BANK_FILE_MAX_SIZE`      | `15360`           | Taille max par fichier bank (bytes, 15 KB). Au-delà = compaction |
+| `PROXY_URL`               | _(aucun)_         | Proxy HTTP sortant (ex: `http://10.0.0.1:3128`). Variable **custom** (pas `HTTP_PROXY`) — injecté manuellement dans boto3 (S3) et httpx (LLM). Non supporté pour Graph Memory. |
 
 ---
 
