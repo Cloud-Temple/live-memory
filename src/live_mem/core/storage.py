@@ -57,9 +57,9 @@ class StorageService:
         # ── Proxy HTTP sortant (optionnel) ────────────────────
         # Utilise PROXY_URL (variable custom) plutôt que HTTP_PROXY/HTTPS_PROXY
         # pour éviter d'affecter toutes les libs Python qui lisent les vars d'env OS.
-        proxy_url = settings.proxy_url.strip() or None
+        proxy_url = settings.proxy_url
         # Format botocore/requests : {"http": url, "https": url}
-        _proxies: dict | None = (
+        _proxies: dict[str, str] | None = (
             {"http": proxy_url, "https": proxy_url} if proxy_url else None
         )
 
@@ -102,19 +102,13 @@ class StorageService:
             config=config_v4,
         )
 
+        logger.info(
+            "StorageService initialisé — bucket=%s endpoint=%s",
+            self.bucket,
+            self._endpoint,
+        )
         if proxy_url:
-            logger.info(
-                "StorageService initialisé — bucket=%s endpoint=%s proxy=%s",
-                self.bucket,
-                self._endpoint,
-                proxy_url,
-            )
-        else:
-            logger.info(
-                "StorageService initialisé — bucket=%s endpoint=%s",
-                self.bucket,
-                self._endpoint,
-            )
+            logger.info("StorageService: S3 requests via proxy %s", proxy_url)
 
     # ─────────────────────────────────────────────────────────────
     # Helpers async — wrappent les appels synchrones boto3

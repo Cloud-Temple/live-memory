@@ -15,7 +15,7 @@ Usage :
 import logging
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 _logger = logging.getLogger("live_mem.config")
@@ -62,8 +62,18 @@ class Settings(BaseSettings):
     # ─── Proxy HTTP sortant ───────────────────────────────────
     # Variable custom (pas HTTP_PROXY/HTTPS_PROXY) pour ne pas affecter
     # toutes les libs Python qui lisent automatiquement les vars d'env OS.
-    # Injecté manuellement dans boto3 (S3) et httpx (LLM, Graph Bridge).
-    proxy_url: str = ""
+    # Injecté manuellement dans boto3 (S3) et httpx (LLM).
+    # Non supporté pour les connexions Graph Memory (streamablehttp_client).
+    proxy_url: str | None = None
+
+    @field_validator("proxy_url", mode="before")
+    @classmethod
+    def _normalize_proxy_url(cls, v: str | None) -> str | None:
+        """Normalise proxy_url : strip whitespace, retourne None si vide."""
+        if v is None:
+            return None
+        stripped = str(v).strip()
+        return stripped if stripped else None
 
     # ─── Rules par défaut ─────────────────────────────────────
     # Chemin vers le fichier Markdown utilisé comme rules par défaut

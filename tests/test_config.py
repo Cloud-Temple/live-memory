@@ -142,3 +142,40 @@ class TestResponseLimitValidation:
     def test_response_limit_too_low(self):
         with pytest.raises(ValueError, match="RESPONSE_MAX_BYTES"):
             _make_settings(response_max_bytes=100)
+
+
+class TestProxyValidation:
+    def test_valid_http_proxy(self):
+        s = _make_settings(proxy_url="http://10.185.132.250:3128")
+        assert s.proxy_url == "http://10.185.132.250:3128"
+
+    def test_valid_https_proxy(self):
+        s = _make_settings(proxy_url="https://proxy.example.com:8080")
+        assert s.proxy_url == "https://proxy.example.com:8080"
+
+    def test_no_proxy_is_none(self):
+        s = _make_settings(proxy_url=None)
+        assert s.proxy_url is None
+
+    def test_empty_string_normalized_to_none(self):
+        """field_validator normalise '' → None."""
+        s = _make_settings(proxy_url="")
+        assert s.proxy_url is None
+
+    def test_whitespace_only_normalized_to_none(self):
+        """field_validator normalise '   ' → None."""
+        s = _make_settings(proxy_url="   ")
+        assert s.proxy_url is None
+
+    def test_proxy_with_leading_whitespace_stripped(self):
+        """field_validator strip() avant validation."""
+        s = _make_settings(proxy_url="  http://proxy:3128  ")
+        assert s.proxy_url == "http://proxy:3128"
+
+    def test_invalid_scheme_tcp_rejected(self):
+        with pytest.raises(ValueError, match="PROXY_URL must start"):
+            _make_settings(proxy_url="tcp://proxy:3128")
+
+    def test_invalid_scheme_bare_host_rejected(self):
+        with pytest.raises(ValueError, match="PROXY_URL must start"):
+            _make_settings(proxy_url="proxy.example.com:3128")

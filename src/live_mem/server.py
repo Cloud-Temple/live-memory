@@ -23,7 +23,9 @@ Usage :
 
 import sys
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 from mcp.server.fastmcp import FastMCP
 
@@ -72,10 +74,26 @@ logger = logging.getLogger("live_mem")
 
 settings = get_settings()
 
+@asynccontextmanager
+async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
+    """
+    Gère le cycle de vie du serveur MCP.
+
+    Au shutdown : ferme proprement le ConsolidatorService si actif
+    (libère le httpx.AsyncClient injecté quand PROXY_URL est défini).
+    """
+    try:
+        yield
+    finally:
+        from .core.consolidator import close_consolidator_if_initialized
+        await close_consolidator_if_initialized()
+
+
 mcp = FastMCP(
     name=settings.mcp_server_name,
     host=settings.mcp_server_host,
     port=settings.mcp_server_port,
+    lifespan=_lifespan,
 )
 
 # =============================================================================
