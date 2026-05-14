@@ -7,6 +7,9 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ## [Unreleased]
 
+### Corrigé
+- **`Dockerfile` : HEALTHCHECK hardcodé sur le port 8002** — Le healthcheck utilisait `localhost:8002` en dur, provoquant l'arrêt du container (ExitCode=0 via SIGTERM Swarm) dès que `MCP_SERVER_PORT` était différent de 8002 (ex. `MCP_SERVER_PORT=4200`). Le port est maintenant dynamique : `${MCP_SERVER_PORT:-8002}` (expansé par le shell au runtime).
+
 ### Ajouté
 - **Support proxy HTTP sortant (`PROXY_URL`)** — Nouvelle variable d'environnement optionnelle pour router les appels sortants (S3 et LLM) via un proxy HTTP. Utilise une variable custom (`PROXY_URL`) plutôt que `HTTP_PROXY`/`HTTPS_PROXY` pour ne pas affecter les autres bibliothèques Python qui lisent automatiquement les variables d'environnement OS.
   - `storage.py` : proxy injecté dans les deux clients boto3 (SigV2 et SigV4) via `Config(proxies=...)`.

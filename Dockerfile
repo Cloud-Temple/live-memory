@@ -61,8 +61,9 @@ USER mcp
 EXPOSE 8002
 
 # Healthcheck : vérifier que le serveur répond sur /health
+# MCP_SERVER_PORT est expansé par le shell (valeur par défaut: 8002)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=2)" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${MCP_SERVER_PORT:-8002}/health', timeout=2)" || exit 1
 
 # Point d'entrée : le serveur MCP
 CMD ["python", "-m", "live_mem"]
