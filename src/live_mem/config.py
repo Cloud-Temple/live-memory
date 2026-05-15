@@ -99,20 +99,23 @@ class Settings(BaseSettings):
     # un flux de travail humain. Mettre à 0 pour désactiver (déconseillé).
     consolidation_cooldown_seconds: int = 60
 
-    # Issue #17 — Pass de validation post-consolidation (opt-in).
-    # Quand activée, après chaque batch consolidé, on compte les "claims"
-    # (faits/métriques/dates) du bank modifié qui n'apparaissent dans
-    # AUCUNE note du batch. Ce compteur (`unattributed_claims_count`) est
-    # remonté dans le résultat de bank_consolidate pour observabilité.
-    # Approche code-only (regex + pattern matching) : pas de tokens LLM,
-    # déterministe, simple à raisonner. Faux positifs possibles sur du
-    # contenu structurel inchangé — voir _validate_unattributed_claims().
-    # Par défaut désactivé pour ne pas alourdir les consolidations
-    # existantes ; à activer en observabilité/CI.
+    # Issue #17 — Post-consolidation validation pass (opt-in).
+    # When enabled, after each consolidated batch the server counts the
+    # "claims" (numeric facts, metrics, dates, refs) in the modified bank
+    # that do NOT appear in any note of the batch. The counter
+    # `unattributed_claims_count` is surfaced in the bank_consolidate
+    # response for observability.
+    # Code-only approach (regex + pattern matching): no LLM tokens spent,
+    # deterministic, easy to reason about. Some false positives are
+    # possible on structurally unchanged content — see
+    # _validate_unattributed_claims() for the heuristic details.
+    # Disabled by default to keep existing consolidations unaffected;
+    # enable for observability/CI deployments.
     consolidation_validation_enabled: bool = False
-    # Plafond de claims rapportés (les premiers détectés, pour borner
-    # la taille du payload retourné au caller MCP).
+    # Cap on reported claims (only the first few are returned, to bound
+    # the payload size sent back to the MCP caller).
     consolidation_validation_max_examples: int = 20
+
 
 
     # ─── Bank Compaction ──────────────────────────────────────
