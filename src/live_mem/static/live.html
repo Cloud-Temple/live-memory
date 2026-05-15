@@ -4,7 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cloud Temple — Live Memory</title>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- LM2-06 fix : libs vendored localement (plus de dépendance CDN runtime).
+         LM2-19 fix : DOMPurify utilisé pour sanitiser le HTML produit par marked.
+         Voir static/vendor/README.md pour les versions et la procédure de mise à jour. -->
+    <script src="/static/vendor/marked.min.js"></script>
+    <script src="/static/vendor/purify.min.js"></script>
     <link rel="stylesheet" href="/static/css/live.css">
 </head>
 <body>

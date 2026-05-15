@@ -15,10 +15,16 @@ function renderBankTabs() {
         return;
     }
 
+    // LM2-01 fix : le `${name}` final dans innerHTML était NON ÉCHAPPÉ —
+    // un nom de fichier malicieux (`<img src=x onerror=...>`) injecté par
+    // un opérateur compromis (ou un LLM dérivant) exécutait du JS arbitraire
+    // dans le navigateur de chaque admin ouvrant /live. Échappement systématique
+    // + le serveur refuse maintenant les caractères dangereux (LM2-12 fix).
     tabsEl.innerHTML = files.map(f => {
         const name = f.filename || f;
+        const safeName = esc(name);
         const active = app.currentBankFile === name ? 'active' : '';
-        return `<div class="bank-tab ${active}" onclick="selectBank('${esc(name)}')">${name}</div>`;
+        return `<div class="bank-tab ${active}" onclick="selectBank('${safeName}')">${safeName}</div>`;
     }).join('');
 
     // Si aucun fichier sélectionné, sélectionner le premier

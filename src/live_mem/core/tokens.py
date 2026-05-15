@@ -151,6 +151,31 @@ class TokenService:
         return ([s.strip() for s in space_ids.split(",") if s.strip()], False)
 
     @staticmethod
+    def _invalidate_in_fresh_store(token_hashes: list[str]) -> None:
+        """
+        LM2-07 fix : invalide une liste de tokens dans le store global.
+
+        Délégation à ``auth.context.invalidate_token_in_store`` pour
+        chaque hash. Import local pour éviter un cycle (auth importe
+        core indirectement).
+
+        Idempotent et best-effort : un échec silencieux ne casse pas
+        la mutation S3 déjà persistée.
+        """
+        try:
+            from ..auth.context import invalidate_token_in_store
+        except Exception:
+            return
+        for h in token_hashes:
+            if not h:
+                continue
+            try:
+                invalidate_token_in_store(h)
+            except Exception:
+                # Logging best-effort, on n'interrompt pas le flux mutateur
+                pass
+
+    @staticmethod
     def _muted_token_warning() -> str:
         """Message standard pour les tokens "muets" (issue #11)."""
         return (
@@ -354,6 +379,10 @@ class TokenService:
         VULN-03 fix : utilise _find_token_by_hash pour une correspondance
         sécurisée (min 16 chars, détection d'ambiguïté).
 
+        LM2-07 fix : purge aussi le ``_fresh_token_store`` global pour
+        empêcher toute opération longue (consolidation, push graph) en
+        cours de continuer à voir les anciennes permissions.
+
         Args:
             token_hash: Hash SHA-256 du token (min 16 chars de préfixe)
 
@@ -368,7 +397,11 @@ class TokenService:
                 return err
 
             token.revoked = True
+            full_hash = token.hash
             await self._save_store(store)
+
+        # LM2-07 fix : invalider dans le store global après save_store
+        self._invalidate_in_fresh_store([full_hash])
 
         return {"status": "ok", "message": f"Token '{token.name}' révoqué"}
 
@@ -393,8 +426,12 @@ class TokenService:
                 return err
 
             deleted_name = token.name
+            deleted_hash = token.hash
             store.tokens.pop(idx)
             await self._save_store(store)
+
+        # LM2-07 fix : purge du store global après save_store
+        self._invalidate_in_fresh_store([deleted_hash])
 
         return {
             "status": "deleted",
@@ -418,13 +455,20 @@ class TokenService:
             store = await self._load_store()
             original_count = len(store.tokens)
 
+            # LM2-07 fix : collecter les hashes supprimés AVANT mutation
+            # pour pouvoir purger le store global après save_store.
             if revoked_only:
+                deleted_hashes = [t.hash for t in store.tokens if t.revoked]
                 store.tokens = [t for t in store.tokens if not t.revoked]
             else:
+                deleted_hashes = [t.hash for t in store.tokens]
                 store.tokens = []
 
             deleted_count = original_count - len(store.tokens)
             await self._save_store(store)
+
+        # LM2-07 fix : purge en masse du store global
+        self._invalidate_in_fresh_store(deleted_hashes)
 
         return {
             "status": "ok",
@@ -665,8 +709,15 @@ class TokenService:
             await self._save_store(store)
             # Snapshot des champs nécessaires pour la réponse (avant sortie du lock)
             updated_name = token.name
+            updated_hash = token.hash
             updated_space_ids = list(token.space_ids)
             updated_perms = list(token.permissions)
+
+        # LM2-07 fix : purger le store global si les droits effectifs ont
+        # été modifiés (permissions ou space_ids). L'email seul n'affecte
+        # pas l'autorisation runtime → pas d'invalidation nécessaire.
+        if permissions or new_space_ids is not None or delta_mode:
+            self._invalidate_in_fresh_store([updated_hash])
 
         response = {
             "status": "ok",
@@ -930,6 +981,12 @@ class TokenService:
 
             # Une seule écriture S3 ⇒ atomicité naturelle
             await self._save_store(store)
+
+        # LM2-07 fix : purger le store global pour tous les tokens dont les
+        # droits ont été modifiés (permissions ou space_ids touchés). L'email
+        # seul n'affecte pas l'autorisation runtime → skip pour économiser.
+        if perm_list is not None or add_list or remove_list:
+            self._invalidate_in_fresh_store([entry["hash"] for entry in report])
 
         # ─── Audit logging (review PR #14, point #4) ───
         # Émis APRÈS le save_store : on ne loggue que les opérations

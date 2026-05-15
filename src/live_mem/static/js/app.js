@@ -12,6 +12,9 @@ function showLogin(msg='') {
 }
 function hideLogin() { document.getElementById('loginOverlay').classList.add('hidden'); }
 
+// LM2-04 fix : authentification via cookie HttpOnly émis par /api/login.
+// Le token brut n'est jamais stocké côté JS — un XSS ne peut donc plus
+// l'exfiltrer (contrairement à l'ancienne approche localStorage).
 async function doLogin() {
     const input = document.getElementById('loginToken');
     const btn = document.getElementById('loginBtn');
@@ -21,22 +24,34 @@ async function doLogin() {
 
     btn.disabled = true; btn.textContent = 'Connexion…'; err.textContent = '';
     try {
-        const r = await fetch('/api/spaces', { headers: { 'Authorization': `Bearer ${token}` } });
-        if (r.status === 401) { err.textContent = '❌ Token invalide.'; return; }
-        if (!r.ok) { err.textContent = `❌ Erreur (${r.status}).`; return; }
-        const data = await r.json();
-        if (data.status !== 'ok') { err.textContent = `❌ ${data.message||'Erreur'}`; return; }
+        // POST /api/login → émet le cookie HttpOnly côté serveur.
+        const loginResult = await loginWithToken(token);
+        if (loginResult.status !== 'ok') {
+            err.textContent = `❌ ${loginResult.message || 'Token invalide'}`;
+            return;
+        }
 
-        setAuthToken(token);
+        // Charger la liste des spaces (le cookie est déjà attaché par le navigateur)
+        const data = await apiLoadSpaces();
+        if (data.status !== 'ok') {
+            err.textContent = `❌ ${data.message || 'Erreur'}`;
+            return;
+        }
+
         hideLogin();
-        input.value = '';
+        input.value = '';  // efface le token du DOM dès qu'il n'est plus utile
         fillSpaceSelect(data.spaces || []);
-    } catch { err.textContent = '❌ Serveur injoignable.'; }
-    finally { btn.disabled = false; btn.textContent = 'Se connecter'; }
+    } catch {
+        err.textContent = '❌ Serveur injoignable.';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Se connecter';
+    }
 }
 
-function doLogout() {
-    clearAuthToken(); stopRefresh();
+async function doLogout() {
+    await logout();  // efface le cookie HttpOnly côté serveur
+    stopRefresh();
     app.spaceId = null; app.info = null; app.notes = []; app.bankFiles = [];
     app.currentBankFile = null; app.agentColors = {};
     document.getElementById('panelLeft').style.display = 'none';
@@ -47,14 +62,23 @@ function doLogout() {
 }
 
 async function checkToken() {
-    const token = getAuthToken();
-    if (!token) { showLogin(); return; }
+    // Le cookie HttpOnly est invisible côté JS — on tente directement
+    // un appel API : si le cookie est présent et valide, on enchaîne ;
+    // sinon on affiche le formulaire de login.
     try {
         const r = await apiLoadSpaces();
-        if (r.status === 'ok') { hideLogin(); fillSpaceSelect(r.spaces || []); }
-        else showLogin('Token expiré.');
+        if (r.status === 'ok') {
+            hideLogin();
+            fillSpaceSelect(r.spaces || []);
+        } else {
+            showLogin();
+        }
     } catch (e) {
-        if (e.message !== 'Unauthorized') showLogin('Serveur injoignable.');
+        if (e.message === 'Unauthorized') {
+            // showLogin déjà appelé par authFetch sur 401
+            return;
+        }
+        showLogin('Serveur injoignable.');
     }
 }
 
@@ -224,6 +248,9 @@ function setupResizer() {
 // ═══════════════ INIT ═══════════════
 
 document.addEventListener('DOMContentLoaded', () => {
+    // LM2-04 migration : purger l'ancien token stocké en localStorage.
+    purgeLegacyTokenStorage();
+
     // Login
     document.getElementById('loginBtn').addEventListener('click', doLogin);
     document.getElementById('loginToken').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });

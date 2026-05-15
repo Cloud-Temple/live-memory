@@ -59,7 +59,24 @@ function fmtSize(b) {
     if (b<1048576) return (b/1024).toFixed(1)+' KB';
     return (b/1048576).toFixed(1)+' MB';
 }
+// LM2-19 fix : sanitisation systématique du HTML produit par marked.
+// Marked ≥4 ne supporte plus l'option `sanitize` — un contenu Markdown
+// malicieux (ex: `<img onerror=...>` ou `[a](javascript:...)`) injecté
+// dans une note live ou un fichier bank exécutait sinon du JS arbitraire
+// dans le navigateur de l'admin (vol du token bearer via XSS).
+// DOMPurify est chargé localement (LM2-06 fix) — voir static/vendor/README.md.
 function md(text) {
-    try { return marked.parse(text||'',{breaks:true,gfm:true}); }
-    catch { return '<p>'+esc(text)+'</p>'; }
+    try {
+        const raw = marked.parse(text || '', { breaks: true, gfm: true });
+        // Fallback defense in depth : si DOMPurify n'est pas chargé pour
+        // une raison quelconque, on échappe brutalement plutôt que de
+        // servir du HTML non sanitisé.
+        if (typeof DOMPurify === 'undefined') {
+            console.warn('[md] DOMPurify non disponible — fallback esc()');
+            return '<p>' + esc(text) + '</p>';
+        }
+        return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+    } catch {
+        return '<p>' + esc(text) + '</p>';
+    }
 }

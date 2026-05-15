@@ -60,8 +60,15 @@
 	# =========================================================================
 	# Headers de Sécurité (appliqués à TOUTES les routes)
 	# =========================================================================
+	# LM2-05 fix : 'unsafe-inline' retiré de script-src — combiné avec un XSS
+	# (LM2-01), cette directive permettait l'exfiltration du token bearer admin.
+	# 'unsafe-inline' reste sur style-src car les CSS inline sont utilisés par
+	# le placeholder dans live.html (ex: style="display:none") et n'exposent
+	# pas le même vecteur d'attaque.
+	# LM2-06 fix : les CDN externes (unpkg, jsdelivr) sont supprimés de la CSP
+	# car marked.js et purify.js sont maintenant servis depuis /static/vendor/.
 	header {
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
 		X-Frame-Options "DENY"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"

@@ -62,10 +62,37 @@ def update_fresh_token(token_info: dict) -> None:
 
     Appelé par AuthMiddleware à chaque requête HTTP validée.
     Le token_hash sert de clé (un slot par token distinct).
+
+    LM2-08 fix (doc) : le bootstrap key n'a pas de ``token_hash`` (il
+    n'est pas stocké dans ``_system/tokens.json``). Ses infos sont donc
+    figées dans le contextvar et ne sont jamais publiées ici — c'est
+    volontaire et inoffensif (le bootstrap est toujours admin total).
     """
     token_hash = token_info.get("token_hash")
     if token_hash:
         _fresh_token_store[token_hash] = token_info
+
+
+def invalidate_token_in_store(token_hash: str) -> None:
+    """
+    LM2-07 fix : retire un token du store global (révocation effective).
+
+    Doit être appelé par TokenService après revoke_token, delete_token,
+    purge_tokens, update_token, bulk_update_tokens. Sans cela, une
+    opération longue (consolidation 5 min, push graph 10 min) qui aurait
+    démarré juste avant la révocation continuerait à voir l'ancien
+    ``permissions``/``allowed_resources`` via ``_get_effective_token_info``
+    et pourrait persister une élévation de privilège jusqu'à la fin de
+    l'opération.
+
+    Idempotent : no-op si le token n'est pas dans le store (cas typique
+    des tokens jamais utilisés depuis le démarrage du process).
+
+    Note : l'invalidation ne casse pas une requête HTTP en cours (le
+    contextvar reste figé pour la durée du handler), mais toute requête
+    suivante de l'agent obtiendra un 401 sur le pipeline normal.
+    """
+    _fresh_token_store.pop(token_hash, None)
 
 
 def _get_effective_token_info() -> Optional[dict]:

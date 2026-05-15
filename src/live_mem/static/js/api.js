@@ -1,23 +1,77 @@
 /**
- * Live Memory - API REST avec auth Bearer Token
+ * Live Memory - API REST avec auth par cookie HttpOnly
+ *
+ * LM2-04 fix : le token n'est plus stocké côté JS (localStorage exfiltrable
+ * par XSS). Le serveur émet un cookie `livemem_auth` HttpOnly via /api/login,
+ * automatiquement attaché aux requêtes /api/* par le navigateur. JS ne peut
+ * jamais lire le token — un éventuel XSS ne peut donc pas l'exfiltrer.
+ *
+ * `credentials: 'same-origin'` est le défaut, mais on l'explicite pour
+ * la clarté et la robustesse face aux futures évolutions de la spec fetch.
  */
 
-const AUTH_TOKEN_KEY = 'livemem_auth_token';
+const AUTH_TOKEN_KEY = 'livemem_auth_token';  // ancien storage, à purger
 
-function getAuthToken() { return localStorage.getItem(AUTH_TOKEN_KEY); }
-function setAuthToken(token) { localStorage.setItem(AUTH_TOKEN_KEY, token); }
-function clearAuthToken() { localStorage.removeItem(AUTH_TOKEN_KEY); }
+/**
+ * Purge l'ancien localStorage hérité (migration LM2-04).
+ * Appelé au premier chargement pour nettoyer les tokens encore stockés
+ * en clair côté client.
+ */
+function purgeLegacyTokenStorage() {
+    try {
+        if (localStorage.getItem(AUTH_TOKEN_KEY)) {
+            localStorage.removeItem(AUTH_TOKEN_KEY);
+            console.info('[auth] Ancien token localStorage purgé (migration LM2-04).');
+        }
+    } catch (_) {
+        // localStorage indisponible (mode privé strict) : best-effort.
+    }
+}
 
-function authHeaders(extra = {}) {
-    const token = getAuthToken();
-    return token ? { ...extra, 'Authorization': `Bearer ${token}` } : extra;
+/**
+ * Authentifie l'utilisateur via le cookie HttpOnly (LM2-04 fix).
+ * Le token brut quitte le navigateur uniquement pour ce POST initial,
+ * puis est conservé exclusivement côté serveur dans le cookie.
+ */
+async function loginWithToken(token) {
+    const response = await fetch('/api/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+    });
+    if (response.status === 401) {
+        return { status: 'error', message: 'Token invalide' };
+    }
+    try {
+        return await response.json();
+    } catch {
+        return { status: 'error', message: 'Réponse invalide du serveur' };
+    }
+}
+
+/**
+ * Détruit la session courante (efface le cookie HttpOnly côté serveur).
+ */
+async function logout() {
+    try {
+        await fetch('/api/logout', {
+            method: 'POST',
+            credentials: 'same-origin',
+        });
+    } catch (_) {
+        // Best-effort : si /api/logout est inaccessible, le cookie expirera
+        // de toute façon à la fermeture du navigateur (cookie de session).
+    }
 }
 
 /**
  * Fetch avec gestion auto du 401 et parsing JSON robuste.
+ * Le cookie d'auth est attaché automatiquement par le navigateur
+ * (same-origin), pas besoin d'ajouter un header Authorization.
  */
 async function authFetch(url, options = {}) {
-    options.headers = authHeaders(options.headers || {});
+    options.credentials = options.credentials || 'same-origin';
 
     let response;
     try {
@@ -28,7 +82,6 @@ async function authFetch(url, options = {}) {
     }
 
     if (response.status === 401) {
-        clearAuthToken();
         showLogin('Session expirée.');
         throw new Error('Unauthorized');
     }

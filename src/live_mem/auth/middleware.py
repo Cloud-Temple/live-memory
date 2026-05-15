@@ -25,17 +25,38 @@ logger = logging.getLogger("live_mem.auth")
 audit_logger = logging.getLogger("live_mem.audit")
 
 
+# LM2-04 fix : nom du cookie d'authentification du front web.
+# Émis par /api/login (HttpOnly, SameSite=Strict), supprimé par /api/logout.
+# Les agents MCP continuent d'utiliser le header Authorization Bearer.
+AUTH_COOKIE_NAME = "livemem_auth"
+
+
 class AuthMiddleware:
     """
     Middleware ASGI d'authentification par Bearer token.
 
-    Supporte deux modes de validation :
+    Supporte trois modes de validation :
     1. Bootstrap key (variable d'env) → admin total
     2. Tokens S3 (via TokenService) → permissions granulaires
+    3. Cookie HttpOnly (LM2-04 fix, web UI uniquement) — émis par /api/login
+
+    Sources du token (prioritaire → fallback) :
+    1. Header ``Authorization: Bearer <token>`` (agents MCP, API REST)
+    2. Cookie ``livemem_auth=<token>`` (web UI, jamais en JS via HttpOnly)
+    3. Query string ``?token=<token>`` (legacy, déconseillé)
     """
 
     # Routes qui ne nécessitent pas d'authentification
-    PUBLIC_PATHS = {"/health", "/metrics", "/favicon.ico", "/live", "/live/"}
+    # /api/login est public (sinon on ne peut jamais se connecter)
+    PUBLIC_PATHS = {
+        "/health",
+        "/metrics",
+        "/favicon.ico",
+        "/live",
+        "/live/",
+        "/api/login",
+        "/api/logout",
+    }
 
     # Préfixes de routes publiques (fichiers statiques)
     PUBLIC_PREFIXES = ("/static/",)
@@ -108,11 +129,30 @@ class AuthMiddleware:
             current_token_info.reset(tok)
 
     def _extract_token(self, scope) -> Optional[str]:
-        """Extrait le token depuis le header Authorization ou query string."""
+        """
+        Extrait le token depuis Authorization, cookie HttpOnly ou query string.
+
+        Priorité (LM2-04 fix) :
+        1. Header ``Authorization: Bearer <token>`` (agents MCP, CLI)
+        2. Cookie ``livemem_auth`` HttpOnly (web UI, jamais lisible par JS)
+        3. Query string ``?token=<token>`` (legacy, navigateurs sans cookie)
+        """
         headers = dict(scope.get("headers", []))
         auth = headers.get(b"authorization", b"").decode()
         if auth.startswith("Bearer "):
             return auth[7:]
+
+        # LM2-04 fix : extraire le cookie d'authentification.
+        # HttpOnly côté serveur ⇒ inaccessible à un XSS, contrairement à
+        # localStorage qui était exfiltrable trivialement (api.js historique).
+        cookie_header = headers.get(b"cookie", b"").decode()
+        if cookie_header:
+            for raw in cookie_header.split(";"):
+                pair = raw.strip().split("=", 1)
+                if len(pair) == 2 and pair[0].strip() == AUTH_COOKIE_NAME:
+                    val = pair[1].strip()
+                    if val:
+                        return val
 
         # Fallback: query string ?token=xxx (pour les navigateurs)
         qs = scope.get("query_string", b"").decode()
@@ -264,6 +304,16 @@ class StaticFilesMiddleware:
                 await self._serve_file(send, rel_path, ct)
                 return
 
+        # API REST — Login (LM2-04 fix : émet un cookie HttpOnly)
+        if path == "/api/login" and method == "POST":
+            await self._api_login(scope, receive, send)
+            return
+
+        # API REST — Logout (efface le cookie HttpOnly)
+        if path == "/api/logout" and method == "POST":
+            await self._api_logout(send)
+            return
+
         # API REST — Liste des espaces
         if path == "/api/spaces" and method == "GET":
             await self._api_spaces(scope, send)
@@ -391,6 +441,167 @@ class StaticFilesMiddleware:
         await send({"type": "http.response.body", "body": body})
 
     # ─────────────────── API Handlers ───────────────────
+
+    async def _api_login(self, scope, receive, send):
+        """
+        LM2-04 fix : authentification web via cookie HttpOnly.
+
+        Reçoit ``POST /api/login`` avec ``{"token": "lm_..."}`` ou
+        ``{"token": "<bootstrap_key>"}``. Valide via le pipeline standard
+        (TokenService + bootstrap), puis émet un cookie ``livemem_auth``
+        avec les flags ``HttpOnly`` (anti-XSS), ``SameSite=Strict`` (anti-CSRF)
+        et ``Secure`` (HTTPS-only, sauf en HTTP local pour le développement).
+
+        Le cookie est inaccessible au JavaScript (différence majeure avec
+        l'ancien stockage ``localStorage`` qui était trivialement exfiltrable
+        par un XSS comme LM2-01).
+
+        Returns:
+            ``{"status": "ok", "client_name": ..., "permissions": ...}``
+            avec ``Set-Cookie`` header. ``401`` si token invalide.
+        """
+        try:
+            # Lire le body (1 chunk suffit pour un payload {"token": "..."})
+            body_chunks: list[bytes] = []
+            more_body = True
+            while more_body:
+                message = await receive()
+                if message["type"] == "http.request":
+                    body_chunks.append(message.get("body", b""))
+                    more_body = message.get("more_body", False)
+                else:
+                    break
+            raw_body = b"".join(body_chunks)
+
+            try:
+                payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                await self._send_json(
+                    send,
+                    {"status": "error", "message": "Body JSON invalide"},
+                    400,
+                )
+                return
+
+            token = (payload.get("token") or "").strip()
+            if not token:
+                await self._send_json(
+                    send,
+                    {"status": "error", "message": "Champ 'token' requis"},
+                    400,
+                )
+                return
+
+            # Réutilise la pile d'auth standard (bootstrap + TokenService).
+            # On instancie un AuthMiddleware just-in-time pour ne pas dupliquer
+            # la logique de validation (single source of truth).
+            auth = AuthMiddleware(None)
+            token_info = await auth._validate_token(token)
+
+            if token_info is None:
+                # Audit log explicite (cohérent avec le rejet middleware)
+                audit_logger.info(
+                    json.dumps(
+                        {
+                            "event": "login_failed",
+                            "request_id": current_request_id.get(),
+                            "path": "/api/login",
+                            "status": 401,
+                            "reason": "invalid_token",
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                await self._send_json(
+                    send,
+                    {"status": "error", "message": "Token invalide"},
+                    401,
+                )
+                return
+
+            # Construire les flags du cookie. ``Secure`` n'est ajouté qu'en HTTPS
+            # détecté via l'en-tête X-Forwarded-Proto (cas WAF Caddy en prod)
+            # ou via le scheme ASGI direct. En dev HTTP pur on l'omet sinon
+            # le navigateur ignore le cookie.
+            headers = dict(scope.get("headers", []))
+            forwarded_proto = headers.get(b"x-forwarded-proto", b"").decode().lower()
+            scheme = scope.get("scheme", "http").lower()
+            is_https = scheme == "https" or forwarded_proto == "https"
+
+            cookie_parts = [
+                f"{AUTH_COOKIE_NAME}={token}",
+                "Path=/",
+                "HttpOnly",
+                "SameSite=Strict",
+            ]
+            if is_https:
+                cookie_parts.append("Secure")
+            # Pas de Max-Age : cookie de session (s'efface à la fermeture du navigateur).
+            # L'expiration applicative est gérée par le TokenService (expires_at).
+            cookie_value = "; ".join(cookie_parts)
+
+            audit_logger.info(
+                json.dumps(
+                    {
+                        "event": "login_success",
+                        "request_id": current_request_id.get(),
+                        "client": token_info.get("client_name", "?"),
+                        "auth_type": token_info.get("type", "?"),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
+            body = json.dumps(
+                {
+                    "status": "ok",
+                    "client_name": token_info.get("client_name", "?"),
+                    "permissions": token_info.get("permissions", []),
+                    "allowed_resources": token_info.get("allowed_resources", []),
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json; charset=utf-8"),
+                        (b"content-length", str(len(body)).encode()),
+                        (b"set-cookie", cookie_value.encode()),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+        except Exception as e:
+            await self._send_json(send, {"status": "error", "message": str(e)}, 500)
+
+    async def _api_logout(self, send):
+        """
+        Efface le cookie d'authentification HttpOnly (LM2-04 fix).
+
+        Envoie un cookie ``Max-Age=0`` qui force le navigateur à
+        l'oublier immédiatement. Note : ce ne révoque PAS le token
+        côté serveur (le token reste valide pour les agents MCP qui
+        l'utilisent en Bearer header) — pour une révocation effective
+        utiliser ``admin_revoke_token``.
+        """
+        expired_cookie = (
+            f"{AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
+        )
+        body = json.dumps({"status": "ok"}).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"application/json; charset=utf-8"),
+                    (b"content-length", str(len(body)).encode()),
+                    (b"set-cookie", expired_cookie.encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
     async def _api_spaces(self, scope, send):
         """Liste des espaces."""
