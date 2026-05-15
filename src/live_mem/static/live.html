@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cloud Temple — Live Memory</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
     <!-- LM2-06 fix : libs vendored localement (plus de dépendance CDN runtime).
          LM2-19 fix : DOMPurify utilisé pour sanitiser le HTML produit par marked.
          Voir static/vendor/README.md pour les versions et la procédure de mise à jour. -->
@@ -18,14 +19,14 @@
     <div class="login-card">
         <img src="/static/img/logo-cloudtemple.svg" alt="Cloud Temple" class="login-logo">
         <h2>Live Memory</h2>
-        <p class="login-subtitle">Mémoire de travail partagée pour agents IA</p>
+        <p class="login-subtitle">Shared working memory for AI agents</p>
         <div class="login-form">
-            <label for="loginToken">🔑 Token d'accès</label>
-            <input type="password" id="loginToken" placeholder="Collez votre token ici…" autocomplete="off" spellcheck="false">
+            <label for="loginToken">🔑 Access Token</label>
+            <input type="password" id="loginToken" placeholder="Paste your token here…" autocomplete="off" spellcheck="false">
             <div class="login-error" id="loginError"></div>
-            <button id="loginBtn">Se connecter</button>
+            <button id="loginBtn">Sign in</button>
         </div>
-        <p class="login-hint">Contactez votre administrateur pour obtenir un token d'accès.</p>
+        <p class="login-hint">Contact your administrator to get an access token.</p>
     </div>
 </div>
 
@@ -35,13 +36,14 @@
         <img src="/static/img/logo-cloudtemple.svg" alt="Cloud Temple" class="header-logo">
         <span class="header-separator">|</span>
         <h1>Live Memory</h1>
+        <span class="header-version" id="headerVersion"></span>
     </div>
     <div class="controls">
-        <select id="spaceSelect"><option value="">-- Espace --</option></select>
+        <select id="spaceSelect"><option value="">-- Space --</option></select>
         <span class="header-separator">|</span>
         <label class="refresh-label">
             🔄 <select id="refreshInterval" title="Auto-refresh">
-                <option value="0">Manuel</option>
+                <option value="0">Manual</option>
                 <option value="3">3s</option>
                 <option value="5" selected>5s</option>
                 <option value="10">10s</option>
@@ -51,8 +53,9 @@
         <span class="col-status" id="globalStatus">
             <span class="dot paused"></span>
             <span class="status-text">—</span>
+            <div class="health-tooltip" id="healthTooltip">Loading…</div>
         </span>
-        <button class="btn-logout" id="logoutBtn" title="Déconnexion">🔓</button>
+        <button class="btn-logout" id="logoutBtn" title="Sign out">🔓</button>
     </div>
 </div>
 
@@ -63,7 +66,7 @@
     <div class="placeholder" id="placeholder">
         <div class="placeholder-icon">🧠</div>
         <h2>Live Memory</h2>
-        <p>Sélectionnez un espace pour commencer</p>
+        <p>Select a space to get started</p>
     </div>
 
     <!-- Dashboard (gauche) -->
@@ -84,14 +87,14 @@
         </div>
 
         <!-- Séparateur redimensionnable -->
-        <div class="resizer" id="resizer" title="Glisser pour redimensionner"></div>
+        <div class="resizer" id="resizer" title="Drag to resize"></div>
 
         <!-- Zone Bank (bas) -->
         <div class="bank-panel" id="bankPanel">
             <div class="panel-title">📘 Bank <span class="bank-count" id="bankCount"></span></div>
             <div class="bank-tabs" id="bankTabs"></div>
             <div class="bank-content" id="bankContent">
-                <div class="empty-state">Aucun fichier bank consolidé</div>
+                <div class="empty-state">No consolidated bank files</div>
             </div>
         </div>
 

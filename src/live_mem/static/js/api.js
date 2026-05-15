@@ -41,17 +41,17 @@ async function loginWithToken(token) {
         body: JSON.stringify({ token }),
     });
     if (response.status === 401) {
-        return { status: 'error', message: 'Token invalide' };
+        return { status: 'error', message: 'Invalid token' };
     }
     try {
         return await response.json();
     } catch {
-        return { status: 'error', message: 'Réponse invalide du serveur' };
+        return { status: 'error', message: 'Invalid server response' };
     }
 }
 
 /**
- * Détruit la session courante (efface le cookie HttpOnly côté serveur).
+ * Destroys the current session (clears the HttpOnly cookie server-side).
  */
 async function logout() {
     try {
@@ -78,22 +78,22 @@ async function authFetch(url, options = {}) {
         response = await fetch(url, options);
     } catch (e) {
         console.error(`[API] Network error: ${url}`, e);
-        return { status: 'error', message: 'Erreur réseau' };
+        return { status: 'error', message: 'Network error' };
     }
 
     if (response.status === 401) {
-        showLogin('Session expirée.');
+        showLogin('Session expired.');
         throw new Error('Unauthorized');
     }
 
     // Parser le JSON de manière robuste (gère les réponses vides/tronquées)
     try {
         const text = await response.text();
-        if (!text) return { status: 'error', message: 'Réponse vide du serveur' };
+        if (!text) return { status: 'error', message: 'Empty server response' };
         return JSON.parse(text);
     } catch (e) {
         console.error(`[API] JSON parse error: ${url}`, e);
-        return { status: 'error', message: 'Réponse invalide du serveur' };
+        return { status: 'error', message: 'Invalid server response' };
     }
 }
 
@@ -122,4 +122,12 @@ async function apiLoadBankList(spaceId) {
 
 async function apiLoadBankFile(spaceId, filename) {
     return await authFetch(`/api/bank/${encodeURIComponent(spaceId)}/${encodeURIComponent(filename)}`);
+}
+
+async function apiHealth() {
+    // /health is public (no auth needed), returns version + service status
+    try {
+        const r = await fetch('/health');
+        return await r.json();
+    } catch (_) { return {}; }
 }

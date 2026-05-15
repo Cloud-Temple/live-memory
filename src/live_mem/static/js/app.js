@@ -20,9 +20,9 @@ async function doLogin() {
     const btn = document.getElementById('loginBtn');
     const err = document.getElementById('loginError');
     const token = input.value.trim();
-    if (!token) { err.textContent = '❌ Token requis.'; return; }
+    if (!token) { err.textContent = '❌ Token required.'; return; }
 
-    btn.disabled = true; btn.textContent = 'Connexion…'; err.textContent = '';
+    btn.disabled = true; btn.textContent = 'Signing in…'; err.textContent = '';
     try {
         // POST /api/login → émet le cookie HttpOnly côté serveur.
         const loginResult = await loginWithToken(token);
@@ -34,18 +34,19 @@ async function doLogin() {
         // Charger la liste des spaces (le cookie est déjà attaché par le navigateur)
         const data = await apiLoadSpaces();
         if (data.status !== 'ok') {
-            err.textContent = `❌ ${data.message || 'Erreur'}`;
+            err.textContent = `❌ ${data.message || 'Error'}`;
             return;
         }
 
         hideLogin();
         input.value = '';  // efface le token du DOM dès qu'il n'est plus utile
         fillSpaceSelect(data.spaces || []);
+        startRefresh();  // start auto-refresh (updates space list even before selection)
     } catch {
-        err.textContent = '❌ Serveur injoignable.';
+        err.textContent = '❌ Server unreachable.';
     } finally {
         btn.disabled = false;
-        btn.textContent = 'Se connecter';
+        btn.textContent = 'Sign in';
     }
 }
 
@@ -57,7 +58,7 @@ async function doLogout() {
     document.getElementById('panelLeft').style.display = 'none';
     document.getElementById('panelRight').style.display = 'none';
     document.getElementById('placeholder').style.display = 'flex';
-    document.getElementById('spaceSelect').innerHTML = '<option value="">-- Espace --</option>';
+    document.getElementById('spaceSelect').innerHTML = '<option value="">-- Space --</option>';
     showLogin();
 }
 
@@ -70,6 +71,7 @@ async function checkToken() {
         if (r.status === 'ok') {
             hideLogin();
             fillSpaceSelect(r.spaces || []);
+            startRefresh();  // start auto-refresh on page reload with valid cookie
         } else {
             showLogin();
         }
@@ -78,16 +80,15 @@ async function checkToken() {
             // showLogin déjà appelé par authFetch sur 401
             return;
         }
-        showLogin('Serveur injoignable.');
+        showLogin('Server unreachable.');
     }
 }
 
 function fillSpaceSelect(spaces) {
     const sel = document.getElementById('spaceSelect');
-    sel.innerHTML = '<option value="">-- Espace --</option>';
-    // Issue #8 : les <option> natifs ne supportent pas text-overflow:ellipsis,
-    // on tronque donc la description côté JS pour éviter que le dropdown
-    // ne déborde du viewport quand un espace a une description longue.
+    sel.innerHTML = '<option value="">-- Space --</option>';
+    // Issue #8: native <option> elements don't support text-overflow:ellipsis,
+    // so we truncate descriptions in JS to prevent the dropdown from overflowing.
     const MAX_DESC = 70;
     spaces.forEach(s => {
         const o = document.createElement('option');
@@ -109,11 +110,11 @@ function fillSpaceSelect(spaces) {
 
 async function loadSpace(spaceId) {
     if (!spaceId) {
-        stopRefresh();
         app.spaceId = null;
         document.getElementById('panelLeft').style.display = 'none';
         document.getElementById('panelRight').style.display = 'none';
         document.getElementById('placeholder').style.display = 'flex';
+        // Don't stop refresh — keep refreshing space list even without selection
         return;
     }
 
@@ -133,9 +134,27 @@ async function loadSpace(spaceId) {
 
 // ═══════════════ REFRESH INTELLIGENT ═══════════════
 
+async function refreshSpaceList() {
+    // Refresh the space dropdown without losing the current selection.
+    try {
+        const r = await apiLoadSpaces();
+        if (r.status !== 'ok') return;
+        const sel = document.getElementById('spaceSelect');
+        const current = sel.value;
+        fillSpaceSelect(r.spaces || []);
+        // Restore selection if still exists
+        if (current && [...sel.options].some(o => o.value === current)) {
+            sel.value = current;
+        }
+    } catch (_) { /* best-effort */ }
+}
+
 async function refresh(force = false) {
+    // Always refresh space list + health status
+    await refreshSpaceList();
+    await refreshHealthStatus();
+
     if (!app.spaceId) return;
-    updateStatus('refresh');
 
     try {
         const [notesR, bankR, infoR] = await Promise.all([
@@ -182,20 +201,56 @@ async function refresh(force = false) {
     }
 }
 
-function updateStatus(s) {
+async function refreshHealthStatus() {
+    // Dot color reflects /health status, clock always shows current time
     const el = document.getElementById('globalStatus');
     if (!el) return;
     const dot = el.querySelector('.dot');
     const txt = el.querySelector('.status-text');
-    if (s === 'ok') {
-        dot.className = 'dot'; dot.style.background = '#4CAF50';
-        txt.textContent = fmtTime(new Date().toISOString());
-    } else if (s === 'refresh') {
-        dot.className = 'dot'; dot.style.background = '#f39c12';
-        txt.textContent = '…';
-    } else {
-        dot.className = 'dot paused'; dot.style.background = '#e74c3c';
-        txt.textContent = 'erreur';
+    const tooltip = document.getElementById('healthTooltip');
+    txt.textContent = fmtTime(new Date().toISOString());
+    try {
+        const h = await apiHealth();
+        if (h.status === 'healthy') {
+            dot.className = 'dot'; dot.style.background = '#4CAF50';
+        } else if (h.status === 'degraded') {
+            dot.className = 'dot'; dot.style.background = '#f39c12';
+        } else {
+            dot.className = 'dot'; dot.style.background = '#e74c3c';
+        }
+        // Build tooltip content from health details
+        if (tooltip && h.services) {
+            const statusIcon = (s) => s === 'ok' ? '🟢' : s === 'degraded' ? '🟠' : '🔴';
+            const cls = (s) => s === 'ok' ? 'ht-ok' : s === 'degraded' ? 'ht-warn' : 'ht-err';
+            let rows = `<div class="ht-title">Health — ${esc(h.status || '?')}</div>`;
+            for (const [name, svc] of Object.entries(h.services)) {
+                const st = svc.status || '?';
+                const lat = svc.latency_ms ? `${Math.round(svc.latency_ms)}ms` : '';
+                const extra = svc.bucket || svc.model || svc.url || '';
+                rows += `<div class="ht-row">
+                    <span class="ht-label">${statusIcon(st)} ${esc(name)}</span>
+                    <span class="ht-val ${cls(st)}">${esc(st)}${lat ? ' · ' + lat : ''}${extra ? ' · ' + esc(extra) : ''}</span>
+                </div>`;
+            }
+            rows += `<div class="ht-row" style="margin-top:4px;border-top:1px solid #333;padding-top:4px;">
+                <span class="ht-label">Version</span>
+                <span class="ht-val ht-ok">${esc(h.version || '?')}</span>
+            </div>`;
+            tooltip.innerHTML = rows;
+        }
+    } catch (_) {
+        dot.className = 'dot'; dot.style.background = '#e74c3c';
+        if (tooltip) tooltip.innerHTML = '<div class="ht-title">🔴 Server unreachable</div>';
+    }
+}
+
+function updateStatus(s) {
+    // Legacy — only used for error fallback in catch blocks
+    const el = document.getElementById('globalStatus');
+    if (!el) return;
+    const dot = el.querySelector('.dot');
+    if (s === 'error') {
+        dot.className = 'dot'; dot.style.background = '#e74c3c';
     }
 }
 
@@ -271,6 +326,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Resizer
     setupResizer();
+
+    // Load version from /health (public, no auth needed)
+    apiHealth().then(h => {
+        const el = document.getElementById('headerVersion');
+        if (el && h.version) el.textContent = 'v' + h.version;
+    });
 
     // Go
     checkToken();

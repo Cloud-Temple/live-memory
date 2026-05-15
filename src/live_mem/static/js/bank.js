@@ -11,7 +11,7 @@ function renderBankTabs() {
 
     if (files.length === 0) {
         tabsEl.innerHTML = '';
-        document.getElementById('bankContent').innerHTML = '<div class="empty-state">📘 Aucun fichier bank consolidé</div>';
+        document.getElementById('bankContent').innerHTML = '<div class="empty-state">📘 No consolidated bank files</div>';
         return;
     }
 
@@ -20,12 +20,19 @@ function renderBankTabs() {
     // un opérateur compromis (ou un LLM dérivant) exécutait du JS arbitraire
     // dans le navigateur de chaque admin ouvrant /live. Échappement systématique
     // + le serveur refuse maintenant les caractères dangereux (LM2-12 fix).
+    // CSP fix : inline onclick="..." interdit par script-src 'self'.
+    // On utilise addEventListener via data-filename + délégation.
     tabsEl.innerHTML = files.map(f => {
         const name = f.filename || f;
         const safeName = esc(name);
         const active = app.currentBankFile === name ? 'active' : '';
-        return `<div class="bank-tab ${active}" onclick="selectBank('${safeName}')">${safeName}</div>`;
+        return `<div class="bank-tab ${active}" data-filename="${safeName}">${safeName}</div>`;
     }).join('');
+
+    // Attach click handlers (CSP-safe, no inline scripts)
+    tabsEl.querySelectorAll('.bank-tab').forEach(tab => {
+        tab.addEventListener('click', () => selectBank(tab.dataset.filename));
+    });
 
     // Si aucun fichier sélectionné, sélectionner le premier
     if (!app.currentBankFile && files.length > 0) {
@@ -42,14 +49,14 @@ async function selectBank(filename) {
     });
 
     const el = document.getElementById('bankContent');
-    el.innerHTML = '<div class="empty-state">Chargement…</div>';
+    el.innerHTML = '<div class="empty-state">Loading…</div>';
 
     try {
         const r = await apiLoadBankFile(app.spaceId, filename);
         if (r.status === 'ok' && r.content) {
             el.innerHTML = `<div class="md-content">${md(r.content)}</div>`;
         } else {
-            el.innerHTML = `<div class="empty-state">❌ ${esc(r.message||'Erreur')}</div>`;
+            el.innerHTML = `<div class="empty-state">❌ ${esc(r.message||'Error')}</div>`;
         }
     } catch (e) {
         if (e.message !== 'Unauthorized') {

@@ -5,35 +5,35 @@
 function renderDashboard() {
     const el = document.getElementById('dashboardContent');
     const info = app.info;
-    if (!info) { el.innerHTML = '<div class="empty-state">Chargement…</div>'; return; }
+    if (!info) { el.innerHTML = '<div class="empty-state">Loading…</div>'; return; }
 
     let h = '';
 
     // Espace
     h += `<div class="dash-section">
-        <div class="dash-section-title">🏷️ Espace</div>
+        <div class="dash-section-title">🏷️ Space</div>
         <div class="dash-row"><span>ID</span><span class="val">${esc(info.space_id||app.spaceId)}</span></div>
         <div class="dash-row"><span>Description</span><span class="val">${esc(info.description||'-')}</span></div>
-        <div class="dash-row"><span>Propriétaire</span><span class="val">${esc(info.owner||'-')}</span></div>
-        <div class="dash-row"><span>Créé le</span><span class="val">${fmtDate(info.created_at)}</span></div>
+        <div class="dash-row"><span>Owner</span><span class="val">${esc(info.owner||'-')}</span></div>
+        <div class="dash-row"><span>Created</span><span class="val">${fmtDate(info.created_at)}</span></div>
     </div>`;
 
     // Consolidation
     h += `<div class="dash-section">
         <div class="dash-section-title">🔄 Consolidation</div>
-        <div class="dash-row"><span>Dernière</span><span class="val">${fmtDate(info.last_consolidation)}</span></div>
-        <div class="dash-row"><span>Nombre</span><span class="val">${info.consolidation_count||0}</span></div>
-        <div class="dash-row"><span>Notes traitées</span><span class="val">${info.total_notes_processed||0}</span></div>
+        <div class="dash-row"><span>Last</span><span class="val">${fmtDate(info.last_consolidation)}</span></div>
+        <div class="dash-row"><span>Count</span><span class="val">${info.consolidation_count||0}</span></div>
+        <div class="dash-row"><span>Notes processed</span><span class="val">${info.total_notes_processed||0}</span></div>
     </div>`;
 
     // Stats live
     const notes = app.notes;
     h += `<div class="dash-section">
-        <div class="dash-section-title">📊 Statistiques</div>
-        <div class="dash-row"><span>Notes live</span><span class="val">${notes.length}</span></div>
-        <div class="dash-row"><span>Fichiers bank</span><span class="val">${app.bankFiles.length}</span></div>
-        <div class="dash-row"><span>Taille live</span><span class="val">${fmtSize(info.live?.total_size)}</span></div>
-        <div class="dash-row"><span>Taille bank</span><span class="val">${fmtSize(info.bank?.total_size)}</span></div>
+        <div class="dash-section-title">📊 Statistics</div>
+        <div class="dash-row"><span>Live notes</span><span class="val">${notes.length}</span></div>
+        <div class="dash-row"><span>Bank files</span><span class="val">${app.bankFiles.length}</span></div>
+        <div class="dash-row"><span>Live size</span><span class="val">${fmtSize(info.live?.total_size)}</span></div>
+        <div class="dash-row"><span>Bank size</span><span class="val">${fmtSize(info.bank?.total_size)}</span></div>
     </div>`;
 
     // Agents
@@ -56,7 +56,7 @@ function renderDashboard() {
     notes.forEach(n => { if(n.category) cc[n.category]=(cc[n.category]||0)+1; });
     const cats = Object.entries(cc).sort((a,b)=>b[1]-a[1]);
     h += `<div class="dash-section">
-        <div class="dash-section-title">🏷️ Catégories</div>
+        <div class="dash-section-title">🏷️ Categories</div>
         ${cats.map(([c,cnt])=>{
             const s=getCatStyle(c); const pct=notes.length?Math.round(cnt/notes.length*100):0;
             return `<div class="dash-row"><span>${getCatIcon(c)} ${c}</span><span class="val" style="color:${s.text}">${cnt} (${pct}%)</span></div>`;
@@ -79,9 +79,9 @@ function renderDashboard() {
             <div class="dash-section-title">🌉 Graph Memory</div>
             <div class="dash-row"><span>URL</span><span class="val" style="font-size:0.6rem">${esc(g.url)}</span></div>
             <div class="dash-row"><span>Memory</span><span class="val">${esc(g.memory_id||'-')}</span></div>
-            <div class="dash-row"><span>Ontologie</span><span class="val">${esc(g.ontology||'general')}</span></div>
-            <div class="dash-row"><span>Dernier push</span><span class="val">${fmtDate(g.last_push)}</span></div>
-            <div class="dash-row"><span>Pushs</span><span class="val">${g.push_count||0}</span></div>
+            <div class="dash-row"><span>Ontology</span><span class="val">${esc(g.ontology||'general')}</span></div>
+            <div class="dash-row"><span>Last push</span><span class="val">${fmtDate(g.last_push)}</span></div>
+            <div class="dash-row"><span>Pushes</span><span class="val">${g.push_count||0}</span></div>
         </div>`;
     }
 

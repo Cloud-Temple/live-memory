@@ -5,6 +5,53 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.0] — 2026-05-15 (Web UI improvements, branch `v2.0.0`)
+
+**🖥️ Web UI improvements & E2E hardening** — CSP compliance, dynamic space
+list, health indicator, bank tab overflow fix, and E2E test updates for v2.0.0
+breaking changes.
+
+### Fixed
+
+- **CSP violation in `bank.js`** — inline `onclick="selectBank(...)"` handlers
+  replaced with `addEventListener` + `data-filename` attributes to comply with
+  `script-src 'self'` Content Security Policy (LM2-19 related).
+- **Bank tabs overflow** — `.bank-tabs` now uses `flex-wrap: wrap` with
+  `max-height: 4.5rem` and vertical scroll, replacing the invisible horizontal
+  scroll. Handles spaces with 20+ bank files gracefully.
+- **Space list not dynamic** — new `refreshSpaceList()` function in the
+  auto-refresh cycle. New/deleted spaces appear automatically without page
+  reload. Timer now starts on both `doLogin()` and `checkToken()` (page reload
+  with valid cookie), and `loadSpace('')` no longer kills the timer.
+- **Missing favicon** — added inline SVG emoji (🧠) `<link rel="icon">` to
+  prevent 404 on `/favicon.ico`.
+- **E2E test `bank_delete`** — added `confirm=True` parameter to match v2.0.0
+  breaking change requiring explicit confirmation for destructive operations.
+
+### Added
+
+- **Version display in header** — `v2.0.0` badge loaded from `/health` endpoint
+  (public, no auth needed), displayed next to "Live Memory" in the header bar.
+- **Health status indicator** — the status dot now reflects the real `/health`
+  endpoint status: 🟢 healthy, 🟠 degraded, 🔴 unhealthy. Clock always visible.
+- **Health tooltip on hover** — hovering the status dot/clock shows a floating
+  tooltip with full service details (S3, LLMaaS status, latency, bucket/model
+  info, version).
+- **`--pause N` flag in E2E test script** — `python scripts/test_recette.py
+  --pause 10` inserts a N-second delay between key steps (space creation, notes,
+  consolidation, bank read, cleanup), allowing real-time observation on `/live`.
+  Compatible with `--step` (interactive) and `--no-cleanup`.
+
+### Changed
+
+- **Auto-refresh runs globally** — the refresh timer now persists across space
+  selection/deselection. Only `doLogout()` stops it.
+- **Web UI fully translated to English** — all user-facing strings in `live.html`,
+  `app.js`, `api.js`, `bank.js`, `timeline.js`, `dashboard.js` switched from French
+  to English (~40 strings). Date labels use `en-US` locale. HTML `lang="en"`.
+
+---
+
 ## [2.0.0+] — 2026-05-15 (post-2.0.0, branch `v2.0.0`)
 
 **🔬 Issue #17 — Consolidator backlog** : implementation of the 2 mitigations

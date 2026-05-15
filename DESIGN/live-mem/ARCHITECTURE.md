@@ -152,7 +152,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 | Container          | Docker + Docker Compose | Deployment                         |
 | Reverse Proxy      | Caddy + Coraza          | TLS, WAF, Rate Limiting            |
 | Web Interface      | HTML/CSS/JS vanilla     | Dashboard, Timeline, Bank Viewer   |
-| Markdown Rendering | `marked.js` (CDN)       | Bank file rendering in the browser |
+| Markdown Rendering | `marked.js` + `DOMPurify` (vendored locally) | Bank file rendering + XSS sanitization |
 
 ### 3.5 ASGI Middleware Stack
 
@@ -301,11 +301,14 @@ Live Memory exposes a **SPA web interface** on `/live`:
 └──────────────┴──────────────────────────────┘
 ```
 
+- **Header**: version badge (from `/health`), health status indicator (🟢/🟠/🔴 dot from `/health`), clock, health tooltip on hover showing service details (S3, LLMaaS latency, bucket, model)
 - **Dashboard**: space stats, consolidation, agents, categories, rules, Graph Memory
-- **Live Timeline**: notes grouped by date, Markdown rendering
-- **Bank Viewer**: tabs, Markdown rendering via `marked.js`
-- **Auto-refresh**: 3s/5s/10s/30s/manual, anti-flicker via hash comparison
-- **5 REST API endpoints** (`/api/*`) to feed the interface
+- **Live Timeline**: notes grouped by date, Markdown rendering (sanitized via DOMPurify)
+- **Bank Viewer**: wrapped multi-line tabs (flex-wrap, scrollable), Markdown rendering via vendored `marked.js` + `DOMPurify`
+- **Auto-refresh**: 3s/5s/10s/30s/manual, anti-flicker via hash comparison, dynamic space list refresh (new spaces appear automatically)
+- **Auth**: HttpOnly cookie via `/api/login` (LM2-04), legacy localStorage auto-purged
+- **CSP-safe**: no inline event handlers (`addEventListener` only), `script-src 'self'`
+- **5 REST API endpoints** (`/api/*`) + `/health` (public) to feed the interface
 
 ---
 

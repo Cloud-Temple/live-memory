@@ -10,7 +10,7 @@ function renderLive() {
     countEl.textContent = notes.length > 0 ? `(${notes.length})` : '';
 
     if (notes.length === 0) {
-        el.innerHTML = '<div class="empty-state">🔴 Aucune note live</div>';
+        el.innerHTML = '<div class="empty-state">🔴 No live notes</div>';
         return;
     }
 
@@ -32,9 +32,9 @@ function renderLive() {
             const d = new Date(dateKey + 'T00:00:00');
             const today = new Date().toISOString().substring(0,10);
             const yest = new Date(Date.now()-86400000).toISOString().substring(0,10);
-            if (dateKey === today) label = "Aujourd'hui";
-            else if (dateKey === yest) label = 'Hier';
-            else label = d.toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'long'});
+            if (dateKey === today) label = 'Today';
+            else if (dateKey === yest) label = 'Yesterday';
+            else label = d.toLocaleDateString('en-US',{weekday:'short',day:'numeric',month:'long'});
         } catch {}
 
         h += `<div class="date-sep">

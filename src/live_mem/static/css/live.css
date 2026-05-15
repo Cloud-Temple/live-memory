@@ -55,6 +55,7 @@ body {
 .header-logo { height: 26px; }
 .header-separator { color: rgba(255,255,255,0.2); font-size: 1.3rem; font-weight: 200; }
 .header h1 { font-size: 1rem; font-weight: 500; color: rgba(255,255,255,0.85); }
+.header-version { font-size: 0.65rem; color: #41a890; font-weight: 400; opacity: 0.7; }
 .controls { display: flex; gap: 0.6rem; align-items: center; }
 select, button { padding: 0.3rem 0.6rem; border-radius: 5px; border: none; font-size: 0.8rem; cursor: pointer; }
 select { background: rgba(255,255,255,0.12); color: #ccc; min-width: 180px; }
@@ -74,7 +75,22 @@ button:disabled { background: #444; cursor: not-allowed; }
 .btn-logout:hover { border-color: #e74c3c !important; background: rgba(231,76,60,0.15) !important; }
 .refresh-label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; color: #777; }
 .refresh-label select { min-width: 65px; font-size: 0.75rem; }
-.col-status { display: flex; align-items: center; gap: 0.25rem; font-size: 0.6rem; color: #555; }
+.col-status { display: flex; align-items: center; gap: 0.25rem; font-size: 0.6rem; color: #555; position: relative; cursor: help; }
+.health-tooltip {
+    display: none; position: absolute; top: 100%; right: 0; margin-top: 8px;
+    background: #1e2a3a; border: 1px solid #41a890; border-radius: 8px;
+    padding: 10px 14px; min-width: 260px; z-index: 9999;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5); font-size: 0.72rem; color: #ccc;
+    white-space: nowrap;
+}
+.col-status:hover .health-tooltip { display: block; }
+.health-tooltip .ht-title { font-weight: 600; color: #41a890; margin-bottom: 6px; font-size: 0.78rem; }
+.health-tooltip .ht-row { display: flex; justify-content: space-between; padding: 2px 0; }
+.health-tooltip .ht-label { color: #888; }
+.health-tooltip .ht-val { font-weight: 500; }
+.health-tooltip .ht-ok { color: #4CAF50; }
+.health-tooltip .ht-warn { color: #f39c12; }
+.health-tooltip .ht-err { color: #e74c3c; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: #4CAF50; animation: pulse 2s infinite; }
 .dot.paused { background: #666; animation: none; }
 @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.3 } }
@@ -170,21 +186,23 @@ button:disabled { background: #444; cursor: not-allowed; }
 }
 .bank-count { font-size: 0.68rem; color: #888; font-weight: 400; margin-left: 0.3rem; }
 .bank-tabs {
-    display: flex; gap: 0; padding: 0; flex-shrink: 0;
-    border-bottom: 1px solid #1e2a3a; overflow-x: auto;
-    scrollbar-width: none;
+    display: flex; flex-wrap: wrap; gap: 2px; padding: 4px 4px 0;
+    flex-shrink: 0; border-bottom: 1px solid #1e2a3a;
+    max-height: 4.5rem; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: #2a2a4a #0f0f23;
 }
-.bank-tabs::-webkit-scrollbar { height: 0; }
+.bank-tabs::-webkit-scrollbar { width: 4px; }
+.bank-tabs::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 2px; }
 .bank-tab {
-    padding: 0.3rem 0.7rem; font-size: 0.72rem; color: #666;
-    cursor: pointer; border-bottom: 2px solid transparent;
+    padding: 0.2rem 0.5rem; font-size: 0.68rem; color: #666;
+    cursor: pointer; border: 1px solid transparent; border-radius: 4px;
     white-space: nowrap; transition: all 0.15s;
-    background: none; border-radius: 0; font-weight: 500;
+    background: none; font-weight: 500;
 }
 .bank-tab:hover { color: #aaa; background: rgba(255,255,255,0.03); }
 .bank-tab.active {
-    color: #41a890; border-bottom-color: #41a890;
-    background: rgba(65,168,144,0.06);
+    color: #41a890; border-color: rgba(65,168,144,0.4);
+    background: rgba(65,168,144,0.1);
 }
 .bank-content {
     flex: 1; overflow-y: auto; padding: 0.6rem 0.8rem;

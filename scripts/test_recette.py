@@ -36,6 +36,7 @@ from cli.client import MCPClient
 
 VERBOSE = False
 STEP_MODE = False
+PAUSE_SECONDS = 0  # Pause entre étapes clés (secondes) — permet d'observer sur /live
 CALL_DELAY = 0.3  # Délai entre appels MCP (secondes) — réduit grâce aux rate limits WAF augmentés
 
 # ═══════════════════════════════════════════════════════════════
@@ -57,10 +58,15 @@ skipped = 0
 results = []
 
 
-def pause(msg="Appuyez sur Entrée pour continuer..."):
+def pause(msg=""):
+    """Pause between key steps: --step (interactive) or --pause N (timed)."""
     if STEP_MODE:
-        print(f"\n  {D}⏸  {msg}{Z}", end="", flush=True)
+        print(f"\n  {D}⏸  {msg or 'Press Enter to continue...'}{Z}", end="", flush=True)
         input()
+    elif PAUSE_SECONDS > 0:
+        label = msg or "Next step"
+        print(f"\n  {Y}⏳ {label} — waiting {PAUSE_SECONDS}s (observe on /live)…{Z}", flush=True)
+        time.sleep(PAUSE_SECONDS)
 
 
 def header(t):
@@ -220,6 +226,8 @@ async def suite_recette(admin: MCPClient, url: str, do_cleanup: bool):
         test_pass("live_note", f"{notes_ok}/{len(RECETTE_NOTES)} notes")
     else:
         test_fail("live_note", f"{notes_ok}/{len(RECETTE_NOTES)}")
+
+    pause("Notes written → Consolidation")
 
     # 5. Consolidation
     section("Recette 5/7 — Consolidation LLM")
@@ -965,6 +973,7 @@ async def suite_qualite(admin: MCPClient, url: str, do_cleanup: bool):
             {
                 "space_id": QUALITE_SPACE,
                 "filename": "subdir/test_file.md",
+                "confirm": True,
             },
         )
         if r.get("status") == "deleted":
@@ -1349,7 +1358,7 @@ def _read_key():
 
 
 def main():
-    global VERBOSE, STEP_MODE
+    global VERBOSE, STEP_MODE, PAUSE_SECONDS
 
     ap = argparse.ArgumentParser(
         description="Recette globale — Live Memory v1.2.0",
@@ -1386,6 +1395,12 @@ Exemples :
         "--no-cleanup", action="store_true", help="Conserver les données de test"
     )
     ap.add_argument("--step", action="store_true", help="Mode pas-à-pas")
+    ap.add_argument(
+        "--pause",
+        type=int,
+        default=0,
+        help="Pause N secondes entre étapes clés (permet d'observer sur /live)",
+    )
     ap.add_argument("-v", "--verbose", action="store_true", help="Affichage détaillé")
     ap.add_argument(
         "--graph-url",
@@ -1411,6 +1426,7 @@ Exemples :
 
     VERBOSE = a.verbose
     STEP_MODE = a.step
+    PAUSE_SECONDS = a.pause
 
     if not a.token:
         a.token = _read_key()
