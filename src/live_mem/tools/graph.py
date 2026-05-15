@@ -83,8 +83,10 @@ def _validate_gm_url(url: str) -> Optional[str]:
         # Hostname DNS — accepté (cf. note TOCTOU plus haut).
         return None
 
-    if ip.is_private:
-        return f"IP privée interdite pour Graph Memory : {u.hostname}"
+    # Ordre des checks : du plus spécifique au plus général. Important pour
+    # le message d'erreur — loopback et link-local sont aussi dans is_private
+    # (127.0.0.1.is_private == True, 169.254.x.is_private == True). On veut
+    # un message qui informe précisément l'opérateur sur LA raison du refus.
     if ip.is_loopback:
         return f"IP loopback interdite pour Graph Memory : {u.hostname}"
     if ip.is_link_local:
@@ -98,6 +100,11 @@ def _validate_gm_url(url: str) -> Optional[str]:
         return f"IP multicast interdite pour Graph Memory : {u.hostname}"
     if ip.is_reserved:
         return f"IP réservée interdite pour Graph Memory : {u.hostname}"
+    # is_private est intentionnellement en dernier : couvre RFC 1918
+    # (10/8, 172.16/12, 192.168/16) — un opérateur qui voit ce message
+    # sait qu'il s'agit bien d'une plage privée RFC, pas d'un loopback.
+    if ip.is_private:
+        return f"IP privée interdite pour Graph Memory : {u.hostname}"
 
     return None
 
