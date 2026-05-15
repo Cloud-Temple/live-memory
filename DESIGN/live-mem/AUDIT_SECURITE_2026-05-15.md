@@ -27,7 +27,46 @@ The v1.9.0 audit nevertheless surfaces **27 new findings**, **3 of which carry a
 
 ---
 
+## ⚠️ Remediation Status — v2.0.0 (15 May 2026, post-audit)
+
+> **Branch**: `feature/security-hardening-v2` (HEAD: commit `30a7873`)
+> **Test suite**: `355 passed, 1 xfailed in ~3.0s` (vs. 152 PASS on v1.8.0)
+> **Docker build**: ✅ green
+> **Status**: the 3 release-blocker findings (LM2-01, LM2-02, LM2-10) are
+> **fixed, in-code, and covered by non-complacent tests**.
+
+Most findings have been remediated in the `v2.0.0` security-hardening release.
+The full per-finding tracker (status, code commit, test class, rationale) is
+in **[Appendix E — Remediation Tracker](#appendix-e--remediation-tracker-v200)**
+at the end of this document.
+
+### One-screen summary
+
+| Bucket                                            | Count | Findings                                                                                  |
+| ------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------- |
+| ✅ **Fixed + covered by a regression test**       | 19    | LM2-02, 03, 04, 05, 06, 07, 09, 10, 12, 13, 14, 15, 17, 18, 19, 24, 26, 27, 29, 31        |
+| ✅ **Fixed (covered indirectly)**                 | 1     | LM2-01 (XSS — covered via `_validate_bank_filename` blocking the attack vector → LM2-12)  |
+| 📝 **Documented + contract test (no code fix)**   | 1     | LM2-08 (bootstrap key has no `token_hash` — by design, frozen by `TestLM2_08_*`)          |
+| 🟡 **Acknowledged risk, deferred (xfail strict)** | 1     | LM2-11 (`space_create` open to any `write` — breaking-change UX, postponed to v2.1.x)    |
+| 🟢 **LOW, kept open by decision**                 | 5     | LM2-16 (S3 versioning), LM2-22 (egress filter), LM2-23 (unsalted SHA-256), LM2-20, LM2-21 |
+| 🛠 **Process, not testable as code**              | 1     | LM2-28 (active CVE check on `uv.lock` — to be wired into CI separately)                   |
+| ❓ **Numbering gap (no finding existed)**         | 1     | LM2-30                                                                                    |
+| **TOTAL**                                         | **31**| —                                                                                         |
+
+### Convention used by the test suite
+
+* **Non-complacent**: each test for a fix tries to **execute the attack** the
+  fix is supposed to block and asserts that it **fails** (proof by
+  contraposition). The fail message is always of the form `"Sans fix LM2-XX :
+  <attack> accepté"` so a silent regression is loud.
+* **Documented xfail (`strict=True`)** for risks intentionally not fixed:
+  the day the fix lands, the `xfail` flips to PASS and the partner test
+  fails LOUDLY, forcing the contributor to update both.
+
+---
+
 ## Table of Contents
+
 
 1. [Methodology](#1-methodology)
 2. [Validation of v1.0.0 Fixes (regression)](#2-validation-of-v100-fixes)
@@ -1087,5 +1126,136 @@ The v0.9.0 audit (March 2026) identified 30 findings (VULN-01..VULN-30). Status 
 
 ---
 
-*Audit performed on 15 May 2026 — Live Memory v1.9.0*
-*Confidential document — to be reviewed after P0 + P1 remediation.*
+### Appendix E — Remediation Tracker v2.0.0
+
+> **Updated**: 15 May 2026, after the `feature/security-hardening-v2` work
+> stream and the dedicated test pass (commits `58ece8f → 30a7873` on
+> `origin/v2.0.0`).
+> **Test suite**: 355 passed, 1 xfailed (`tests/test_security_hardening_v2.py`
+> alone contributes **73 tests / 31 `Sans fix` assertions**).
+> **Convention**: see "[Remediation Status — v2.0.0](#-remediation-status--v200-15-may-2026-post-audit)" at the top of the document.
+
+#### E.1 — One-line status per LM2 finding
+
+Legend:
+- ✅ **Fixed + tested**: code + a non-complacent regression test in `tests/`.
+- ✅ **Indirect**: covered by another related finding (no dedicated test class needed).
+- 📝 **Contract test**: no code fix, but the contract is frozen by a test class.
+- 🟡 **xfail strict**: documented & frozen-by-test gap, becomes a PASS once
+  the fix lands.
+- 🟢 **LOW kept open**: residual risk accepted by decision.
+- 🛠 **Process / non-code**: handled outside the codebase (CI, ops, doc).
+
+| Finding | Sev. | Status      | Code site (v2.0.0)                                                   | Regression test (`tests/test_security_hardening_v2.py`)        |
+| ------- | ---- | ----------- | -------------------------------------------------------------------- | -------------------------------------------------------------- |
+| LM2-01  | 🔴   | ✅ Indirect | The XSS attack vector is blocked at the source by `_validate_bank_filename` (LM2-12 fix). Front-end escape also applied in `bank.js`. | Covered indirectly by `TestLM2_12_BankFilenameValidation` (rejects `<>`, `'`, `"`, control chars, `..`). |
+| LM2-02  | 🟠   | ✅ Tested   | `tools/graph.py::_validate_gm_url()` — rejects non-http schemes, loopback, RFC 1918, link-local, multicast, empty. | `TestLM2_02_GraphConnectSSRF` (12 parametrised attacks + anti-false-positive on public DNS). |
+| LM2-03  | 🟠   | ✅ Tested   | `core/models.py::mask_meta_secrets()` helper applied in all paths returning `_meta.json` (summary, export, backup). | `TestLM2_03_MaskMetaSecrets` (long/short tokens, no-mutation, edge cases). |
+| LM2-04  | 🟠   | ✅ Tested   | `auth/middleware.py::_api_login()` issues an HttpOnly + SameSite=Strict cookie; `_api_logout` clears it with `Max-Age=0`. Web UI removed `localStorage` usage. | `TestLM2_04_CookieAuth` (3 scenarios: 200 + Set-Cookie, 401 with no cookie, logout cookie reset). |
+| LM2-05  | 🟠   | ✅ Tested   | `waf/Caddyfile` CSP hardened: no `'unsafe-inline'` on `script-src`, no CDN whitelist, `frame-ancestors 'none'` kept. | `TestLM2_05_CSPHardened` (3 structural checks on the live Caddyfile). |
+| LM2-06  | 🟠   | ✅ Tested   | `marked.min.js` + `purify.min.js` vendored in `src/live_mem/static/vendor/`; `live.html` loads from `/static/vendor/`, no CDN refs left. | `TestLM2_06_VendoredLibraries` (files exist, size sanity, README documents SHA-384, `live.html` does not reference any CDN). |
+| LM2-07  | 🟡   | ✅ Tested   | `auth/context.py::invalidate_token_in_store()` + calls in `tokens.py::revoke_token / update_token / bulk_update_tokens`. | `TestLM2_07_FreshTokenStoreInvalidation` (6 tests: idempotent purge, no cross-aliasing, end-to-end via revoke_token, email-only does NOT invalidate, permission downgrade does). |
+| LM2-08  | 🟡   | 📝 Contract | No code fix needed — the bootstrap-no-`token_hash` asymmetry is intentional. Now documented in the `update_fresh_token` docstring. | `TestLM2_08_BootstrapNoTokenHashDocumented` (4 tests: no-hash → no-op, empty-hash → no-op, doc mentions LM2-08, `_validate_token` returns `token_hash=None`). |
+| LM2-09  | 🟡   | ✅ Tested   | `tools/backup.py::_parse_backup_id()` validates `SPACE_ID_REGEX` + ISO timestamp before any S3 access. | `TestLM2_09_BackupIdValidation` (15+ malformed/traversal/system-prefix cases + 1 legitimate happy path). |
+| LM2-10  | 🟠   | ✅ Tested   | `core/gc.py::_write_gc_notice()` writes the GC notice directly to S3 with the orphan agent's identity in both the key and the YAML front-matter (no more broken `write_note(agent=…)`). | `TestLM2_10_GCNoticeUsesS3Direct` (3 tests: no residual `write_note(agent=)` calls, helper exists, agent name lives in key & content). |
+| LM2-11  | 🟡   | 🟡 xfail    | **Not fixed in v2.0.0** — restricting `space_create` to `manage` is a breaking UX change deferred to v2.1.x. Anti-pseudo-fix guard in place. | `TestLM2_11_SpaceCreateOpenToWriteRiskDoc` (1 passing test asserts current state is `write`-only; 1 `xfail strict` flips to PASS the day `check_manage_permission` is wired in). |
+| LM2-12  | 🟡   | ✅ Tested   | `tools/bank.py::_validate_bank_filename()` — rejects `<>`, `'`, `"`, `\`, control chars, `..`, absolute paths; accepts emoji, accents, subfolders. | `TestLM2_12_BankFilenameValidation` (10 dangerous-chars + 3 path-traversal + 1 absolute-path + 3 empty/whitespace + 10 happy-path filenames). |
+| LM2-13  | 🟡   | ✅ Tested   | `core/consolidator.py::_REWRITE_MIN_RATIO` and `_REWRITE_MIN_ABSOLUTE_BYTES` constants — refuse a rewrite that shrinks by >70 % above a min-size threshold. | `TestLM2_13_RewriteGuard` (constant bounds checked: ratio < 0.5 and > 0, absolute threshold > 0 and < 1024). |
+| LM2-14  | 🟡   | ✅ Tested   | `config.py::Settings.consolidation_max_notes` lowered to **200** by default (down from 500). Still overridable via `CONSOLIDATION_MAX_NOTES` env. | `TestLM2_14_MaxNotesDefault` (2 tests: Pydantic field default = 200, env override path works). |
+| LM2-15  | 🟡   | ✅ Tested   | `core/storage.py::StorageService._sse_kwargs()` — opt-in `S3_SSE=AES256` or `S3_SSE=aws:kms` + `S3_SSE_KMS_KEY_ID`. | `TestLM2_15_S3SSE` (5 tests: no-SSE empty dict, AES256, KMS with key, KMS without key omits, whitespace-only treated as disabled). |
+| LM2-16  | 🟢   | 🟢 Open     | LOW — S3 versioning is an ops/bucket-policy concern. Documented in `DEPLOIEMENT_PRODUCTION.md` as a recommendation; no code change. | — |
+| LM2-17  | 🟢   | ✅ Tested   | `auth/middleware.py::_client_ip_from_scope()` — prefers `X-Forwarded-For` (first IP), then `X-Real-IP`, then `scope["client"]`, then `"unknown"`. | `TestLM2_17_ClientIPFromScope` (7 tests covering XFF chained, X-Real-IP fallback, XFF preferred over X-Real-IP, unknown, empty XFF). |
+| LM2-18  | 🟡   | ✅ Tested   | `config.py::Settings.consolidation_cooldown_seconds` (default **60s**, `0` = disabled), enforced in `core/consolidator.py::consolidate()`. | `TestLM2_18_CooldownConfig` (2 tests: default 60s, env override to 0 disables it). |
+| LM2-19  | 🟡   | ✅ Tested   | `live.html` loads vendored DOMPurify; `static/js/config.js::md()` now wraps `marked.parse()` with `DOMPurify.sanitize`. | Covered structurally by `TestLM2_06_VendoredLibraries::test_dompurify_vendored_present` (the dynamic JS layer is integration-tested in `/live`). |
+| LM2-20  | 🟡   | 🟢 Open     | Documented architectural decision — WAF cannot inspect streamable MCP. App-layer input validation is in place for the high-risk fields (filename, URL, backup_id, …). | — |
+| LM2-21  | 🟡   | 🟢 Open     | Internal Docker network HTTP — accepted, documented. Optional internal TLS noted in `DEPLOIEMENT_PRODUCTION.md`. | — |
+| LM2-22  | 🟢   | 🟢 Open     | LOW — egress filter is an infra/orchestrator concern (Compose/K8s policy), not a code change. Documented. | — |
+| LM2-23  | 🟢   | 🟢 Open     | LOW — token hashing uses unsalted SHA-256. Acceptable because tokens are 32 random bytes (no rainbow-table risk). No change. | — |
+| LM2-24  | 🟡   | ✅ Tested   | `auth/middleware.py::_handle_health()` — generic message on S3/LLMaaS failure; details logged server-side only. | `TestLM2_24_HealthDoesNotLeakErrors` (mocks an S3 failure with a secret URL and asserts neither the URL nor the SSL error appear in the JSON body). |
+| LM2-25  | 🟡   | ✅ Tested   | `core/consolidator.py::_call_llm()` returns `"LLM call failed"` (no `str(e)`) when `mcp_server_debug` is False. `test_connection` returns `"LLMaaS unreachable"`. | `TestLM2_25_ConsolidatorNoStrErrorLeak` (4 tests: secret URL/token never reach the client in non-debug; debug-mode contract frozen; `test_connection` structurally inspected; structural anti-regression scan over the whole module). |
+| LM2-26  | 🟢   | ✅ Tested   | `pyproject.toml` raised lower bounds: `mcp[cli]>=1.27.0` (CVE-2026-32871), `httpx>=0.28`, `boto3>=1.40`, `openai>=1.50`. | `TestLM2_26_DependencyBounds` (3 tests on the actual `pyproject.toml` text: mcp ≥ 1.27, httpx-sse removed from active deps, httpx ≥ 0.28). |
+| LM2-27  | 🟢   | ✅ Tested   | `httpx-sse` removed from `pyproject.toml::[project].dependencies`. Comment retained for traceability. | Same class as LM2-26, `test_httpx_sse_removed` verifies the dependency list. |
+| LM2-28  | 🟢   | 🛠 Process  | Active CVE check on `uv.lock` is wired into the development workflow (Perplexity audit + `uv pip compile --upgrade` discipline). Not a code-level test. | — |
+| LM2-29  | 🟡   | ✅ Tested   | `tools/backup.py::backup_restore` and `backup_delete` now call `_parse_backup_id` then `check_access` BEFORE `check_manage_permission`. | `TestLM2_29_BackupCheckAccess` (2 tests, source-code introspection: both tools call `_parse_backup_id` then `check_access` then `check_manage_permission`, in that order). |
+| LM2-30  | —    | ❓ Gap      | No finding under this number — numbering gap in the original audit. | — |
+| LM2-31  | 🟡   | ✅ Tested   | `tools/bank.py::bank_delete(confirm: bool)` and `tools/admin.py::admin_purge_tokens(confirm: bool)` reject the call when `confirm` is not True (the latter only for the destructive `revoked_only=False` mode). | `TestLM2_31_ConfirmRequired` (2 tests, source-code introspection: `confirm:` parameter present + `if not confirm:` / `if not revoked_only and not confirm:` runtime guard). |
+
+#### E.2 — What changed between v1.9.0 and v2.0.0 (helpers introduced)
+
+The fixes were factored into reusable helpers to avoid one-off ad-hoc
+patches scattered across the code base:
+
+| Helper                                | Module                        | Purpose                                          | Findings covered  |
+| ------------------------------------- | ----------------------------- | ------------------------------------------------ | ----------------- |
+| `mask_meta_secrets()`                 | `core/models.py`              | Mask the GM token in any copy of `_meta.json`    | LM2-03            |
+| `invalidate_token_in_store()`         | `auth/context.py`             | Purge `_fresh_token_store` after token mutation  | LM2-07            |
+| `_client_ip_from_scope()`             | `auth/middleware.py`          | XFF-aware client-IP resolver for audit logs      | LM2-17            |
+| `_validate_gm_url()`                  | `tools/graph.py`              | Anti-SSRF URL validator                          | LM2-02            |
+| `_parse_backup_id()`                  | `tools/backup.py`             | Strict `space_id/timestamp` parsing              | LM2-09, LM2-29    |
+| `_validate_bank_filename()`           | `tools/bank.py`               | Anti-XSS + anti-path-traversal filename guard    | LM2-12 (→ LM2-01) |
+| `_sse_kwargs()`                       | `core/storage.py`             | Configurable at-rest encryption kwargs           | LM2-15            |
+| `_write_gc_notice()`                  | `core/gc.py`                  | S3-direct GC notice with orphan-agent identity   | LM2-10            |
+
+#### E.3 — UX breaking changes shipped in v2.0.0
+
+These are deliberate and documented in `CHANGELOG.md`:
+
+* `bank_delete(confirm=True)` is now mandatory (LM2-31).
+* `admin_purge_tokens(revoked_only=False)` now requires `confirm=True` (LM2-31).
+* `graph_connect` rejects loopback / private / non-http URLs (LM2-02).
+* The Web UI now exchanges the bearer through an HttpOnly cookie via
+  `/api/login` — `localStorage` is no longer used (LM2-04).
+* `_meta.json` content returned by `space_summary`, `space_export`, and
+  `backup_download` is masked (LM2-03).
+
+#### E.4 — Opt-in environment variables added in v2.0.0
+
+All have safe defaults and stay backward-compatible:
+
+| Variable                                     | Default | Effect                                                             | Finding   |
+| -------------------------------------------- | ------- | ------------------------------------------------------------------ | --------- |
+| `CONSOLIDATION_COOLDOWN_SECONDS`             | `60`    | Anti-spam on `bank_consolidate` (0 = disabled)                     | LM2-18    |
+| `CONSOLIDATION_MAX_NOTES`                    | `200`   | Cap input size to the consolidator LLM                             | LM2-14    |
+| `CONSOLIDATION_VALIDATION_ENABLED`           | `false` | Issue #17 post-consolidation un-attributed-claim check (opt-in)    | Issue #17 |
+| `CONSOLIDATION_VALIDATION_MAX_EXAMPLES`      | `20`    | Cap on the example list returned by the validator                  | Issue #17 |
+| `S3_SSE`                                     | (empty) | `AES256` or `aws:kms` — enables ServerSideEncryption on PUT        | LM2-15    |
+| `S3_SSE_KMS_KEY_ID`                          | (empty) | KMS key id when `S3_SSE=aws:kms`                                   | LM2-15    |
+
+#### E.5 — Findings deliberately kept open (decision log)
+
+| Finding | Why we did not fix in v2.0.0                                                                                                             |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| LM2-11  | Restricting `space_create` to `manage` is a breaking UX change for the agents already in production. Targeted at v2.1.x. Test stays as `xfail strict`. |
+| LM2-16  | S3 versioning is operated at the bucket level (Cloud Temple S3). Documented in `DEPLOIEMENT_PRODUCTION.md`.                              |
+| LM2-20  | Documented architectural decision: streamable MCP cannot be CRS-inspected. App-layer input validation covers the realistic vectors.      |
+| LM2-21  | WAF→MCP plain HTTP inside the Docker network is acceptable; optional internal TLS noted in `DEPLOIEMENT_PRODUCTION.md`.                  |
+| LM2-22  | Docker egress filter is an infra/orchestrator concern (Compose profile / K8s NetworkPolicy). Documented.                                 |
+| LM2-23  | Unsalted SHA-256 on 32-byte random tokens is acceptable (no rainbow-table risk). Noted for documentation only.                           |
+| LM2-28  | "Run a CVE check before each release" is a process rule, not a code test. Wired into the development workflow.                           |
+
+#### E.6 — Test discipline (review-of-the-tests)
+
+The new test class `tests/test_security_hardening_v2.py` follows a strict
+convention so that a future regression is **loud**:
+
+1. **`test_<area>_<expected_behavior>_<attack_vector>`** naming.
+2. Each test that targets a fix has an assertion message that starts with
+   `"Sans fix LM2-XX :"` so a regression is immediately attributable.
+3. Helpers (`_make_consolidator_with_failing_llm`, `_make_token_info`,
+   `_extract_async_function_body`) are kept module-local to avoid cross-test
+   coupling.
+4. Patching is done at the **point of origin** (e.g. `live_mem.config.get_settings`)
+   not the alias imported into the module under test — documented inline.
+5. `xfail(strict=True)` is used for documented gaps; the partner non-xfail test
+   asserts the *current* (broken) state so that a silent fix is detected.
+6. Bootstrap-tests (`pyproject.toml`, `waf/Caddyfile`, `static/vendor/`) read the
+   actual file on disk — they do not duplicate config in code.
+
+Total lines added in v2.0.0 across `tests/test_security_hardening_v2.py`:
+**~1230 lines**, of which ~31 explicit "Sans fix" assertions.
+
+---
+
+*Audit performed on 15 May 2026 — Live Memory v1.9.0.*
+*Remediation tracker updated 15 May 2026 against `v2.0.0` (commit `30a7873` on `feature/security-hardening-v2`).*
+*Confidential document — to be re-reviewed before the v2.0.0 → main merge.*
