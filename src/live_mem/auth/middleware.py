@@ -31,6 +31,43 @@ audit_logger = logging.getLogger("live_mem.audit")
 AUTH_COOKIE_NAME = "livemem_auth"
 
 
+def _client_ip_from_scope(scope: dict) -> str:
+    """
+    LM2-17 fix : extrait l'IP cliente réelle en privilégiant les headers
+    de proxy upstream.
+
+    Quand live-mem est derrière le WAF Caddy (ou tout reverse proxy),
+    ``scope["client"]`` contient l'IP du proxy, pas du client réel.
+    On lit ``X-Forwarded-For`` (premier IP = client originel) ou
+    ``X-Real-IP`` en fallback, puis ``scope["client"]`` en dernier
+    recours.
+
+    ⚠️ La confiance dans ces headers suppose que le serveur n'est PAS
+    exposé directement à Internet (sinon n'importe qui peut les
+    forger). En production, Caddy nettoie/réécrit ces headers — voir
+    waf/Caddyfile et DESIGN/live-mem/DEPLOIEMENT_PRODUCTION.md.
+    """
+    headers = dict(scope.get("headers", []))
+
+    xff = headers.get(b"x-forwarded-for", b"").decode().strip()
+    if xff:
+        # Format : "client-ip, proxy1, proxy2" → on prend le premier
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+
+    xri = headers.get(b"x-real-ip", b"").decode().strip()
+    if xri:
+        return xri
+
+    # Fallback : socket TCP du peer (IP du proxy si reverse proxy)
+    client = scope.get("client")
+    if client and len(client) > 0:
+        return client[0]
+
+    return "unknown"
+
+
 class AuthMiddleware:
     """
     Middleware ASGI d'authentification par Bearer token.
@@ -111,10 +148,9 @@ class AuthMiddleware:
                 "client": "unauthenticated",
                 "auth_type": "none",
                 "reason": "missing_or_invalid_token",
+                # LM2-17 fix : utiliser X-Forwarded-For si présent
+                "client_ip": _client_ip_from_scope(scope),
             }
-            client = scope.get("client")
-            if client:
-                audit_entry["client_ip"] = client[0]
             audit_logger.info(json.dumps(audit_entry, ensure_ascii=False))
             return
 
@@ -248,9 +284,9 @@ class LoggingMiddleware:
                 }
                 if token_info:
                     entry["client"] = token_info.get("client_name", "anonymous")
-                client = scope.get("client")
-                if client:
-                    entry["client_ip"] = client[0]
+                # LM2-17 fix : utiliser X-Forwarded-For pour avoir l'IP réelle
+                # du client derrière le WAF (au lieu de l'IP du WAF lui-même)
+                entry["client_ip"] = _client_ip_from_scope(scope)
                 logger.info(json.dumps(entry, ensure_ascii=False))
 
 
@@ -368,13 +404,18 @@ class StaticFilesMiddleware:
         services = {}
 
         # ── Probe S3 (critical) ──────────────────────────────
+        # LM2-24 fix : `/health` est PUBLIC (sans auth). Une exception
+        # botocore exposait sinon l'endpoint S3 complet, le bucket, et
+        # potentiellement la clé d'accès dans la trace. On loggue côté
+        # serveur le détail, et on renvoie un message générique au client.
         try:
             from ..core.storage import get_storage
 
             storage = get_storage()
             services["s3"] = await storage.test_connection()
         except Exception as e:
-            services["s3"] = {"status": "error", "message": str(e)}
+            logger.warning("/health: S3 probe failed: %s", e)
+            services["s3"] = {"status": "error", "message": "S3 unreachable"}
 
         # ── Probe LLMaaS ─────────────────────────────────────
         try:
@@ -405,7 +446,10 @@ class StaticFilesMiddleware:
                     "message": "LLMaaS non configuré",
                 }
         except Exception as e:
-            services["llmaas"] = {"status": "error", "message": str(e)}
+            # LM2-24 fix : pareil que S3 — ne pas exposer la stack openai
+            # ou l'URL LLMaaS sur un endpoint public.
+            logger.warning("/health: LLMaaS probe failed: %s", e)
+            services["llmaas"] = {"status": "error", "message": "LLMaaS unreachable"}
 
         # ── Global status ─────────────────────────────────────
         statuses = [s.get("status", "error") for s in services.values()]

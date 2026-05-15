@@ -54,6 +54,19 @@ class StorageService:
         self.bucket = settings.s3_bucket_name
         self._endpoint = settings.s3_endpoint_url
 
+        # LM2-15 fix : configuration optionnelle du chiffrement at-rest S3.
+        # Appliqué à chaque put_object via _sse_kwargs(). None par défaut
+        # pour ne pas casser les déploiements Dell ECS (qui ne supportent
+        # pas tous SSE-S3) et MinIO sans config KMS.
+        self._sse = (settings.s3_sse or "").strip() or None
+        self._sse_kms_key_id = (settings.s3_sse_kms_key_id or "").strip() or None
+        if self._sse:
+            logger.info(
+                "StorageService: S3 Server-Side Encryption enabled (%s%s)",
+                self._sse,
+                f", kms_key={self._sse_kms_key_id}" if self._sse_kms_key_id else "",
+            )
+
         # ── Proxy HTTP sortant (optionnel) ────────────────────
         # Utilise PROXY_URL (variable custom) plutôt que HTTP_PROXY/HTTPS_PROXY
         # pour éviter d'affecter toutes les libs Python qui lisent les vars d'env OS.
@@ -123,6 +136,21 @@ class StorageService:
     # PUT — Écriture (SigV2)
     # ─────────────────────────────────────────────────────────────
 
+    def _sse_kwargs(self) -> dict:
+        """
+        LM2-15 fix : kwargs S3 pour le chiffrement at-rest.
+
+        Retourne ``{}`` quand SSE est désactivé pour rester compatible
+        avec les déploiements Dell ECS qui ne supportent pas SSE-S3.
+        Ajoute ``SSEKMSKeyId`` uniquement si SSE-KMS est activé.
+        """
+        if not self._sse:
+            return {}
+        kwargs = {"ServerSideEncryption": self._sse}
+        if self._sse == "aws:kms" and self._sse_kms_key_id:
+            kwargs["SSEKMSKeyId"] = self._sse_kms_key_id
+        return kwargs
+
     async def put(
         self, key: str, content: str, content_type: str = "text/plain; charset=utf-8"
     ) -> None:
@@ -140,6 +168,7 @@ class StorageService:
             Key=key,
             Body=content.encode("utf-8"),
             ContentType=content_type,
+            **self._sse_kwargs(),
         )
 
     async def put_json(self, key: str, data: dict) -> None:
@@ -416,6 +445,7 @@ class StorageService:
             CopySource=copy_source,
             Bucket=self.bucket,
             Key=dest_key,
+            **self._sse_kwargs(),
         )
 
     # ─────────────────────────────────────────────────────────────

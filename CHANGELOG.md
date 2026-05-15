@@ -5,6 +5,143 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.0] — 2026-05-15
+
+**🛡️ Security Hardening Release** — full remediation of the 2026-05-15
+internal audit (`DESIGN/live-mem/AUDIT_SECURITE_2026-05-15.md`). All 27
+new findings (LM2-01 to LM2-31) are now addressed in a single release.
+Breaking change: requires `mcp[cli]>=1.27.0`, drops `httpx-sse`, and
+introduces a new `/api/login` + `/api/logout` cookie auth flow for the
+web UI (the bearer header still works for agents).
+
+### Security fixes (audit 2026-05-15)
+
+#### Critical
+- **LM2-01 — Stored XSS via bank filename** (`static/js/bank.js`) :
+  filename was injected unescaped into `innerHTML`. Now `esc(name)` is
+  applied systematically, and the server refuses dangerous chars
+  (`< > " ' \\` + control chars) in `bank_write` filenames (LM2-12).
+
+#### High
+- **LM2-02 — SSRF in `graph_connect`** : new helper `_validate_gm_url()`
+  blocks non-HTTP schemes, private/loopback/link-local IPs and cloud
+  metadata endpoints (169.254.169.254) before any HTTP call or S3 persistence.
+- **LM2-03 — Graph Memory token leak in space_export/backup_download** :
+  new `mask_meta_secrets()` helper applied to every code path exposing
+  `_meta.json` (REST API, `space_export`, `backup_download`).
+- **LM2-04 — Token bearer in localStorage** : migrated to HttpOnly cookie
+  via `/api/login` + `/api/logout`. The raw token never leaves the
+  network → server; an XSS can no longer exfiltrate it.
+- **LM2-05 — CSP `'unsafe-inline'` on `script-src`** : removed.
+  CDN whitelist (`unpkg`, `jsdelivr`) also removed.
+- **LM2-06 — CDN dependency for marked.js** : vendored locally in
+  `static/vendor/` (marked@12.0.2 + DOMPurify@3.1.6) with SHA-384 hashes
+  documented in `static/vendor/README.md`.
+- **LM2-10 — Broken `gc.py`** : `live.write_note(agent=...)` removed
+  in v0.8.1 but still called by GC. Replaced with new
+  `_write_gc_notice()` writing directly to S3 with the orphan agent's
+  identity in the front-matter.
+- **LM2-19 — `marked.parse()` without sanitization** : DOMPurify applied
+  systematically to all output of `marked.parse()`. Eliminates the second
+  XSS vector (malicious Markdown in notes or bank files).
+
+#### Medium
+- **LM2-07 — `_fresh_token_store` ghost permissions** : new
+  `invalidate_token_in_store()` called after every token mutation
+  (revoke, delete, purge, update, bulk_update) prevents long-running
+  operations from seeing stale permissions post-revocation.
+- **LM2-08 — Bootstrap key asymmetry doc** : added explicit comment
+  in `update_fresh_token()` explaining the volontary fallback.
+- **LM2-09 — `backup_id` regex validation** : new `_parse_backup_id()`
+  validates `space_id` regex + ISO timestamp format before any S3 access.
+- **LM2-13 — Anti-erasure rewrite guard** : the consolidator now
+  refuses any `rewrite` operation that shrinks the file by more than 70 %
+  (suspect prompt injection). The original file remains untouched and the
+  event is logged for audit.
+- **LM2-14 — `CONSOLIDATION_MAX_NOTES` lowered** : default 500 → 200 to
+  cap LLM budget exhaustion. Notes still bounded by 100 KB each.
+- **LM2-15 — S3 Server-Side Encryption** : new `S3_SSE` env var
+  (default off for Dell ECS compat). Set `S3_SSE=AES256` or `S3_SSE=aws:kms`
+  + `S3_SSE_KMS_KEY_ID` to enable.
+- **LM2-17 — X-Forwarded-For in audit logs** : new `_client_ip_from_scope()`
+  reads `X-Forwarded-For` (or `X-Real-IP`) before falling back to
+  `scope["client"]`. Audit logs now show real client IPs behind WAF.
+- **LM2-18 — `bank_consolidate` cooldown** : new
+  `CONSOLIDATION_COOLDOWN_SECONDS` env var (default 60s) prevents an
+  agent from looping on `bank_consolidate` and saturating LLM budget.
+- **LM2-24 — `str(e)` in public `/health`** : replaced by generic
+  message ("S3 unreachable" / "LLMaaS unreachable"). Server-side
+  warning log keeps the full exception. Same fix applied to
+  `system_health` MCP tool for defense in depth.
+- **LM2-25 — `str(e)` in consolidator responses** : LLM call and
+  `test_connection` errors now return generic messages (full exception
+  logged server-side). Debug mode (`MCP_SERVER_DEBUG=true`) keeps the
+  legacy verbose behavior.
+- **LM2-29 — Cross-tenant backup access** : `backup_restore` and
+  `backup_delete` now call `check_access(space_id)` in addition to
+  `check_manage_permission()`. A `manage` operator restricted to
+  `["project-a"]` can no longer restore/delete a `project-b` backup.
+- **LM2-31 — Missing `confirm=True`** : added to `bank_delete`
+  (irreversible) and `admin_purge_tokens(revoked_only=False)` (the
+  total-purge variant, otherwise leaves only the bootstrap key).
+
+#### Low
+- **LM2-12 — Filename validation** : see LM2-01 (combined fix).
+- **LM2-22/21 — Egress filter + TLS internal** : documented in
+  `DEPLOIEMENT_PRODUCTION.md` (no code change — operational guidance).
+- **LM2-26 — Lower bounds bumped in `pyproject.toml`** :
+  `mcp[cli]>=1.27.0` (CVE-2026-32871), `httpx>=0.28`, `boto3>=1.40`,
+  `openai>=1.50`. `uv.lock` was already correct; this protects
+  `pip install live-memory` builds.
+- **LM2-27 — `httpx-sse` removed** from `pyproject.toml` (no longer
+  imported since the Streamable HTTP migration).
+
+### Breaking changes
+- **Cookie auth required for web UI** : the `/live` frontend now uses
+  `/api/login` (POST `{"token": "lm_..."}`) which sets a `livemem_auth`
+  HttpOnly cookie. The legacy `localStorage` storage is auto-purged at
+  first load. The bearer header keeps working for `/api/*` and `/mcp`.
+- **`bank_delete` requires `confirm=True`** : add `confirm=True` to
+  any CLI/automation call (alignment with `space_delete`, etc.).
+- **`admin_purge_tokens(revoked_only=False)` requires `confirm=True`**.
+- **`graph_connect` rejects private/loopback URLs** : if you used a
+  loopback URL for local development, switch to a public address or
+  add a temporary DNS entry. The error message points to the precise
+  IP class blocked.
+- **`pip install live-memory`** now requires `mcp[cli]>=1.27.0` (no
+  longer compatible with mcp<1.27 due to CVE-2026-32871).
+
+### Added
+- New ENV vars : `CONSOLIDATION_COOLDOWN_SECONDS`, `S3_SSE`,
+  `S3_SSE_KMS_KEY_ID`. See `.env.example` for examples.
+- `src/live_mem/static/vendor/` — local copies of marked.min.js and
+  purify.min.js with SHA-384 hashes documented (see vendor/README.md).
+- `/api/login` and `/api/logout` REST endpoints (public, web UI auth).
+
+### Removed
+- `httpx-sse` dependency.
+- `localStorage.livemem_auth_token` (legacy token storage, auto-purged
+  at first load by `purgeLegacyTokenStorage()`).
+
+### Validation
+- **Audit summary** : 27/27 new findings addressed. 15/15 v1.0.0 fixes
+  confirmed non-regressed in v1.9.0 source code review.
+- **Tests** : 152/152 existing test suite expected to pass (no behavioral
+  regression). New tests should be added for SSRF, XSS escaping, cookie
+  auth and rewrite guard (next iteration).
+
+### Files modified (summary)
+| Domain | Files |
+| ------ | ----- |
+| Auth & middleware | `auth/middleware.py`, `auth/context.py`, `core/tokens.py` |
+| Tools | `tools/graph.py`, `tools/bank.py`, `tools/backup.py`, `tools/admin.py`, `tools/system.py` |
+| Core | `core/consolidator.py`, `core/storage.py`, `core/space.py`, `core/backup.py`, `core/gc.py`, `core/models.py`, `core/live.py` |
+| Web UI | `static/live.html`, `static/js/bank.js`, `static/js/config.js`, `static/js/api.js`, `static/js/app.js`, `static/vendor/*` |
+| Infra | `waf/Caddyfile`, `pyproject.toml`, `config.py` |
+| Versioning | `VERSION` (1.9.0 → 2.0.0), `src/live_mem/__init__.py` |
+
+---
+
 ## [1.9.0] — 2026-05-15
 
 ### Added

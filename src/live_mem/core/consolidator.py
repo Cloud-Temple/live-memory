@@ -35,6 +35,27 @@ from .storage import get_storage, bank_relpath
 logger = logging.getLogger("live_mem.consolidator")
 
 
+# LM2-18 fix : cooldown anti-spam pour bank_consolidate.
+# Sans cela, un agent `write` peut déclencher la consolidation en boucle
+# (consommation budget LLM, lock permanent du space). Le lock asyncio
+# existant n'est qu'un mutex — il n'empêche pas un appel toutes les 100ms.
+# Le store est in-memory (par-instance) : un déploiement HA multi-instances
+# ne partage pas l'état, ce qui est acceptable car le budget LLM est commun
+# au tenant Cloud Temple et la limite serait alors observée globalement
+# via les quotas LLMaaS upstream.
+_last_consolidation_started: dict[str, float] = {}
+
+
+# LM2-13 fix : seuil de défense contre un `rewrite` malveillant qui
+# tente d'effacer un fichier via prompt injection. Si le LLM produit
+# un contenu < ce ratio de l'ancien, on refuse l'opération.
+# 0.30 = un rewrite qui réduit de >70% est suspect (un compact légitime
+# vise plutôt 50-60% de réduction). Surface bénigne acceptable car les
+# rewrites légitimes du LLM ne réduisent que rarement de >70%.
+_REWRITE_MIN_RATIO = 0.30
+_REWRITE_MIN_ABSOLUTE_BYTES = 200  # n'évalue le ratio que si l'ancien fichier > 200B
+
+
 # ─────────────────────────────────────────────────────────────
 # Prompts
 # ─────────────────────────────────────────────────────────────
@@ -192,6 +213,8 @@ class ConsolidatorService:
         self._temperature = settings.llmaas_temperature
         self._max_notes = settings.consolidation_max_notes
         self._batch_size = settings.consolidation_batch_size
+        # LM2-18 fix : cooldown anti-spam (voir _last_consolidation_started)
+        self._cooldown_seconds = settings.consolidation_cooldown_seconds
         # Bank compaction settings
         self._compact_threshold = settings.compact_threshold
         self._bank_file_max_size = settings.bank_file_max_size
@@ -221,6 +244,36 @@ class ConsolidatorService:
         t0 = time.monotonic()
         storage = get_storage()
         agent_label = agent or "(all)"
+
+        # LM2-18 fix : cooldown anti-spam avant TOUTE collecte/appel LLM.
+        # On enregistre le timestamp d'enregistrement EN PREMIER (avant
+        # même la lecture S3) pour fail-fast en cas de spam. Si la conso
+        # échoue ensuite, le compteur reste — c'est volontaire pour
+        # éviter le retry intempestif suite à un échec transitoire.
+        if self._cooldown_seconds > 0:
+            last_started = _last_consolidation_started.get(space_id)
+            if last_started is not None:
+                elapsed = time.monotonic() - last_started
+                if elapsed < self._cooldown_seconds:
+                    remaining = round(self._cooldown_seconds - elapsed, 1)
+                    logger.warning(
+                        "Consolidation throttled — space=%s, %.1fs remaining "
+                        "(cooldown=%ds)",
+                        space_id,
+                        remaining,
+                        self._cooldown_seconds,
+                    )
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"Consolidation cooldown actif sur '{space_id}' : "
+                            f"réessayez dans {remaining:.0f}s. Le cooldown "
+                            f"({self._cooldown_seconds}s) protège le budget "
+                            "LLM et évite la saturation du lock."
+                        ),
+                    }
+            _last_consolidation_started[space_id] = time.monotonic()
+
         logger.info("Consolidation start — space=%s agent=%s", space_id, agent_label)
 
         # ── Étape 1 : Collecter les inputs ────────────────
@@ -803,7 +856,18 @@ Retourne un JSON avec cette structure exacte :
                 return {"status": "ok", "data": data, "usage": usage}
 
             except Exception as e:
-                return {"status": "error", "message": f"LLM call failed: {str(e)}"}
+                # LM2-25 fix : ne pas exposer str(e) (peut contenir l'URL
+                # LLMaaS et des détails openai). Log côté serveur, message
+                # générique au client. Le caller (consolidate()) propage
+                # déjà ce dict tel quel.
+                logger.error("LLM call exception : %s", e)
+                from ..config import get_settings as _gs
+                if _gs().mcp_server_debug:
+                    return {
+                        "status": "error",
+                        "message": f"LLM call failed: {str(e)}",
+                    }
+                return {"status": "error", "message": "LLM call failed"}
 
         return {"status": "error", "message": "LLM failed after retries"}
 
@@ -900,6 +964,35 @@ Retourne un JSON avec cette structure exacte :
                 content = file_edit.get("content", "")
                 reason = file_edit.get("reason", "non spécifiée")
                 if content:
+                    # LM2-13 fix : protection anti-effacement par prompt injection.
+                    # Si le rewrite réduit le fichier de plus de (1 - _REWRITE_MIN_RATIO),
+                    # c'est suspect (un compact légitime vise rarement >70%). On
+                    # refuse l'opération et on logue pour audit. Le fichier original
+                    # reste intact. Cette défense n'est appliquée que si l'ancien
+                    # fichier dépasse _REWRITE_MIN_ABSOLUTE_BYTES (sinon le ratio
+                    # est trop sensible aux petites variations).
+                    old_content = bank_index.get(filename)
+                    old_size = len(old_content) if old_content else 0
+                    new_size = len(content)
+                    if (
+                        old_size >= _REWRITE_MIN_ABSOLUTE_BYTES
+                        and new_size < old_size * _REWRITE_MIN_RATIO
+                    ):
+                        logger.error(
+                            "REWRITE refused for %s — content shrinks too much "
+                            "(%d → %d bytes, ratio=%.2f, threshold=%.2f). "
+                            "Reason given by LLM: %s. Possible prompt injection.",
+                            filename,
+                            old_size,
+                            new_size,
+                            new_size / old_size if old_size else 0,
+                            _REWRITE_MIN_RATIO,
+                            reason,
+                        )
+                        operations_failed += 1
+                        # Skip ce file_edit — le fichier original n'est pas touché
+                        continue
+
                     # Déduplication défensive via LLM : le LLM peut produire
                     # un rewrite avec des sections déjà dupliquées
                     content, dedup_count = await self._deduplicate_content(
@@ -1218,7 +1311,9 @@ CONSIGNE : Fusionne ces versions en UNE SEULE version cohérente.
                 "latency_ms": latency,
             }
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            # LM2-25 fix : ne pas exposer str(e) (peut contenir l'URL LLMaaS).
+            logger.warning("LLMaaS test_connection failed: %s", e)
+            return {"status": "error", "message": "LLMaaS unreachable"}
 
     # ─────────────────────────────────────────────────────────
     # Bank Compaction

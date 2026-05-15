@@ -10,12 +10,15 @@ Outils authentifiés :
     - system_whoami : identité du token courant (nom, permissions, espaces)
 """
 
+import logging
 import time
 import platform
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+
+_logger = logging.getLogger("live_mem.system")
 
 
 def register(mcp: FastMCP) -> int:
@@ -46,13 +49,19 @@ def register(mcp: FastMCP) -> int:
         results = {}
 
         # ── Test S3 ──────────────────────────────────────────
+        # LM2-24 fix : ne pas exposer str(e) (peut contenir endpoint S3 +
+        # access key dans la trace botocore). On loggue server-side et
+        # on renvoie un message générique. system_health est plus permissif
+        # que /health (il est exposé via /mcp authentifié) mais on
+        # harmonise par cohérence et défense en profondeur.
         try:
             from ..core.storage import get_storage
 
             storage = get_storage()
             results["s3"] = await storage.test_connection()
         except Exception as e:
-            results["s3"] = {"status": "error", "message": str(e)}
+            _logger.warning("system_health: S3 probe failed: %s", e)
+            results["s3"] = {"status": "error", "message": "S3 unreachable"}
 
         # ── Test LLMaaS ─────────────────────────────────────
         try:
@@ -82,7 +91,8 @@ def register(mcp: FastMCP) -> int:
                     "message": "LLMaaS non configuré",
                 }
         except Exception as e:
-            results["llmaas"] = {"status": "error", "message": str(e)}
+            _logger.warning("system_health: LLMaaS probe failed: %s", e)
+            results["llmaas"] = {"status": "error", "message": "LLMaaS unreachable"}
 
         # ── Compteur d'espaces ───────────────────────────────
         spaces_count = -1

@@ -84,10 +84,20 @@ class Settings(BaseSettings):
 
     # ─── Consolidation ────────────────────────────────────────
     consolidation_timeout: int = 600  # Timeout par appel LLM (secondes)
-    consolidation_max_notes: int = 500  # Max notes traitées par consolidation
+    # LM2-14 fix : limite revue à la baisse pour brider la conso budget LLM.
+    # 200 = ~1 MB d'input LLM si chaque note fait 5 KB ; ~10 MB si 50 KB.
+    # Au-delà, l'auto-compact bank prend le relais. Une note massive reste
+    # bornée par MAX_NOTE_CONTENT_SIZE (100 KB) côté live.py.
+    consolidation_max_notes: int = 200  # Max notes traitées par consolidation
     consolidation_batch_size: int = (
         5  # Notes par lot LLM (réponses courtes = moins de drift)
     )
+    # LM2-18 fix : cooldown entre deux consolidations du même space.
+    # Empêche un agent write de boucler sur bank_consolidate et de
+    # saturer le budget LLM ou de monopoliser le lock du space.
+    # 60s = ~1 consolidation/min/space max, largement suffisant pour
+    # un flux de travail humain. Mettre à 0 pour désactiver (déconseillé).
+    consolidation_cooldown_seconds: int = 60
 
     # ─── Bank Compaction ──────────────────────────────────────
     # Compaction automatique des fichiers bank avant consolidation
@@ -99,6 +109,18 @@ class Settings(BaseSettings):
     bank_file_max_size: int = (
         15360  # Taille max universelle pour tout fichier bank (bytes)
     )
+
+    # ─── S3 chiffrement at-rest (LM2-15 fix) ─────────────────
+    # Si configuré, applique le header `ServerSideEncryption` sur
+    # tous les `put_object`. Valeurs typiques :
+    #   - "" / None : aucune (compatible Dell ECS sans SSE)
+    #   - "AES256"  : SSE-S3 (chiffrement géré par S3)
+    #   - "aws:kms" : SSE-KMS (clé KMS, nécessite S3_SSE_KMS_KEY_ID)
+    # Sur Dell ECS Cloud Temple, le chiffrement at-rest est déjà géré
+    # au niveau cluster. Cette option ajoute une couche applicative
+    # explicite pour les déploiements multi-cibles (S3 AWS, MinIO).
+    s3_sse: str | None = None
+    s3_sse_kms_key_id: str | None = None  # Optionnel, requis si s3_sse=aws:kms
 
     # ─── Response limits ──────────────────────────────────────
     response_max_bytes: int = 512 * 1024  # Max response body size (512 KB)
