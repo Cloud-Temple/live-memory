@@ -5,7 +5,59 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.0+] — 2026-05-15 (post-2.0.0, branche `v2.0.0`)
+
+**🔬 Issue #17 — Backlog consolidateur** : implémentation des 2 mitigations
+laissées en backlog par v1.9.0 (validation post-pass `unattributed_claims_count`
++ marker `[inféré]` pour la traçabilité des inférences). Aucun bump de version :
+ces ajouts sont **opt-in** (zéro impact pour les déploiements existants).
+
+### Added
+
+- **Pass de validation post-consolidation** (`src/live_mem/core/consolidator.py`) :
+  nouvelle fonction `_validate_unattributed_claims()` qui compare la bank
+  avant/après chaque batch consolidé et compte les "claims" (faits chiffrés,
+  dates, versions, refs PR/issue, statuts forts) qui ne sont ni sourcés dans
+  les notes du batch ni explicitement marqués `[inféré]`. Approche
+  **code-only** (regex + diff par ligne) : déterministe, zéro token LLM,
+  observable via le champ `validation` du retour de `bank_consolidate`.
+- **Règle #8 du SYSTEM_PROMPT — Markers `[inféré]`** : le LLM consolidateur
+  doit désormais annoter chaque fait produit par inférence transitive
+  (règle #7) avec le marker `[inféré]`. Le marker sert d'attribution
+  explicite et garantit que le pass de validation ne flagge pas ces lignes.
+- **Nouvelles ENV vars opt-in** (defaults sûrs, désactivé par défaut) :
+  - `CONSOLIDATION_VALIDATION_ENABLED=false` — active la pass de validation
+    et l'ajout du bloc `validation` dans la réponse MCP.
+  - `CONSOLIDATION_VALIDATION_MAX_EXAMPLES=20` — borne le nombre d'exemples
+    de claims non sourcés remontés (protège la taille du payload).
+
+### Tests
+
+- **`tests/test_issue17_validation.py`** : 53 tests anti-complaisants
+  couvrant les helpers (`_extract_claim_tokens`, `_has_strong_status_claim`,
+  `_normalize_for_match`, `_INFERRED_MARKER_RE`), la fonction
+  `_validate_unattributed_claims` (happy paths, détection d'hallucinations,
+  bornage des exemples, diff-only), la présence de la règle #8 dans le
+  SYSTEM_PROMPT, et la configuration opt-in.
+- **Suite globale** : **346/346 PASS** (293 existants + 53 nouveaux). Aucune
+  régression sur `test_security_hardening_v2.py` (122 tests v2.0.0),
+  `test_tokens.py`, `test_proxy.py`, ou les autres suites.
+
+### Fixed
+
+- **Regex `_METRIC_RE`** : ajout de `(?=\W|$)` pour matcher correctement
+  les métriques se terminant par `%` (ex: `80%`), `\b` étant inopérant
+  entre `%` et un espace. Ajout de `[.,/]\d+` dans le motif numérique pour
+  matcher `171/171` comme une seule métrique.
+- **`_STATUS_KEYWORDS`** : enrichi des formes fléchies françaises (féminin
+  singulier/pluriel : `fermée`, `résolue`, `mergée`, `publiée`, `déployée`,
+  `validée`, etc.) car `\b` Python exige une frontière `\w↔non-\w` en fin
+  de mot, ce qui ne fonctionne pas avec une racine accentuée suivie de `e`.
+
+---
+
 ## [2.0.0] — 2026-05-15
+
 
 **🛡️ Security Hardening Release** — full remediation of the 2026-05-15
 internal audit (`DESIGN/live-mem/AUDIT_SECURITE_2026-05-15.md`). All 27

@@ -57,6 +57,221 @@ _REWRITE_MIN_ABSOLUTE_BYTES = 200  # n'évalue le ratio que si l'ancien fichier 
 
 
 # ─────────────────────────────────────────────────────────────
+# Issue #17 — Pass de validation post-consolidation (opt-in)
+# ─────────────────────────────────────────────────────────────
+
+# Marker explicite produit par le LLM pour signaler une inférence (règle #8
+# du SYSTEM_PROMPT). Toute ligne contenant ce token est considérée comme
+# explicitement attribuée à une inférence et n'est pas comptée comme claim
+# non sourcé.
+_INFERRED_MARKER_RE = re.compile(r"\[inféré(?:[,\s][^\]]*)?\]", re.IGNORECASE)
+
+# Détection de claims "à risque" : lignes contenant au moins un fait
+# vérifiable (métrique, date, statut fort). On reste volontairement conservateur
+# pour éviter trop de faux positifs sur du contenu structurel.
+
+# Métriques chiffrées : "171/171 tests", "27 findings", "+737 lignes",
+# "60%", "1.9.0", "v2.0.0", "PR #14", "issue #17", etc.
+# Note : on utilise `(?=\W|$)` plutôt que `\b` en fin pour matcher
+# correctement les unités qui se terminent par un caractère non-\w
+# (ex: "%") suivi d'un espace ou de la fin de chaîne — `\b` exige
+# une frontière \w↔non-\w qui n'existe pas entre `%` et ` `.
+_METRIC_RE = re.compile(
+    r"\b\d+(?:[.,/]\d+)*\s*(?:%|tests?|notes?|findings?|lignes?|files?|"
+    r"fichiers?|points?|tokens?|ms|s|h|jours?|days?|bytes?|kb|mb|gb|"
+    r"commits?|PRs?|issues?)(?=\W|$)",
+    re.IGNORECASE,
+)
+_DATE_RE = re.compile(
+    r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b"
+)
+_VERSION_RE = re.compile(r"\bv?\d+\.\d+(?:\.\d+)?\b")
+_PR_REF_RE = re.compile(r"#\d+\b")
+
+# Mots-clés de statut "fort" (un changement d'état revendiqué doit être sourcé).
+# Inclure les formes fléchies françaises (féminin singulier/pluriel) car
+# le `\b` Python sur un mot terminé par accent (ex: `fermé` + `e` = `fermée`)
+# ne couvre PAS la fléchie : `\b` exige une frontière \w↔non-\w à la fin.
+_STATUS_KEYWORDS = (
+    # Résoudre
+    "résolu", "résolue", "résolus", "résolues",
+    "resolu", "resolue", "resolus", "resolues",
+    # Merger
+    "mergé", "mergée", "mergés", "mergées",
+    "merge", "merged",
+    # Publier
+    "publié", "publiée", "publiés", "publiées",
+    "publie", "released",
+    # Déployer
+    "déployé", "déployée", "déployés", "déployées",
+    "deploye", "deployed",
+    # Fermer
+    "fermé", "fermée", "fermés", "fermées",
+    "ferme", "closed",
+    # Valider
+    "validé", "validée", "validés", "validées",
+    "valide", "validated",
+    # Statut tests / build
+    "passed", "failed", "ko", "ok",
+)
+_STATUS_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(s) for s in _STATUS_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+
+def _extract_claim_tokens(line: str) -> set[str]:
+    """
+    Extrait les tokens "vérifiables" (chiffres significatifs, dates, versions,
+    refs PR/issue) d'une ligne de bank. Ces tokens forment la signature
+    minimale d'un claim — si AUCUN n'apparaît dans les notes, le claim
+    est non sourcé.
+
+    Retourne un set vide si la ligne ne contient pas de claim vérifiable
+    (ex: ligne structurelle, sous-titre, bullet vide).
+    """
+    tokens: set[str] = set()
+    for m in _METRIC_RE.findall(line):
+        tokens.add(m.lower())
+    for m in _DATE_RE.findall(line):
+        tokens.add(m.lower())
+    for m in _VERSION_RE.findall(line):
+        tokens.add(m.lower())
+    for m in _PR_REF_RE.findall(line):
+        tokens.add(m.lower())
+    return tokens
+
+
+def _has_strong_status_claim(line: str) -> bool:
+    """Indique si la ligne porte un mot de statut fort (résolu/mergé/publié/...).
+
+    Une ligne peut être un claim sans métrique chiffrée si elle revendique
+    un changement d'état important.
+    """
+    return bool(_STATUS_RE.search(line))
+
+
+def _normalize_for_match(text: str) -> str:
+    """Normalisation minimale pour la comparaison claim/notes.
+
+    On garde uniquement [a-z0-9/.-#%] (chiffres, lettres bas-de-casse, slash,
+    point, tiret, dièse, %). Cela permet de matcher "v2.0.0", "27/05",
+    "171/171", "#14", "60%" indépendamment de la ponctuation environnante.
+    """
+    return re.sub(r"[^a-z0-9/.\-#%]", " ", text.lower())
+
+
+def _validate_unattributed_claims(
+    bank_files_before: dict[str, str],
+    bank_files_after: dict[str, str],
+    notes: list[dict],
+    max_examples: int,
+) -> dict:
+    """
+    Compte les "claims" introduits par la consolidation qui ne sont
+    ni sourcés dans les notes du batch ni explicitement marqués `[inféré]`.
+
+    Approche code-only (déterministe, zéro token LLM) :
+    1. Diff par fichier : on ne regarde que les LIGNES AJOUTÉES (présentes
+       dans `_after` mais absentes de `_before`).
+    2. Pour chaque ligne ajoutée, extraire les tokens vérifiables
+       (métriques, dates, versions, refs).
+    3. Si la ligne porte un claim chiffré OU un statut fort :
+       - Si elle contient `[inféré]` → trace, mais pas compté.
+       - Sinon, vérifier que chaque token vérifiable apparaît dans
+         le corpus normalisé des notes. Si AUCUN token n'est trouvé
+         dans les notes, la ligne est non sourcée.
+
+    Args:
+        bank_files_before: filename → contenu avant le batch
+        bank_files_after: filename → contenu après le batch
+        notes: list de notes du batch (chaque note a `content`)
+        max_examples: nombre max d'exemples renvoyés (borne le payload)
+
+    Returns:
+        {
+          "unattributed_claims_count": int,
+          "inferred_claims_count": int,
+          "examples": [{"filename": str, "line": str, "tokens": [...]}],
+          "lines_scanned": int,
+          "lines_added": int,
+        }
+    """
+    # Corpus normalisé des notes (un seul gros blob pour le `in`-check).
+    # On agrège les contenus de toutes les notes du batch.
+    notes_corpus = _normalize_for_match(
+        " ".join(n.get("content", "") for n in notes)
+    )
+
+    unattributed = 0
+    inferred = 0
+    examples: list[dict] = []
+    lines_scanned = 0
+    lines_added_total = 0
+
+    for filename, after_content in bank_files_after.items():
+        before_content = bank_files_before.get(filename, "")
+        if before_content == after_content:
+            continue
+
+        before_lines = set(before_content.splitlines())
+        for raw_line in after_content.splitlines():
+            line = raw_line.strip()
+            if not line or line in before_lines:
+                continue
+
+            lines_added_total += 1
+            tokens = _extract_claim_tokens(line)
+            has_status = _has_strong_status_claim(line)
+
+            # Ligne non claim (pas de métrique, pas de statut fort) → skip
+            if not tokens and not has_status:
+                continue
+
+            lines_scanned += 1
+
+            # Marker `[inféré]` explicite → trace mais pas compté comme
+            # non sourcé (le LLM a explicitement signalé l'inférence).
+            if _INFERRED_MARKER_RE.search(line):
+                inferred += 1
+                continue
+
+            # Si au moins UN token vérifiable apparaît dans les notes
+            # → claim partiellement sourcé, on l'accepte.
+            sourced = any(tok in notes_corpus for tok in tokens) if tokens else False
+
+            # Cas particulier : statut fort sans aucun token vérifiable
+            # (ex: "Bug résolu" sans date ni version). On exige que la
+            # racine du statut apparaisse littéralement dans les notes.
+            if not sourced and has_status and not tokens:
+                m = _STATUS_RE.search(line)
+                if m:
+                    status_word = _normalize_for_match(m.group(0))
+                    sourced = status_word in notes_corpus
+
+            if not sourced:
+                unattributed += 1
+                if len(examples) < max_examples:
+                    examples.append(
+                        {
+                            "filename": filename,
+                            "line": line[:200],
+                            "tokens": sorted(tokens)[:8],
+                        }
+                    )
+
+    return {
+        "unattributed_claims_count": unattributed,
+        "inferred_claims_count": inferred,
+        "examples": examples,
+        "lines_scanned": lines_scanned,
+        "lines_added": lines_added_total,
+    }
+
+
+
+# ─────────────────────────────────────────────────────────────
 # Prompts
 # ─────────────────────────────────────────────────────────────
 
@@ -142,7 +357,18 @@ Ces règles sont OBLIGATOIRES et prioritaires sur toute autre considération :
    d'une étape N, et que la bank affiche encore "Étape N-1 en cours", marque N-1 comme
    terminée par inférence. De même, si Phase N+1 est en cours → Phase N est terminée.
 
+8. **Markers de traçabilité `[inféré]`** : tout fait qui n'est pas LITTÉRALEMENT présent
+   dans une note du batch, mais que tu produis par INFÉRENCE TRANSITIVE (règle #7) ou
+   par déduction logique (ex: "Phase 3 en cours" → "Phase 2 terminée"), DOIT être
+   suivi du marker `[inféré]` à la fin de la phrase ou du bullet. Exemples :
+     - "Phase 3 démarrée le 12/03 [inféré, suite progress Phase 2 terminée]"
+     - "Migration terminée [inféré]"
+   Les faits DIRECTEMENT sourcés (présents en l'état dans une note) ne portent JAMAIS
+   le marker. Cette traçabilité permet à un opérateur de distinguer faits durs et
+   déductions, et facilite la validation post-consolidation.
+
 ## Règles générales :
+
 - Respecte STRICTEMENT la structure définie dans les rules
 - Intègre les nouvelles informations des notes live
 - Préfère append_to_section et replace_section — ce sont les opérations les plus courantes
@@ -218,6 +444,10 @@ class ConsolidatorService:
         # Bank compaction settings
         self._compact_threshold = settings.compact_threshold
         self._bank_file_max_size = settings.bank_file_max_size
+        # Issue #17 — Pass de validation post-consolidation (opt-in)
+        self._validation_enabled = settings.consolidation_validation_enabled
+        self._validation_max_examples = settings.consolidation_validation_max_examples
+
 
     async def consolidate(self, space_id: str, agent: str = "") -> dict:
         """
@@ -328,6 +558,13 @@ class ConsolidatorService:
         total_completion_tokens = 0
         batches_completed = 0
         last_synthesis_size = 0
+        # Issue #17 — validation post-pass accumulée sur tous les batches
+        validation_unattributed = 0
+        validation_inferred = 0
+        validation_lines_scanned = 0
+        validation_lines_added = 0
+        validation_examples: list[dict] = []
+
 
         # Bank et synthèse courantes (relues entre les lots)
         current_bank = inputs["bank_files"]
@@ -355,8 +592,19 @@ class ConsolidatorService:
                 current_bank = await storage.list_and_get(f"{space_id}/bank/")
                 current_synthesis = await storage.get(f"{space_id}/_synthesis.md")
 
+            # Issue #17 — Snapshot bank avant le batch (pour pass de validation)
+            # On capture filename → content pour pouvoir comparer après écriture.
+            # Pas d'écriture S3 supplémentaire : on relit depuis `current_bank`.
+            bank_before_batch: dict[str, str] = {}
+            if self._validation_enabled:
+                for bf in current_bank:
+                    raw_relpath = bank_relpath(bf["key"], space_id)
+                    fname = _sanitize_filename(raw_relpath)
+                    bank_before_batch[fname] = bf.get("content", "")
+
             # Construire le prompt pour ce lot
             messages = self._build_prompt(
+
                 space_id=space_id,
                 rules=rules,
                 synthesis=current_synthesis,
@@ -418,7 +666,64 @@ class ConsolidatorService:
                 write_result.get("llm_tokens_used", 0),
             )
 
+            # Issue #17 — Pass de validation post-batch (opt-in).
+            # On relit la bank actuelle (état après _write_results) et on
+            # diffe avec le snapshot pris avant le batch. Aucun appel LLM :
+            # déterministe, économique, idempotent. Le résultat est
+            # purement informatif (pas de blocage de la consolidation).
+            if self._validation_enabled:
+                try:
+                    bank_after_raw = await storage.list_and_get(
+                        f"{space_id}/bank/"
+                    )
+                    bank_after_batch: dict[str, str] = {}
+                    for bf in bank_after_raw:
+                        raw_relpath = bank_relpath(bf["key"], space_id)
+                        fname = _sanitize_filename(raw_relpath)
+                        bank_after_batch[fname] = bf.get("content", "")
+
+                    val = _validate_unattributed_claims(
+                        bank_files_before=bank_before_batch,
+                        bank_files_after=bank_after_batch,
+                        notes=batch_notes,
+                        max_examples=self._validation_max_examples,
+                    )
+                    validation_unattributed += val["unattributed_claims_count"]
+                    validation_inferred += val["inferred_claims_count"]
+                    validation_lines_scanned += val["lines_scanned"]
+                    validation_lines_added += val["lines_added"]
+                    # On ne garde que les `_validation_max_examples` premiers
+                    # exemples toutes batches confondues, pour borner le payload.
+                    remaining_slots = (
+                        self._validation_max_examples - len(validation_examples)
+                    )
+                    if remaining_slots > 0:
+                        validation_examples.extend(
+                            val["examples"][:remaining_slots]
+                        )
+                    if val["unattributed_claims_count"] > 0:
+                        logger.warning(
+                            "Batch %d/%d validation — %d claim(s) non sourcé(s) "
+                            "détecté(s) (sur %d lignes scannées, %d marquées "
+                            "[inféré]). Voir examples dans la réponse MCP.",
+                            batch_idx,
+                            batch_count,
+                            val["unattributed_claims_count"],
+                            val["lines_scanned"],
+                            val["inferred_claims_count"],
+                        )
+                except Exception as e:
+                    # La validation est best-effort — ne doit pas faire
+                    # échouer la consolidation si elle plante.
+                    logger.error(
+                        "Validation pass error (batch %d/%d) — %s",
+                        batch_idx,
+                        batch_count,
+                        e,
+                    )
+
         # ── Étape 4 : Mettre à jour le meta (une seule fois) ─
+
         if total_notes > 0:
             now = datetime.now(timezone.utc).isoformat()
             meta = await storage.get_json(f"{space_id}/_meta.json") or {}
@@ -448,7 +753,7 @@ class ConsolidatorService:
             duration,
         )
 
-        return {
+        result = {
             "status": "ok",
             "space_id": space_id,
             "notes_processed": total_notes,
@@ -467,7 +772,21 @@ class ConsolidatorService:
             "duration_seconds": duration,
         }
 
+        # Issue #17 — Métriques de validation (opt-in)
+        if self._validation_enabled:
+            result["validation"] = {
+                "enabled": True,
+                "unattributed_claims_count": validation_unattributed,
+                "inferred_claims_count": validation_inferred,
+                "lines_added": validation_lines_added,
+                "lines_scanned": validation_lines_scanned,
+                "examples": validation_examples,
+            }
+
+        return result
+
     async def _collect_inputs(self, space_id: str, agent: str = "") -> dict:
+
         """
         Étape 1 : Lire les rules, synthèse, notes de l'agent et bank depuis S3.
 

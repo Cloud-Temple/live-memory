@@ -99,6 +99,22 @@ class Settings(BaseSettings):
     # un flux de travail humain. Mettre à 0 pour désactiver (déconseillé).
     consolidation_cooldown_seconds: int = 60
 
+    # Issue #17 — Pass de validation post-consolidation (opt-in).
+    # Quand activée, après chaque batch consolidé, on compte les "claims"
+    # (faits/métriques/dates) du bank modifié qui n'apparaissent dans
+    # AUCUNE note du batch. Ce compteur (`unattributed_claims_count`) est
+    # remonté dans le résultat de bank_consolidate pour observabilité.
+    # Approche code-only (regex + pattern matching) : pas de tokens LLM,
+    # déterministe, simple à raisonner. Faux positifs possibles sur du
+    # contenu structurel inchangé — voir _validate_unattributed_claims().
+    # Par défaut désactivé pour ne pas alourdir les consolidations
+    # existantes ; à activer en observabilité/CI.
+    consolidation_validation_enabled: bool = False
+    # Plafond de claims rapportés (les premiers détectés, pour borner
+    # la taille du payload retourné au caller MCP).
+    consolidation_validation_max_examples: int = 20
+
+
     # ─── Bank Compaction ──────────────────────────────────────
     # Compaction automatique des fichiers bank avant consolidation
     # quand le contexte total est trop gros pour le LLM.
