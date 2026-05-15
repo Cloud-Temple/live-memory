@@ -16,6 +16,13 @@ build/
 venv/
 env/
 
+# === Test / Coverage artifacts ===
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+
 # === Environment / Secrets ===
 .env
 .env.local

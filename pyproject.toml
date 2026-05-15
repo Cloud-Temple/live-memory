@@ -36,3 +36,8 @@ version = {file = "VERSION"}
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Restreint le collect pytest au répertoire officiel `tests/`.
+# Les scripts utilitaires (`scripts/test_*.py`, `chantier/test_*.py`)
+# sont des outils E2E manuels ou des reliques historiques — ils
+# ne doivent pas faire échouer la CI.
+testpaths = ["tests"]

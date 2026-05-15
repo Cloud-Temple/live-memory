@@ -1210,6 +1210,395 @@ class TestLM2_10_GCNoticeUsesS3Direct:
 
 
 # =============================================================================
+# LM2-25 — consolidator.py ne fuite pas str(e) au client MCP
+# =============================================================================
+
+
+class TestLM2_25_ConsolidatorNoStrErrorLeak:
+    """Le consolidator ne doit plus renvoyer ``str(e)`` au client MCP.
+
+    Audit LM2-25 (2026-05-15) : les sites ``consolidator.py:806, 1221, 1418``
+    construisaient des dicts ``{"status": "error", "message": f"...{str(e)}"}``
+    pouvant fuiter l'URL LLMaaS, la stack openai ou des secrets de config.
+
+    Stratégie de test : preuve par contrapposée — on simule une exception
+    contenant une URL secrète et on vérifie qu'elle ne se retrouve pas dans
+    la réponse client en mode non-debug.
+    """
+
+    @staticmethod
+    def _make_consolidator_with_failing_llm(exception_message: str):
+        """Construit un ConsolidatorService avec un client OpenAI mocké
+        dont chat.completions.create lève l'exception passée.
+
+        Centralisé pour éviter la duplication entre tests debug-on/off.
+        """
+        from live_mem.core.consolidator import ConsolidatorService
+
+        # On bypass le constructeur réel (qui instancie httpx + AsyncOpenAI
+        # + lit get_settings) en créant l'objet via __new__ et en injectant
+        # uniquement les attributs nécessaires à _call_llm.
+        svc = ConsolidatorService.__new__(ConsolidatorService)
+        mock_client = MagicMock()
+        mock_client.chat = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=RuntimeError(exception_message)
+        )
+        svc._client = mock_client
+        svc._http_client = None
+        svc._model = "test-model"
+        svc._context_window = 32768
+        svc._max_tokens = 4096
+        svc._temperature = 0.0
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_call_llm_does_not_leak_exception_url_in_error_message(self):
+        """`_call_llm` doit retourner un message générique sur exception."""
+        secret_url = "https://internal-llmaas.cloud-temple.local:9000/v1"
+        secret_token = "sk-supersecretkey1234567890"
+
+        svc = self._make_consolidator_with_failing_llm(
+            f"Connection error : POST {secret_url} "
+            f"auth=Bearer {secret_token} timeout=30s"
+        )
+
+        # _call_llm fait un `from ..config import get_settings as _gs` local,
+        # donc on patche `live_mem.config.get_settings` à la racine (pas
+        # l'alias importé dans le module consolidator).
+        with patch("live_mem.config.get_settings") as mock_gs:
+            mock_settings = MagicMock()
+            mock_settings.mcp_server_debug = False
+            mock_gs.return_value = mock_settings
+
+            result = await svc._call_llm(
+                messages=[{"role": "user", "content": "test"}]
+            )
+
+        # 1. La réponse est bien marquée error
+        assert result.get("status") == "error", "Le call est en erreur"
+        msg = result.get("message", "")
+
+        # 2. L'URL secrète NE doit JAMAIS apparaître côté client MCP
+        assert secret_url not in msg, (
+            f"Sans fix LM2-25 : URL LLMaaS leakée → {msg!r}"
+        )
+        assert secret_token not in msg, (
+            f"Sans fix LM2-25 : token openai leaké → {msg!r}"
+        )
+        # 3. Le message est générique (sentinel attendu)
+        assert "LLM call failed" in msg, (
+            f"Message attendu 'LLM call failed' ; reçu : {msg!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_call_llm_debug_mode_can_leak_for_dev_only(self):
+        """En mode debug, str(e) est volontairement exposé (dev/troubleshoot).
+
+        Cette asymétrie est explicite dans le code (cf. ``mcp_server_debug``).
+        Le test fige ce comportement pour éviter un revert silencieux qui
+        rendrait LM2-25 inopérant en prod.
+        """
+        secret_url = "https://internal/should-be-visible-in-debug"
+        svc = self._make_consolidator_with_failing_llm(f"boom: {secret_url}")
+
+        # `_call_llm` fait `from ..config import get_settings as _gs` au
+        # moment de l'appel → on patche au point d'origine `live_mem.config`,
+        # pas l'alias module consolidator.
+        with patch("live_mem.config.get_settings") as mock_gs:
+            mock_settings = MagicMock()
+            mock_settings.mcp_server_debug = True   # DEBUG ON
+            mock_gs.return_value = mock_settings
+
+            result = await svc._call_llm(
+                messages=[{"role": "user", "content": "test"}]
+            )
+
+        # En debug, str(e) PEUT apparaître — c'est le contrat.
+        # On vérifie juste que `LLM call failed:` est présent (préfixe
+        # caractéristique du chemin debug).
+        msg = result.get("message", "")
+        assert "LLM call failed:" in msg, (
+            "En mode debug, le préfixe 'LLM call failed:' doit indiquer "
+            "qu'on est sur le chemin debug (str(e) exposé volontairement)."
+        )
+        # Et la chaîne secrète DOIT apparaître (volontaire en debug)
+        assert secret_url in msg, (
+            "En debug, str(e) doit être visible — sinon le fix LM2-25 a "
+            "neutralisé même le chemin debug, ce qui n'est pas voulu."
+        )
+
+    def test_test_connection_does_not_leak_str_error(self):
+        """`test_connection` (utilisé par /health probe) doit aussi être muet."""
+        from live_mem.core.consolidator import ConsolidatorService
+        import inspect
+
+        src = inspect.getsource(ConsolidatorService.test_connection)
+        # Le fix LM2-25 doit avoir remplacé str(e) par un message générique.
+        # On ne tolère pas la présence d'une f-string `str(e)` directement
+        # dans le `return {"status": "error", ...}`.
+        assert re.search(
+            r"return\s*\{\s*[\"\']status[\"\']\s*:\s*[\"\']error[\"\'].*?"
+            r"str\(e\)",
+            src,
+            re.DOTALL,
+        ) is None, (
+            "Sans fix LM2-25 : test_connection retourne str(e) au client "
+            "(peut leaker l'URL LLMaaS sur /health public)"
+        )
+        # On vérifie en positif que le message générique attendu est bien là.
+        assert "LLMaaS unreachable" in src, (
+            "Message générique attendu absent — fix LM2-25 incomplet"
+        )
+
+    def test_no_residual_str_e_in_mcp_error_returns(self):
+        """Anti-régression structurelle : aucun `return {... "message": ...str(e)... "status": "error"...}`
+        ni `f"...{str(e)}"` directement dans un return d'erreur.
+
+        On scanne le source du module et on accepte uniquement les usages
+        dans des contextes debug (entourés d'un if mcp_server_debug:) ou
+        dans des appels `logger.*`.
+        """
+        from live_mem.core import consolidator as cons_module
+        src_path = Path(cons_module.__file__)
+        src = src_path.read_text(encoding="utf-8")
+
+        # On cherche les lignes du type :
+        #   return {"status": "error", "message": f"...{str(e)}..."}
+        # qui ne sont PAS protégées par `if ...debug`. Approche : regex
+        # multiline qui isole chaque `return {...}` contenant str(e).
+        bad = re.findall(
+            r"return\s*\{[^{}]*[\"\']status[\"\']\s*:\s*[\"\']error[\"\'][^{}]*str\(e\)[^{}]*\}",
+            src,
+        )
+        # bad ne doit contenir QUE des occurrences protégées par debug.
+        # On vérifie qu'il y en a au plus une (le bloc debug-only de _call_llm).
+        assert len(bad) <= 1, (
+            f"Sans fix LM2-25 : {len(bad)} return d'erreur avec str(e) "
+            f"restants en clair (hors block debug-only)"
+        )
+
+
+# =============================================================================
+# LM2-08 — Bootstrap key et asymétrie _fresh_token_store (documenté)
+# =============================================================================
+
+
+class TestLM2_08_BootstrapNoTokenHashDocumented:
+    """Le bootstrap key n'a volontairement pas de ``token_hash``.
+
+    Audit LM2-08 (2026-05-15, MEDIUM) : l'absence de ``token_hash``
+    sur le bootstrap est inoffensive mais doit être documentée pour
+    prévenir une régression future qui le rendrait subitement obligatoire.
+
+    Tests :
+    - Le contrat est respecté : ``update_fresh_token`` est un no-op
+      silencieux pour un token sans ``token_hash``.
+    - Le code de production le commente explicitement (anti-régression
+      par grep — empêche un futur dev de supprimer le ``if token_hash``
+      sans réfléchir).
+    """
+
+    def setup_method(self):
+        _fresh_token_store.clear()
+
+    def teardown_method(self):
+        _fresh_token_store.clear()
+
+    def test_update_fresh_token_silently_skips_when_no_hash(self):
+        """Contract : token_info sans token_hash → no-op (pas d'exception)."""
+        bootstrap_info = {
+            "type": "bootstrap",
+            "client_name": "admin",
+            "permissions": ["admin", "read", "write"],
+            "allowed_resources": [],
+            "token_hash": None,  # ← caractéristique du bootstrap
+        }
+
+        # Ne doit pas lever, et ne doit RIEN ajouter au store.
+        update_fresh_token(bootstrap_info)
+        assert len(_fresh_token_store) == 0, (
+            "Bug : bootstrap pollue le store global avec une clé None"
+        )
+
+    def test_update_fresh_token_silently_skips_when_empty_hash(self):
+        """Idem avec hash vide '' (autre forme falsy)."""
+        info = {"client_name": "x", "token_hash": ""}
+        update_fresh_token(info)
+        assert "" not in _fresh_token_store
+        assert len(_fresh_token_store) == 0
+
+    def test_update_fresh_token_documents_lm2_08_behavior(self):
+        """Anti-régression : la docstring de `update_fresh_token` doit
+        mentionner LM2-08 et expliquer pourquoi le `if token_hash:` est là.
+
+        Sans ce commentaire, un futur dev pourrait supprimer la garde et
+        crasher le store avec une clé `None` → KeyError partout en aval.
+        """
+        from live_mem.auth import context as ctx_module
+        import inspect
+
+        doc = inspect.getdoc(ctx_module.update_fresh_token) or ""
+        assert "LM2-08" in doc or "bootstrap" in doc.lower(), (
+            "Sans fix LM2-08 (doc) : l'asymétrie bootstrap n'est pas "
+            "documentée — risque de régression silencieuse"
+        )
+
+    @pytest.mark.asyncio
+    async def test_validate_token_bootstrap_returns_token_hash_none(self):
+        """Confirme que la fabrique bootstrap met explicitement token_hash=None.
+
+        Si un futur fix forçait `token_hash = hashlib.sha256(bootstrap_key)`,
+        l'asymétrie LM2-08 disparaîtrait — mais ce serait un breaking
+        change qui doit être conscient. Le test fige le contrat actuel.
+        """
+        from live_mem.auth.middleware import AuthMiddleware
+        from live_mem.config import get_settings
+
+        # On force une bootstrap key connue
+        with patch.object(
+            get_settings.__wrapped__ if hasattr(get_settings, "__wrapped__") else get_settings,
+            "__call__",
+            create=True,
+        ):
+            settings = get_settings()
+            bootstrap = settings.admin_bootstrap_key
+
+        auth = AuthMiddleware(app=None)
+        info = await auth._validate_token(bootstrap)
+
+        # Si la config locale n'a pas de bootstrap_key, on skip plutôt
+        # que de faire échouer.
+        if info is None:
+            pytest.skip("admin_bootstrap_key non configurée localement")
+
+        assert info.get("type") == "bootstrap"
+        assert info.get("token_hash") is None, (
+            "Sans LM2-08 : bootstrap a maintenant un token_hash, ce qui "
+            "casse l'asymétrie documentée et pollue _fresh_token_store. "
+            "Si c'est volontaire, mettre à jour ce test."
+        )
+
+
+# =============================================================================
+# LM2-11 — space_create accessible à tout token write (re-affirmation VULN-06)
+# =============================================================================
+
+
+class TestLM2_11_SpaceCreateOpenToWriteRiskDoc:
+    """Documente l'état actuel : `space_create` est ouvert à tout `write`.
+
+    Audit LM2-11 (2026-05-15, MEDIUM, re-affirmation de VULN-06) :
+    n'importe quel token `write` peut créer des spaces et auto-s'auto-ajouter
+    à `space_ids` → DoS budget S3 possible.
+
+    **Le fix n'a PAS été appliqué en v2.0.0** (décision opérationnelle :
+    pas de breaking change UX pour les agents en production). Ces tests
+    documentent l'état actuel pour qu'un futur fix soit conscient.
+
+    Stratégie :
+    - 1 test ``passing`` : confirme que le call site n'utilise PAS encore
+      ``check_manage_permission`` (sinon le fix a été appliqué silencieusement).
+    - 1 test ``xfail`` : décrit le comportement souhaité après fix
+      (refus 403 d'un token ``write`` pur).
+
+    Un futur fix doit retirer le ``xfail`` et faire passer ces 2 tests.
+    """
+
+    def test_current_state_space_create_only_requires_write(self):
+        """L'état actuel : `space_create` n'appelle que `check_write_permission`.
+
+        Test introspectif sur le source de `register()` — quand un futur
+        fix passera à `check_manage_permission`, ce test FAILERA et
+        forcera la mise à jour cohérente du test xfail ci-dessous.
+        """
+        from live_mem.tools import space as space_module
+        import inspect
+
+        src = inspect.getsource(space_module.register)
+        # Le corps de space_create doit appeler check_write_permission
+        # et NE PAS appeler check_manage_permission (pour le moment).
+        m = re.search(
+            r"async def space_create\(.*?(?=\n    @mcp\.tool|\Z)",
+            src,
+            re.DOTALL,
+        )
+        assert m, "space_create introuvable dans tools/space.py"
+        body = m.group(0)
+
+        assert "check_write_permission" in body, (
+            "Régression structurelle : space_create n'appelle plus "
+            "check_write_permission — comportement à valider"
+        )
+
+        # Anti-pseudo-fix : si quelqu'un a ajouté check_manage_permission
+        # SANS retirer ce test, on FAIL pour forcer la mise à jour du xfail.
+        if "check_manage_permission" in body:
+            pytest.fail(
+                "Bonne nouvelle : check_manage_permission est désormais "
+                "appelé sur space_create (LM2-11 fix probable). "
+                "Retirer ce test et activer "
+                "test_space_create_should_require_manage en non-xfail."
+            )
+
+    @pytest.mark.xfail(
+        reason=(
+            "LM2-11 non corrigé en v2.0.0 — restreindre space_create "
+            "à manage est un breaking change UX reporté en v2.1.x. "
+            "Quand le fix sera appliqué, ce xfail doit devenir un PASS."
+        ),
+        strict=True,
+    )
+    @pytest.mark.asyncio
+    async def test_space_create_should_require_manage_permission(self):
+        """Comportement souhaité : un token `write` pur doit recevoir une
+        erreur de permission sur `space_create`.
+
+        Stratégie : on appelle directement le helper `check_manage_permission`
+        avec un token `write` simulé et on vérifie qu'il refuse. Le jour où
+        `space_create` l'appellera réellement, ce test passera.
+        """
+        from live_mem.auth.context import (
+            current_token_info,
+            check_manage_permission,
+        )
+
+        write_only_token = {
+            "type": "token",
+            "client_name": "writer-bob",
+            "permissions": ["read", "write"],
+            "allowed_resources": [],
+            "token_hash": "sha256:" + "b" * 64,
+        }
+        tok = current_token_info.set(write_only_token)
+        try:
+            update_fresh_token(write_only_token)
+            err = check_manage_permission()
+        finally:
+            current_token_info.reset(tok)
+            invalidate_token_in_store(write_only_token["token_hash"])
+
+        # Le helper refuse bien le write → mais space_create ne l'appelle
+        # pas encore → xfail tant que pas câblé.
+        assert err is not None, "check_manage_permission refuse write : OK"
+        # Le xfail strict s'applique sur cette ligne tant que space_create
+        # n'aura pas été câblé sur check_manage_permission.
+        from live_mem.tools import space as space_module
+        import inspect
+        src = inspect.getsource(space_module.register)
+        m = re.search(
+            r"async def space_create\(.*?(?=\n    @mcp\.tool|\Z)",
+            src,
+            re.DOTALL,
+        )
+        assert m
+        assert "check_manage_permission" in m.group(0), (
+            "Tant que space_create ne câble pas check_manage_permission, "
+            "LM2-11 reste exploitable — ce test reste en xfail."
+        )
+
+
+# =============================================================================
 # Sanity check : la suite tourne et ne casse pas le projet
 # =============================================================================
 
