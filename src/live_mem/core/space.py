@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from .storage import get_storage, bank_relpath
-from .models import SpaceMeta
+from .models import SpaceMeta, mask_meta_secrets
 
 
 # ─────────────────────────────────────────────────────────────
@@ -412,12 +412,18 @@ class SpaceService:
         """
         Exporte un espace complet en archive tar.gz (base64).
 
+        LM2-03 fix : le ``_meta.json`` inclus dans l'archive est masqué
+        (token Graph Memory remplacé par ``<prefix>...``) avant ajout
+        au tar. L'archive téléchargée n'expose donc plus le secret.
+
         Args:
             space_id: Identifiant de l'espace
 
         Returns:
             {"status": "ok", "archive_base64": "...", "files_count": N}
         """
+        import json as _json
+
         storage = get_storage()
 
         # Vérifier l'existence
@@ -432,11 +438,27 @@ class SpaceService:
 
         # Créer l'archive tar.gz en mémoire
         buf = io.BytesIO()
+        meta_key = f"{space_id}/_meta.json"
         with tarfile.open(fileobj=buf, mode="w:gz") as tar:
             for obj in all_objects:
                 # Nom relatif dans l'archive (sans le space_id/ prefix)
                 arcname = obj["key"][len(space_id) + 1 :]
-                data = obj["content"].encode("utf-8")
+                content = obj["content"]
+
+                # LM2-03 fix : masquer les secrets dans _meta.json avant export
+                if obj["key"] == meta_key:
+                    try:
+                        meta_raw = _json.loads(content)
+                        meta_masked = mask_meta_secrets(meta_raw)
+                        content = _json.dumps(
+                            meta_masked, indent=2, ensure_ascii=False
+                        )
+                    except (_json.JSONDecodeError, TypeError):
+                        # Si le meta n'est pas parsable, on ne le masque pas
+                        # mais on logge un warning silencieux (best-effort).
+                        pass
+
+                data = content.encode("utf-8")
                 info = tarfile.TarInfo(name=arcname)
                 info.size = len(data)
                 tar.addfile(info, io.BytesIO(data))

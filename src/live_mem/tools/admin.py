@@ -270,17 +270,31 @@ def register(mcp: FastMCP) -> int:
                 description="True = supprime uniquement les tokens révoqués, False = supprime TOUS les tokens",
             ),
         ] = True,
+        confirm: Annotated[
+            bool,
+            Field(
+                default=False,
+                description=(
+                    "LM2-31 : OBLIGATOIRE quand revoked_only=False (purge totale). "
+                    "Garde-fou contre une suppression accidentelle de tous les tokens "
+                    "qui laisserait le serveur en mode bootstrap-only."
+                ),
+            ),
+        ] = False,
     ) -> dict:
         """
         Purge en masse les tokens du registre.
 
         Par défaut, ne supprime que les tokens révoqués (nettoyage).
-        Avec revoked_only=False, supprime TOUS les tokens (reset complet).
+        Avec revoked_only=False, supprime TOUS les tokens (reset complet)
+        ET nécessite ``confirm=True`` depuis v2.0.0 (LM2-31 fix).
 
         ⚠️ Opération irréversible. Le bootstrap key (env var) n'est pas affecté.
 
         Args:
             revoked_only: True = tokens révoqués seulement, False = tous
+            confirm: Requis (True) si revoked_only=False — sécurité contre
+                la perte accidentelle de tous les tokens du service.
 
         Returns:
             Nombre de tokens supprimés et restants
@@ -292,6 +306,21 @@ def register(mcp: FastMCP) -> int:
             admin_err = check_admin_permission()
             if admin_err:
                 return admin_err
+
+            # LM2-31 fix : exiger confirm=True pour la purge totale.
+            # La purge des seuls révoqués reste possible sans confirm (nettoyage
+            # courant, non-destructeur pour les agents actifs).
+            if not revoked_only and not confirm:
+                return {
+                    "status": "error",
+                    "message": (
+                        "Purge totale refusée : confirm=True requis quand "
+                        "revoked_only=False. Cette opération supprime TOUS les "
+                        "tokens et laisserait le serveur accessible uniquement "
+                        "via la bootstrap_key. Si c'est bien votre intention, "
+                        "rappelez l'outil avec confirm=True."
+                    ),
+                }
 
             return await get_token_service().purge_tokens(revoked_only=revoked_only)
         except Exception as e:

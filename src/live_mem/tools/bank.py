@@ -22,11 +22,50 @@ fichiers bank structurés. Un seul consolidate à la fois par espace
 Voir CONSOLIDATION_LLM.md pour le pipeline détaillé.
 """
 
+import re
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
+
+
+# LM2-12 fix : caractères interdits dans les noms de fichiers bank.
+# Le sanitize Unicode existant ne couvrait que les chars invisibles.
+# Ces caractères-ci permettent un XSS persistant côté web (LM2-01) si
+# un opérateur compromis écrit un fichier nommé `<img src=x onerror=...>`.
+# La règle s'applique au filename ENTIER (y compris les sous-dossiers).
+# Les `/` restent autorisés comme séparateurs de sous-dossiers (Option B v0.9.0).
+_BANK_FILENAME_DANGEROUS = re.compile(r"[<>\"'\\\x00-\x1f\x7f]")
+
+
+def _validate_bank_filename(filename: str) -> dict | None:
+    """
+    LM2-12 fix : refuse les filenames bank contenant des caractères dangereux.
+
+    Retourne None si OK, sinon un dict d'erreur prêt à être renvoyé.
+    """
+    if not filename or not filename.strip():
+        return {"status": "error", "message": "Nom de fichier requis"}
+    if ".." in filename:
+        return {
+            "status": "error",
+            "message": "Nom de fichier invalide : '..' interdit",
+        }
+    if filename.startswith("/"):
+        return {
+            "status": "error",
+            "message": "Nom de fichier invalide : ne peut pas commencer par '/'",
+        }
+    if _BANK_FILENAME_DANGEROUS.search(filename):
+        return {
+            "status": "error",
+            "message": (
+                "Caractères dangereux dans le nom de fichier "
+                "(< > \" ' \\ ou caractères de contrôle interdits)"
+            ),
+        }
+    return None
 
 
 def register(mcp: FastMCP) -> int:
@@ -592,6 +631,13 @@ def register(mcp: FastMCP) -> int:
             if manage_err:
                 return manage_err
 
+            # LM2-12 fix : refuser les caractères dangereux (XSS persistant
+            # côté web — voir LM2-01). Cette validation s'ajoute au
+            # _sanitize_filename existant qui ne traitait que l'Unicode.
+            name_err = _validate_bank_filename(filename)
+            if name_err:
+                return name_err
+
             storage = get_storage()
 
             # Vérifier l'existence de l'espace
@@ -608,6 +654,13 @@ def register(mcp: FastMCP) -> int:
                     "status": "error",
                     "message": f"Nom de fichier invalide : '{filename}'",
                 }
+
+            # Re-valider après sanitisation Unicode (défense en profondeur :
+            # _sanitize_filename pourrait ne pas être idempotent face à
+            # certaines combinaisons de caractères).
+            post_sanitize_err = _validate_bank_filename(sanitized)
+            if post_sanitize_err:
+                return post_sanitize_err
 
             # Écrire le fichier avec le nom canonique
             canonical_key = f"{space_id}/bank/{sanitized}"
@@ -648,6 +701,16 @@ def register(mcp: FastMCP) -> int:
     async def bank_delete(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
         filename: Annotated[str, Field(description="Nom du fichier bank à supprimer")],
+        confirm: Annotated[
+            bool,
+            Field(
+                default=False,
+                description=(
+                    "LM2-31 : doit être True pour confirmer la suppression "
+                    "(harmonisation avec space_delete, backup_restore, backup_delete)."
+                ),
+            ),
+        ] = False,
     ) -> dict:
         """
         Supprime un fichier de la Memory Bank (manage).
@@ -656,11 +719,14 @@ def register(mcp: FastMCP) -> int:
         nom sanitisé à des chemins S3 différents).
 
         ⚠️ Irréversible. Utilisez bank_read pour sauvegarder le contenu
-        avant de supprimer si nécessaire.
+        avant de supprimer si nécessaire. Depuis v2.0.0 (LM2-31 fix), un
+        ``confirm=True`` explicite est requis pour éviter les suppressions
+        accidentelles par un opérateur ``manage``.
 
         Args:
             space_id: Identifiant de l'espace
             filename: Nom du fichier à supprimer (peut inclure un sous-dossier)
+            confirm: Doit être True pour confirmer (sécurité)
 
         Returns:
             Nombre de fichiers supprimés (incluant les doublons)
@@ -677,6 +743,18 @@ def register(mcp: FastMCP) -> int:
             manage_err = check_manage_permission()
             if manage_err:
                 return manage_err
+
+            # LM2-31 fix : exiger confirm=True (harmonisation avec les autres
+            # outils destructifs : space_delete, backup_restore, backup_delete,
+            # admin_gc_notes).
+            if not confirm:
+                return {
+                    "status": "error",
+                    "message": (
+                        "Suppression refusée : confirm=True requis pour "
+                        "supprimer un fichier bank (sécurité, irréversible)."
+                    ),
+                }
 
             storage = get_storage()
 

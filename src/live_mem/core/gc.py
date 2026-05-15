@@ -16,12 +16,58 @@ Architecture :
 """
 
 import re
+import json
+import uuid
 import logging
 from datetime import datetime, timezone, timedelta
 
 from .storage import get_storage
 
 logger = logging.getLogger("live_mem.gc")
+
+
+# LM2-10 fix : helper interne pour écrire une note "GC notice" en imitant
+# l'identité de l'agent orphelin. live.write_note() auto-détecte le caller
+# depuis le token courant (v0.8.1 : Token = Agent) et ne permet plus de
+# choisir un agent libre — c'est volontaire pour la sécurité, mais cela
+# casse le pattern du GC qui doit attacher la notice à l'agent disparu
+# (sinon la consolidation forcée par agent ne les inclura pas).
+#
+# Solution : écrire le fichier directement sur S3 avec le format standard
+# d'une note live (front-matter YAML + corps Markdown), en utilisant le
+# nom d'agent passé. Cet appel est protégé par le pipeline (GC = admin only).
+async def _write_gc_notice(
+    space_id: str,
+    agent_name: str,
+    content: str,
+) -> str:
+    """
+    Écrit directement une note ``observation`` au nom d'un agent donné.
+
+    Bypass volontaire de ``live.write_note()`` pour conserver l'identité
+    de l'agent orphelin (cf. v0.8.1 — Token = Agent).
+
+    Returns:
+        Le nom de fichier S3 créé.
+    """
+    storage = get_storage()
+    now = datetime.now(timezone.utc)
+    timestamp_str = now.strftime("%Y%m%dT%H%M%S")
+    uuid8 = uuid.uuid4().hex[:8]
+    safe_agent = re.sub(r"[^a-zA-Z0-9_-]", "", agent_name) or "agent"
+    filename = f"{timestamp_str}_{safe_agent}_observation_{uuid8}.md"
+
+    front_matter = (
+        "---\n"
+        f'timestamp: "{now.isoformat()}"\n'
+        f'agent: "{agent_name}"\n'
+        'category: "observation"\n'
+        f"tags: {json.dumps(['gc', 'forced-consolidation'])}\n"
+        f'space_id: "{space_id}"\n'
+        "---\n\n"
+    )
+    await storage.put(f"{space_id}/live/{filename}", front_matter + content)
+    return filename
 
 
 class GCService:
@@ -137,7 +183,6 @@ class GCService:
         Returns:
             Rapport de consolidation par espace et par agent
         """
-        from .live import get_live_service
         from .consolidator import get_consolidator
         from .locks import get_lock_manager
 
@@ -151,7 +196,6 @@ class GCService:
             return scan
 
         consolidator = get_consolidator()
-        live = get_live_service()
         total_consolidated = 0
         consolidation_results = {}
 
@@ -172,12 +216,27 @@ class GCService:
                     f"car l'agent n'est plus actif."
                 )
 
-                await live.write_note(
-                    space_id=sid,
-                    category="observation",
-                    content=gc_notice,
-                    agent=agent_name,  # Même agent → inclus dans sa consolidation
-                )
+                # LM2-10 fix : live.write_note() ne prend plus de paramètre
+                # `agent` depuis v0.8.1 (Token = Agent). On écrit donc
+                # directement sur S3 via _write_gc_notice() pour conserver
+                # l'identité de l'agent orphelin (sinon la consolidation
+                # par agent ne l'inclut pas dans son filtre).
+                try:
+                    await _write_gc_notice(
+                        space_id=sid,
+                        agent_name=agent_name,
+                        content=gc_notice,
+                    )
+                except Exception as e:
+                    # Best-effort : la notice est informative, son échec
+                    # ne doit pas empêcher la consolidation des notes
+                    # orphelines elles-mêmes.
+                    logger.warning(
+                        "GC: échec écriture notice pour '%s' dans '%s': %s",
+                        agent_name,
+                        sid,
+                        e,
+                    )
 
                 # 2. Consolider les notes de cet agent
                 lock = get_lock_manager().consolidation(sid)

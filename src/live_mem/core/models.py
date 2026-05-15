@@ -36,6 +36,48 @@ class GraphMemoryConfig(BaseModel):
     files_pushed: int = 0  # Nombre de fichiers poussés au dernier push
 
 
+def mask_meta_secrets(meta: Optional[dict]) -> Optional[dict]:
+    """
+    LM2-03 fix : masque les secrets dans une copie d'un _meta.json.
+
+    Doit être appliqué AVANT toute exposition vers l'extérieur :
+
+    - réponses API REST (``/api/space/{id}`` — déjà fixé en VULN-12)
+    - retour de outils MCP exposant le meta (``space_summary``, ``space_export``)
+    - dump de backups (``backup_download``)
+
+    Le token Graph Memory était auparavant masqué uniquement dans
+    ``/api/space/{id}`` (VULN-12 partiel). Cette fonction généralise
+    le masquage à tous les chemins, transformant le token en
+    ``"<prefix>..."`` (8 premiers chars du token + ellipse).
+
+    Args:
+        meta: dict _meta.json brut (ou None si l'espace n'existe pas)
+
+    Returns:
+        Une COPIE du dict avec ``graph_memory.token`` masqué, ou ``None``
+        si l'entrée était None. Ne modifie pas l'entrée.
+    """
+    if not meta:
+        return meta
+
+    gm = meta.get("graph_memory")
+    if not gm:
+        return meta
+
+    token = gm.get("token") if isinstance(gm, dict) else None
+    if not token:
+        return meta
+
+    # Copie défensive (jamais muter le dict en place — pourrait corrompre
+    # un singleton de cache ou une réponse parallèle).
+    masked_token = token[:8] + "..." if len(token) > 8 else "***"
+    return {
+        **meta,
+        "graph_memory": {**gm, "token": masked_token},
+    }
+
+
 class SpaceMeta(BaseModel):
     """
     Métadonnées d'un espace (_meta.json sur S3).

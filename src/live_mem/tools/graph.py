@@ -19,11 +19,87 @@ Le push utilise une synchronisation intelligente :
 Voir core/graph_bridge.py pour la logique métier et le client MCP Streamable HTTP.
 """
 
-from typing import Annotated
+import ipaddress
+from typing import Annotated, Optional
+from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
+
+
+# LM2-02 fix : validation anti-SSRF du paramètre `url` de graph_connect.
+# Sans cette validation, n'importe quel token `write` pouvait faire émettre
+# une requête HTTP depuis le pod live-mem vers une URL arbitraire (IP privée,
+# metadata cloud 169.254.169.254, ...). L'URL persiste ensuite dans
+# `_meta.json` et est ré-utilisée à chaque graph_push.
+_ALLOWED_GM_SCHEMES = ("http", "https")
+
+
+def _validate_gm_url(url: str) -> Optional[str]:
+    """
+    Valide une URL de Graph Memory pour prévenir le SSRF.
+
+    Retourne None si l'URL est sûre, sinon un message d'erreur explicite
+    qui sera renvoyé tel quel à l'appelant (pas de fuite d'info sensible
+    — on dit juste ce qui est invalide).
+
+    Politique :
+    - scheme : http ou https uniquement (interdit file://, gopher://, ...)
+    - hostname : présent et non vide
+    - si hostname est une IP littérale :
+      - les IPs privées (RFC 1918) sont bloquées
+      - les IPs loopback (127.0.0.0/8) sont bloquées
+      - les IPs link-local (169.254.0.0/16 → metadata cloud AWS/GCP/Azure)
+        sont bloquées
+      - les IPs unspecified (0.0.0.0) sont bloquées
+      - les IPs multicast sont bloquées
+    - si hostname est un DNS : accepté tel quel (la résolution est confiée
+      au DNS du conteneur ; pour un anti-SSRF plus strict il faudrait
+      résoudre le DNS et valider l'IP résolue, mais cela introduit une
+      TOCTOU et n'est pas couvert par cette mitigation initiale).
+    """
+    if not url or not url.strip():
+        return "URL Graph Memory requise"
+
+    try:
+        u = urlparse(url.strip())
+    except Exception:
+        return f"URL Graph Memory invalide : '{url[:80]}'"
+
+    if u.scheme not in _ALLOWED_GM_SCHEMES:
+        return (
+            f"Scheme non autorisé pour Graph Memory : '{u.scheme}'. "
+            f"Attendu : {', '.join(_ALLOWED_GM_SCHEMES)}."
+        )
+
+    if not u.hostname:
+        return "Hostname requis dans l'URL Graph Memory"
+
+    # Si c'est une IP littérale, on bloque les ranges sensibles.
+    try:
+        ip = ipaddress.ip_address(u.hostname)
+    except ValueError:
+        # Hostname DNS — accepté (cf. note TOCTOU plus haut).
+        return None
+
+    if ip.is_private:
+        return f"IP privée interdite pour Graph Memory : {u.hostname}"
+    if ip.is_loopback:
+        return f"IP loopback interdite pour Graph Memory : {u.hostname}"
+    if ip.is_link_local:
+        return (
+            f"IP link-local interdite pour Graph Memory : {u.hostname} "
+            "(metadata cloud potentiellement exposée)"
+        )
+    if ip.is_unspecified:
+        return f"IP non spécifiée interdite pour Graph Memory : {u.hostname}"
+    if ip.is_multicast:
+        return f"IP multicast interdite pour Graph Memory : {u.hostname}"
+    if ip.is_reserved:
+        return f"IP réservée interdite pour Graph Memory : {u.hostname}"
+
+    return None
 
 
 def register(mcp: FastMCP) -> int:
@@ -95,6 +171,13 @@ def register(mcp: FastMCP) -> int:
             write_err = check_write_permission()
             if write_err:
                 return write_err
+
+            # LM2-02 fix : valider l'URL pour bloquer le SSRF (IP privées,
+            # metadata cloud, schemes non HTTP). Doit être fait AVANT toute
+            # tentative de connexion réseau ET avant la persistance S3.
+            url_err = _validate_gm_url(url)
+            if url_err:
+                return {"status": "error", "message": url_err}
 
             return await get_graph_bridge().connect(
                 space_id=space_id,

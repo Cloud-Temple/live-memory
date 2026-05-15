@@ -15,11 +15,77 @@ Les backups sont des snapshots complets stockés dans _backups/ sur S3.
 Voir S3_DATA_MODEL.md pour l'arborescence.
 """
 
+import re
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
+
+
+# LM2-09 fix : validation stricte du format backup_id avant tout accès S3.
+# Le space_id doit matcher SPACE_ID_REGEX (déjà validé par check_access),
+# et le timestamp doit matcher le format ISO produit par BackupService.create.
+_SPACE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
+_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$")
+
+
+def _parse_backup_id(backup_id: str) -> tuple[str | None, str | None, dict | None]:
+    """
+    LM2-09 fix : parse et valide un backup_id au format ``"space_id/timestamp"``.
+
+    Returns:
+        Tuple ``(space_id, timestamp, error)`` :
+
+        - Si OK : ``(space_id, timestamp, None)``
+        - Si invalide : ``(None, None, {"status": "error", ...})``
+
+    Sécurité : la validation regex est appliquée AVANT tout accès S3
+    pour empêcher path traversal (ex: ``"../_system/foo"``) ou injection
+    de préfixes système.
+    """
+    if not backup_id or not isinstance(backup_id, str):
+        return (
+            None,
+            None,
+            {"status": "error", "message": "backup_id requis"},
+        )
+
+    parts = backup_id.split("/", 1)
+    if len(parts) != 2:
+        return (
+            None,
+            None,
+            {
+                "status": "error",
+                "message": "backup_id invalide (format attendu: space_id/timestamp)",
+            },
+        )
+
+    sid, ts = parts
+    if not _SPACE_ID_RE.match(sid):
+        return (
+            None,
+            None,
+            {
+                "status": "error",
+                "message": f"space_id invalide dans backup_id : '{sid[:64]}'",
+            },
+        )
+    if not _TIMESTAMP_RE.match(ts):
+        return (
+            None,
+            None,
+            {
+                "status": "error",
+                "message": (
+                    f"timestamp invalide dans backup_id : '{ts[:32]}' "
+                    "(attendu : YYYY-MM-DDTHH-MM-SS)"
+                ),
+            },
+        )
+
+    return sid, ts, None
 
 
 def register(mcp: FastMCP) -> int:
@@ -187,10 +253,22 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Nombre de fichiers restaurés
         """
-        from ..auth.context import check_manage_permission
+        from ..auth.context import check_access, check_manage_permission
         from ..core.backup import get_backup_service
 
         try:
+            # LM2-09 fix : valider le format backup_id AVANT tout accès S3
+            space_id, _ts, parse_err = _parse_backup_id(backup_id)
+            if parse_err:
+                return parse_err
+
+            # LM2-29 fix : vérifier l'accès à l'espace en plus de la permission
+            # manage. Sans cela, un opérateur manage restreint à `["project-a"]`
+            # pouvait restaurer un backup de `project-b` (cross-tenant leak).
+            access_err = check_access(space_id)
+            if access_err:
+                return access_err
+
             manage_err = check_manage_permission()
             if manage_err:
                 return manage_err
@@ -231,8 +309,11 @@ def register(mcp: FastMCP) -> int:
             if token_info is None:
                 return {"status": "error", "message": "Authentification requise"}
 
-            # Extraire le space_id du backup_id ("space_id/timestamp")
-            space_id = backup_id.split("/")[0] if "/" in backup_id else backup_id
+            # LM2-09 fix : valider strictement le backup_id avant accès S3
+            space_id, _ts, parse_err = _parse_backup_id(backup_id)
+            if parse_err:
+                return parse_err
+
             access_err = check_access(space_id)
             if access_err:
                 return access_err
@@ -267,10 +348,21 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Nombre de fichiers supprimés
         """
-        from ..auth.context import check_manage_permission
+        from ..auth.context import check_access, check_manage_permission
         from ..core.backup import get_backup_service
 
         try:
+            # LM2-09 fix : valider le format backup_id AVANT tout accès S3
+            space_id, _ts, parse_err = _parse_backup_id(backup_id)
+            if parse_err:
+                return parse_err
+
+            # LM2-29 fix : check_access en plus de check_manage_permission
+            # (cf. backup_restore — même rationale anti cross-tenant).
+            access_err = check_access(space_id)
+            if access_err:
+                return access_err
+
             manage_err = check_manage_permission()
             if manage_err:
                 return manage_err

@@ -22,10 +22,12 @@ Voir S3_DATA_MODEL.md pour les détails.
 
 import base64
 import io
+import json as _json
 import tarfile
 from datetime import datetime, timezone
 
 from .storage import get_storage
+from .models import mask_meta_secrets
 
 
 class BackupService:
@@ -272,6 +274,11 @@ class BackupService:
         """
         Télécharge un backup en archive tar.gz (base64).
 
+        LM2-03 fix : si l'archive contient un ``_meta.json``, le token
+        Graph Memory est masqué avant ajout au tar (mêmes garanties
+        que ``space_export``). L'archive téléchargée n'expose donc plus
+        le secret stocké en clair sur S3.
+
         Args:
             backup_id: Format "space_id/timestamp"
 
@@ -296,10 +303,26 @@ class BackupService:
 
         # Créer l'archive tar.gz
         buf = io.BytesIO()
+        meta_key = f"{backup_prefix}_meta.json"
         with tarfile.open(fileobj=buf, mode="w:gz") as tar:
             for obj in all_objects:
                 arcname = obj["key"][len(backup_prefix) :]
-                data = obj["content"].encode("utf-8")
+                content = obj["content"]
+
+                # LM2-03 fix : masquer le token GM dans _meta.json avant export
+                if obj["key"] == meta_key:
+                    try:
+                        meta_raw = _json.loads(content)
+                        meta_masked = mask_meta_secrets(meta_raw)
+                        content = _json.dumps(
+                            meta_masked, indent=2, ensure_ascii=False
+                        )
+                    except (_json.JSONDecodeError, TypeError):
+                        # Best-effort : on n'écrit pas en clair si parse échoue
+                        # → on remplace par un meta vide protecteur.
+                        content = "{}"
+
+                data = content.encode("utf-8")
                 info = tarfile.TarInfo(name=arcname)
                 info.size = len(data)
                 tar.addfile(info, io.BytesIO(data))
