@@ -286,6 +286,7 @@ def register(mcp: FastMCP) -> int:
         from ..auth.context import (
             check_access,
             check_write_permission,
+            check_manage_permission,
             check_admin_permission,
             get_current_agent_name,
         )
@@ -303,21 +304,22 @@ def register(mcp: FastMCP) -> int:
 
             # Règles de permissions pour bank_consolidate :
             #
-            # 1. admin → peut consolider tout (agent="" = toutes les notes)
-            #    ou les notes d'un agent spécifique (agent="xxx")
+            # 1. manage+ (manage ou admin) → peut consolider tout
+            #    (agent="" = toutes les notes) ou les notes d'un agent
+            #    spécifique (agent="xxx")
             #
-            # 2. write (pas admin) → ne peut consolider QUE ses propres notes
+            # 2. write (pas manage) → ne peut consolider QUE ses propres notes
             #    - agent="" → auto-set à caller (on consolide ses propres notes)
             #    - agent=caller → OK
-            #    - agent=autre → REFUSÉ (admin requis)
+            #    - agent=autre → REFUSÉ (manage requis)
             #
             # 3. read → REFUSÉ (write minimum requis)
 
-            admin_err = check_admin_permission()
-            is_admin = admin_err is None
+            manage_err = check_manage_permission()
+            is_manager = manage_err is None
 
-            if is_admin:
-                # Admin : peut tout consolider, pas de restriction
+            if is_manager:
+                # Manage+ : peut tout consolider, pas de restriction
                 pass
             else:
                 # Vérifier au minimum la permission write
@@ -325,12 +327,12 @@ def register(mcp: FastMCP) -> int:
                 if write_err:
                     return write_err
 
-                # Write sans admin : on ne peut consolider que ses notes
+                # Write sans manage : on ne peut consolider que ses notes
                 if agent and agent != caller:
                     return {
                         "status": "error",
                         "message": (
-                            f"Permission 'admin' requise pour consolider "
+                            f"Permission 'manage' requise pour consolider "
                             f"les notes de l'agent '{agent}'. "
                             f"Vous pouvez consolider vos propres notes "
                             f"avec agent='{caller}' ou agent='' (auto-détection)."

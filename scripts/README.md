@@ -1,120 +1,153 @@
 # 🖥️ Live Memory CLI, Shell & Tests
 
-> CLI scriptable, shell interactif et scripts de test pour Live Memory MCP v1.4.0.
+> Scriptable CLI, interactive shell and test scripts for Live Memory MCP v1.9.0.
+
+🇫🇷 [Version française](README.fr.md)
 
 ---
 
-## Prérequis
+## Prerequisites
 
 ```bash
 pip install click rich prompt-toolkit mcp[cli]>=1.8.0
 ```
 
-Variables d'environnement :
+Environment variables:
 ```bash
-export MCP_URL=http://localhost:8080    # URL du serveur (via WAF)
-export MCP_TOKEN=votre_token_secret     # Token d'authentification
+export MCP_URL=http://localhost:8080    # Server URL (via WAF)
+export MCP_TOKEN=your_secret_token      # Authentication token
 ```
 
 ---
 
-## CLI scriptable (Click)
+## Scriptable CLI (Click)
 
 ```bash
-python scripts/mcp_cli.py health                      # État de santé
-python scripts/mcp_cli.py whoami                       # Identité du token courant
-python scripts/mcp_cli.py about                        # Informations service
-python scripts/mcp_cli.py space list                   # Lister les espaces
-python scripts/mcp_cli.py space create id desc rules   # Créer un espace
-python scripts/mcp_cli.py space update id -d "desc"    # Modifier description/owner
-python scripts/mcp_cli.py space summary id             # Synthèse complète
-python scripts/mcp_cli.py space export id              # Exporter en tar.gz
-python scripts/mcp_cli.py live note space obs "msg"    # Écrire une note
-python scripts/mcp_cli.py bank consolidate space       # Consolider via LLM
-python scripts/mcp_cli.py token create nom -p read,write --email u@ex.com  # Créer un token
-python scripts/mcp_cli.py token update sha256:a8c5 --email u@ex.com    # Modifier un token
-python scripts/mcp_cli.py token list                                    # Lister les tokens
-python scripts/mcp_cli.py graph push space             # Pousser vers Graph Memory
-python scripts/mcp_cli.py bank compact space            # Analyser les fichiers surdimensionnés (dry-run)
-python scripts/mcp_cli.py bank compact space --apply    # Compacter via LLM (admin)
-python scripts/mcp_cli.py backup create space           # Créer un backup
-python scripts/mcp_cli.py backup create --all           # Backup TOUS les espaces (admin)
-python scripts/mcp_cli.py backup download id           # Télécharger un backup
+python scripts/mcp_cli.py health                      # Health status
+python scripts/mcp_cli.py whoami                       # Current token identity
+python scripts/mcp_cli.py about                        # Service info
+python scripts/mcp_cli.py space list                   # List spaces
+python scripts/mcp_cli.py space create id desc rules   # Create a space
+python scripts/mcp_cli.py space update id -d "desc"    # Update description/owner
+python scripts/mcp_cli.py space summary id             # Full summary
+python scripts/mcp_cli.py space export id              # Export as tar.gz
+python scripts/mcp_cli.py live note space obs "msg"    # Write a note
+python scripts/mcp_cli.py bank consolidate space       # LLM consolidation
+python scripts/mcp_cli.py token create name -p read,write --email u@ex.com  # Create a token
+python scripts/mcp_cli.py token update sha256:a8c5 --email u@ex.com     # Update a token
+python scripts/mcp_cli.py token list                                     # List tokens
+python scripts/mcp_cli.py graph push space             # Push to Graph Memory
+python scripts/mcp_cli.py bank compact space            # Analyze oversized files (dry-run)
+python scripts/mcp_cli.py bank compact space --apply    # Compact via LLM (manage)
+python scripts/mcp_cli.py backup create space           # Create a backup
+python scripts/mcp_cli.py backup create --all           # Backup ALL spaces (admin)
+python scripts/mcp_cli.py backup download id           # Download a backup
 python scripts/mcp_cli.py gc --space-id id --confirm   # Garbage Collector
 ```
 
-Pour l'aide complète : `python scripts/mcp_cli.py --help`
+Full help: `python scripts/mcp_cli.py --help`
 
 ---
 
-## Shell interactif
+## Interactive Shell
 
 ```bash
 python scripts/mcp_cli.py shell
 ```
 
-Le shell offre :
-- **Autocomplétion** (Tab) sur toutes les commandes
-- **Historique** persistant (`~/.live_mem_shell_history`)
-- **Affichage Rich** coloré (tables, panels, Markdown)
+Features:
+- **Tab completion** on all commands
+- **Persistent history** (`~/.live_mem_shell_history`)
+- **Rich display** with colors (tables, panels, Markdown)
 
 ---
 
-## 🧪 Scripts de test
+## 🧪 Test Scripts
 
-### Test de recette global — `test_recette.py`
+### Anti-Hallucination Test — `test_hallucination.py`
 
-Script unifié avec **4 suites sélectionnables** par ligne de commande :
+Reproduces and detects LLM consolidator hallucinations (Issue #17). 5 scenarios, 25 assertions.
 
 ```bash
-# Lister les suites disponibles
+# All scenarios
+python scripts/test_hallucination.py
+
+# Single scenario (A, B, C, ABC, D, E, ALL)
+python scripts/test_hallucination.py --scenario D
+
+# Verbose + keep test spaces
+python scripts/test_hallucination.py -v --keep
+```
+
+| Scenario | Detects |
+|----------|---------|
+| A | Invented file structure (Next.js for a Rails project) |
+| B | Invented metrics (LoC not in notes) |
+| C | Domain term reinterpretation (Group, Lens) |
+| D | Replaced plan not removed from backlog |
+| E | Stale status despite newer progress notes |
+
+---
+
+### Global Test Suite — `test_recette.py`
+
+Unified script with **4 selectable suites** via command line:
+
+```bash
+# List available suites
 python scripts/test_recette.py --list
 
-# TOUTES les suites (50 tests, ~75s)
+# ALL suites (44 tests, ~60s)
 python scripts/test_recette.py --url http://localhost:8085
 
-# Juste une suite
-python scripts/test_recette.py --suite recette     # Pipeline agent (7 tests)
+# Single suite
+python scripts/test_recette.py --suite recette     # Agent pipeline (7 tests)
 python scripts/test_recette.py --suite isolation    # Multi-tenant (18 tests)
-python scripts/test_recette.py --suite qualite      # Outils MCP (19 tests)
+python scripts/test_recette.py --suite qualite      # MCP tools (19 tests)
 
-# Plusieurs suites
+# Multiple suites
 python scripts/test_recette.py --suite recette,isolation
 
 # Options
-python scripts/test_recette.py --suite isolation -v --step  # Verbose + pas-à-pas
-python scripts/test_recette.py --no-cleanup                  # Conserver les données
+python scripts/test_recette.py --suite isolation -v --step  # Verbose + step-by-step
+python scripts/test_recette.py --no-cleanup                  # Keep test data
 ```
 
-#### Suites disponibles
+#### Available Suites
 
 | Suite | Tests | Description |
 |---|---|---|
-| `recette` | 7 | Pipeline complet : token → espace → notes → consolidation LLM → bank → cleanup |
-| `isolation` | 18 | Tests d'isolation multi-tenant v0.7.1 : accès inter-espaces refusé, filtrage backup_list, read-only, auto-ajout space au token |
-| `qualite` | 19 | Tests des outils MCP : system, admin, space, live, bank, backup, GC |
-| `graph` | ~10 | Pont vers Graph Memory : connect, push, status, disconnect (optionnel, nécessite `--graph-url` et `--graph-token`) |
+| `recette` | 7 | Full pipeline: token → space → notes → LLM consolidation → bank → cleanup |
+| `isolation` | 18 | Multi-tenant isolation v0.7.1: cross-space access denied, backup_list filtering, read-only enforcement, auto-add space to token |
+| `qualite` | 19 | MCP tools testing: system, admin, space, live, bank, backup, GC |
+| `graph` | ~8 | Graph Memory bridge: connect, push, status, disconnect (optional, requires `--graph-url` and `--graph-token`) |
 
-**Résultat attendu** : 50 PASS, 0 FAIL (sans graph). Avec graph : ~54 PASS.
+**Expected result**: 44 PASS, 0 FAIL (without graph). With graph: ~52 PASS.
 
 ```bash
-# Suite graph (nécessite Graph Memory en cours d'exécution)
+# Graph suite (requires running Graph Memory instance)
 python scripts/test_recette.py --suite graph \
-  --graph-url https://graph-mem.mcp.cloud-temple.app \
+  --graph-url http://host.docker.internal:8080 \
   --graph-token TOKEN
 ```
 
+> ⚠️ When Live Memory runs in Docker, use `host.docker.internal` instead of `localhost` for Graph Memory URLs.
+
 ---
 
-## Options communes
+## Common Options
 
 | Option | Description |
 |---|---|
-| `--url` | URL du serveur Live Memory (défaut: `$MCP_URL` ou `http://localhost:8080`) |
-| `--token` | Bootstrap key admin (défaut: `$ADMIN_BOOTSTRAP_KEY` ou `.env`) |
-| `--step` | Mode pas-à-pas (pause entre chaque étape) |
-| `--no-cleanup` | Conserver les données après le test |
-| `-v` | Affichage détaillé |
+| `--url` | Live Memory server URL (default: `$MCP_URL` or `http://localhost:8080`) |
+| `--token` | Admin bootstrap key (default: `$ADMIN_BOOTSTRAP_KEY` or `.env`) |
+| `--suite` | Suites to run, comma-separated (default: all) |
+| `--graph-url` | Graph Memory URL (for `--suite graph`) |
+| `--graph-token` | Graph Memory token (for `--suite graph`) |
+| `--step` | Step-by-step mode (pause between steps) |
+| `--no-cleanup` | Keep test data after completion |
+| `-v` | Verbose output |
+| `--list` | List available suites and exit |
 
 ---
 
@@ -122,17 +155,21 @@ python scripts/test_recette.py --suite graph \
 
 ```
 scripts/
-├── mcp_cli.py                # Point d'entrée CLI Click + Shell interactif
-├── test_recette.py           # 🧪 Script de recette global (4 suites, ~50 tests)
-├── README.md                 # ← Vous êtes ici
+├── mcp_cli.py                # CLI entry point (Click) + Interactive shell
+├── test_recette.py           # 🧪 Global test suite (4 suites, ~44 tests)
+├── test_hallucination.py     # 🧪 Anti-hallucination tests (Issue #17, 5 scenarios)
+├── test_bank_compact.py      # 🧪 Bank compaction unit tests
+├── test_dedup_fix.py         # 🧪 Deduplication fix tests
+├── README.md                 # Documentation (English) ← You are here
+├── README.fr.md              # Documentation (French)
 └── cli/
     ├── __init__.py           # Config (BASE_URL, TOKEN)
-    ├── client.py             # MCPClient Streamable HTTP (SDK MCP)
-    ├── commands.py           # Commandes Click
-    ├── display.py            # Affichage Rich (tables, panels)
-    └── shell.py              # Shell interactif prompt_toolkit
+    ├── client.py             # MCPClient Streamable HTTP (MCP SDK)
+    ├── commands.py           # Click commands
+    ├── display.py            # Rich display (tables, panels)
+    └── shell.py              # Interactive shell (prompt_toolkit)
 ```
 
 ---
 
-*Live Memory CLI v1.4.0*
+*Live Memory CLI v1.9.0*

@@ -1,61 +1,61 @@
-# RULES — Modèles de Rules pour Live Memory
+# RULES — Rules Templates for Live Memory
 
-Ce répertoire contient des **modèles de rules** (templates) utilisables lors de la création d'un espace mémoire (`space_create`) dans Live Memory.
+This directory contains **rules templates** that can be used when creating a memory space (`space_create`) in Live Memory.
 
-## Qu'est-ce qu'une Rule ?
+## What Are Rules?
 
-Les **rules** définissent la **structure de la Memory Bank** d'un espace : quels fichiers doivent être créés et maintenus, quel contenu y est attendu, et comment le LLM consolidateur doit organiser les notes en fichiers structurés.
+**Rules** define the **structure of a space's Memory Bank**: which files must be created and maintained, what content is expected in each, and how the LLM consolidator should organize notes into structured files.
 
-Elles sont **immuables après création** de l'espace — il est donc important de bien les choisir dès le départ.
+Rules are **immutable after space creation** — choosing the right template from the start matters.
 
-## Pourquoi les Rules sont critiques
+## Why Rules Are Critical
 
-Les rules ne sont pas une simple documentation. Elles sont **injectées intégralement dans le prompt du LLM** à chaque consolidation (`bank_consolidate`). Voici le pipeline :
+Rules are not mere documentation. They are **injected verbatim into the LLM prompt** at every consolidation (`bank_consolidate`). Here is the pipeline:
 
-1. Le consolidateur lit `_rules.md` mot pour mot depuis S3
-2. Le contenu complet est injecté dans le prompt utilisateur envoyé au LLM
-3. Le system prompt instruit le LLM de *"respecter STRICTEMENT la structure définie dans les rules"*
+1. The consolidator reads `_rules.md` word for word from S3
+2. The full content is injected into the user prompt sent to the LLM
+3. The system prompt instructs the LLM to *"strictly follow the structure defined in the rules"*
 
-**Concrètement, chaque mot que vous écrivez dans les rules est lu et interprété par le LLM consolidateur.** C'est un contrat direct entre vous et le modèle. Les instructions de consolidation (mapping catégories → fichiers, règles de fiabilité, consignes spécialisées) ne sont pas décoratives — elles orientent réellement le comportement du LLM.
+**In practice, every word you write in the rules is read and interpreted by the LLM consolidator.** It is a direct contract between you and the model. Consolidation instructions (category-to-file mapping, reliability rules, domain-specific guidelines) are not decorative — they genuinely shape the LLM's behavior.
 
-> ⚠️ **Conséquence** : la qualité des rules détermine directement la qualité de la consolidation. Des rules précises produisent une bank structurée et fiable. Des rules vagues produisent des résultats imprévisibles.
+> ⚠️ **Consequence**: the quality of the rules directly determines the quality of the consolidation. Precise rules produce a structured and reliable bank. Vague rules produce unpredictable results.
 
-## Modèles disponibles
+## Available Templates
 
-| Fichier                              | Domaine         | Description                                                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `live-mem.standard.memory.bank.md`   | **Général**     | Modèle polyvalent pour tout projet logiciel. 6 fichiers obligatoires (projectbrief, productContext, activeContext, systemPatterns, techContext, progress). Idéal pour le développement, l'architecture et la gestion de projet. C'est le modèle utilisé par le space `live-mem`.                                                                     |
-| `book.memory.bank.md`               | **Écriture**    | Modèle pour l'écriture de livres (essai, roman, guide). 6 fichiers obligatoires (bookbrief, bookContext, narrativeDesign, writingContext, activeContext, progress). Suivi narratif, voix et ton, compteurs de mots par chapitre, retours de relecture, tracking d'avancement par chapitre.                                                           |
-| `medical.memory.bank.md`            | **Médical**     | Modèle adapté au suivi médical. 7 fichiers obligatoires (profilGeneral, histoireDiagnostic, contexteSante, medicamentationTraitements, specialistesSuivi, profilSante, progression) + 2 optionnels (visualisationDonnees, protocoleUrgence). Inclut une règle de fiabilité absolue pour les données biologiques.                                     |
-| `presales.memory.bank.md`           | **Avant-vente** | Modèle pour l'analyse de propositions commerciales B2B. 5 fichiers de base (proposalContext, activeAnalysis, analysisProgress, rulesLearned, methodologieAnalyse) + fichiers personas dynamiques (un par décideur : dirigeant, acheteur, DSI, RSSI, expert). Gestion des contradictions, capitalisation des patterns argumentaires, tracking visuel. |
-| `product.management.memory.bank.md` | **Product Management** | Modèle pour une équipe produit (PM + Product Design + UX Writing). 11 fichiers obligatoires (productVision, portfolio, marketIntelligence, userKnowledge, **stakeholders**, designSystem, **communicationGuide**, engineeringContext, discoveryPlaybook, activeContext, roadmapProgress) + fichiers dynamiques personas (`persona-*.md`), features (`feature-*.md`) et frameworks (`framework-*.md`). Pipeline discovery (intake → Impact Review), frameworks de référence (JTBD, PLG, 7 Powers…), feature template enrichi (success metrics, rollout plan, risks & recovery, AI behavior contract), stakeholder intelligence, PM communication standards par registre, decision log ADR. |
+| File                                 | Domain              | Description                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `live-mem.standard.memory.bank.md`   | **General**         | Versatile template for any software project. 6 mandatory files (projectbrief, productContext, activeContext, systemPatterns, techContext, progress). Ideal for development, architecture, and project management. This is the template used by the `live-mem` space itself.                                                                                  |
+| `book.memory.bank.md`               | **Writing**         | Template for book writing (essay, novel, guide). 6 mandatory files (bookbrief, bookContext, narrativeDesign, writingContext, activeContext, progress). Narrative tracking, voice and tone, word counts per chapter, review feedback, chapter-level progress tracking.                                                                                        |
+| `medical.memory.bank.md`            | **Medical**         | Template for medical follow-up. 7 mandatory files (profilGeneral, histoireDiagnostic, contexteSante, medicamentationTraitements, specialistesSuivi, profilSante, progression) + 2 optional (visualisationDonnees, protocoleUrgence). Includes an absolute reliability rule for biological data.                                                              |
+| `presales.memory.bank.md`           | **Presales**        | Template for B2B sales proposal analysis. 5 base files (proposalContext, activeAnalysis, analysisProgress, rulesLearned, methodologieAnalyse) + dynamic persona files (one per decision-maker: executive, buyer, CIO, CISO, expert). Contradiction management, argumentative pattern capitalization, visual tracking.                                        |
+| `product.management.memory.bank.md` | **Product Management** | Template for a product team (PM + Product Design + UX Writing). 11 mandatory files (productVision, portfolio, marketIntelligence, userKnowledge, stakeholders, designSystem, communicationGuide, engineeringContext, discoveryPlaybook, activeContext, roadmapProgress) + dynamic persona, feature, and framework files. Discovery pipeline, reference frameworks (JTBD, PLG, 7 Powers…), enriched feature template, stakeholder intelligence, ADR decision log. |
 
-## Comment utiliser un modèle
+## How to Use a Template
 
-1. **Choisir** le modèle adapté à votre domaine
-2. **Personnaliser** si nécessaire (les rules sont en Markdown libre)
-3. **Créer l'espace** en passant le contenu des rules :
+1. **Choose** the template that fits your domain
+2. **Customize** if needed (rules are free-form Markdown)
+3. **Create the space** by passing the rules content:
 
 ```python
 space_create(
-    space_id="mon-projet",
-    description="Mon projet de développement",
-    rules=<contenu du fichier .md choisi>
+    space_id="my-project",
+    description="My development project",
+    rules=<content of the chosen .md file>
 )
 ```
 
-Ou via la CLI :
+Or via the CLI:
 ```bash
-python scripts/mcp_cli.py space create mon-projet "Mon projet" --rules-file RULES/standard.memory.bank.md
+python scripts/mcp_cli.py space create my-project "My project" --rules-file RULES/standard.memory.bank.md
 ```
 
-## Créer son propre modèle
+## Creating Your Own Template
 
-Vous pouvez créer un modèle personnalisé en vous inspirant du modèle standard. Les éléments clés à définir sont :
+You can create a custom template by drawing inspiration from the standard model. Key elements to define:
 
-- **Les fichiers obligatoires** : noms, rôles, contenu attendu
-- **La hiérarchie** : comment les fichiers se construisent les uns sur les autres
-- **Le mapping consolidation** : quelle catégorie de note alimente quel fichier
-- **Les règles de consolidation** : instructions pour le LLM (ne pas perdre d'info, synthétiser, etc.)
+- **Mandatory files**: names, roles, expected content
+- **Hierarchy**: how files build on each other
+- **Consolidation mapping**: which note category feeds which file
+- **Consolidation rules**: instructions for the LLM (don't lose information, synthesize, etc.)
 
-> 💡 **Conseil** : un bon modèle de rules est suffisamment précis pour guider le LLM consolidateur, mais assez flexible pour s'adapter à l'évolution du projet.
+> 💡 **Tip**: a good rules template is precise enough to guide the LLM consolidator, yet flexible enough to adapt as the project evolves.

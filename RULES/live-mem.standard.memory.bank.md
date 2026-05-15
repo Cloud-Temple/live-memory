@@ -1,154 +1,154 @@
-# Standard Memory Bank Rules — LIVE MEMORY v1.2.0
+# Standard Memory Bank Rules — LIVE MEMORY v1.9.0
 
-## Principe fondamental
+## Core Principle
 
-La Memory Bank est la SEULE source de vérité entre les sessions d'un agent IA. Après chaque reset mémoire, l'agent recommence à zéro et dépend ENTIÈREMENT de ces fichiers pour comprendre le projet et continuer efficacement. La qualité et la précision de la bank sont donc critiques.
+The Memory Bank is the ONLY source of truth between sessions for an AI agent. After every memory reset, the agent starts from zero and depends ENTIRELY on these files to understand the project and continue effectively. The quality and accuracy of the bank are therefore critical.
 
-## Structure et hiérarchie des fichiers
+## File Structure and Hierarchy
 
-Les fichiers se construisent les uns sur les autres dans une hiérarchie claire :
+Files build on each other in a clear hierarchy:
 
 ```
-projectbrief.md (fondation)
-├── productContext.md (pourquoi le projet existe)
-├── systemPatterns.md (architecture et patterns)
-└── techContext.md (stack technique et setup)
-    └── activeContext.md (synthèse du focus actuel)
-        └── progress.md (journal d'avancement)
+projectbrief.md (foundation)
+├── productContext.md (why the project exists)
+├── systemPatterns.md (architecture and patterns)
+└── techContext.md (tech stack and setup)
+    └── activeContext.md (current focus summary)
+        └── progress.md (advancement journal)
 ```
 
-- `projectbrief.md` est le document fondateur qui façonne tous les autres
-- `productContext.md`, `systemPatterns.md`, `techContext.md` en dérivent
-- `activeContext.md` synthétise le focus actuel à partir de tous les autres
-- `progress.md` trace l'avancement global et l'historique
+- `projectbrief.md` is the foundational document that shapes all others
+- `productContext.md`, `systemPatterns.md`, `techContext.md` derive from it
+- `activeContext.md` synthesizes the current focus from all other files
+- `progress.md` tracks overall advancement and history
 
-## Fichiers à maintenir (6 fichiers obligatoires)
+## Mandatory Files (6 files)
 
 ### projectbrief.md
-**Fondation du projet — rarement modifié.**
-- Vision et objectifs fondamentaux du projet
-- Périmètre (scope) et limites explicites
-- Exigences clés et contraintes structurantes
-- Parties prenantes et propriétaire
-- Source de vérité pour le périmètre du projet
-- Ce fichier ne change que si le projet pivote fondamentalement
-- Tout nouvel agent doit lire ce fichier en premier
+**Project foundation — rarely modified.**
+- Fundamental vision and objectives of the project
+- Explicit scope and boundaries
+- Key requirements and structural constraints
+- Stakeholders and owner
+- Source of truth for the project's scope
+- This file only changes if the project fundamentally pivots
+- Every new agent must read this file first
 
 ### productContext.md
-**Pourquoi ce projet existe — le contexte produit.**
-- Problèmes concrets résolus par le projet
-- Comment le produit fonctionne (flux principal, concepts clés)
-- Terminologie et vocabulaire du domaine
-- Objectifs d'expérience utilisateur (UX goals)
-- Positionnement par rapport aux alternatives existantes
-- Ce fichier aide un nouvel agent à comprendre le "pourquoi" et le "comment"
+**Why this project exists — the product context.**
+- Concrete problems the project solves
+- How the product works (main flow, key concepts)
+- Domain terminology and vocabulary
+- User experience goals (UX goals)
+- Positioning relative to existing alternatives
+- This file helps a new agent understand the "why" and the "how"
 
 ### activeContext.md
-**Le fichier le plus dynamique — le point d'entrée de chaque session.**
-- Focus actuel : ce sur quoi on travaille maintenant
-- Travail récemment accompli (dernières sessions, pas l'historique complet)
-- Prochaines étapes concrètes (todo list priorisée)
-- Décisions actives et considérations en cours
-- Patterns et préférences importants découverts récemment
-- Apprentissages et insights de la session
-- IMPORTANT : ce fichier doit refléter l'ÉTAT ACTUEL, pas l'historique complet
-- Les éléments terminés doivent être déplacés vers progress.md
-- C'est le PREMIER fichier qu'un agent lit pour reprendre le travail
-- **Taille cible : < 8 KB** — au-delà, c'est un signal d'inflation ; déplacer l'historique vers progress.md
+**The most dynamic file — the entry point of every session.**
+- Current focus: what is being worked on right now
+- Recently completed work (last few sessions, not the full history)
+- Concrete next steps (prioritized todo list)
+- Active decisions and ongoing considerations
+- Important patterns and preferences recently discovered
+- Learnings and insights from the session
+- IMPORTANT: this file must reflect the CURRENT STATE, not the full history
+- Completed items must be moved to progress.md
+- This is the FIRST file an agent reads to resume work
+- **Target size: < 8 KB** — beyond this, it signals inflation; move history to progress.md
 
 ### systemPatterns.md
-**Architecture et patterns techniques du projet.**
-- Architecture globale du système (avec schémas textuels si pertinent)
-- Décisions techniques clés et leur justification (pourquoi ce choix)
-- Design patterns utilisés et conventions
-- Relations et dépendances entre composants
-- Chemins d'implémentation critiques
-- Conventions de code, standards et bonnes pratiques
-- Ce fichier capture les DÉCISIONS structurantes, pas les détails d'implémentation
-- **Quand un pattern évolue** (ex: migration d'architecture), REMPLACER la section existante — ne pas garder l'ancienne version
+**Architecture and technical patterns of the project.**
+- Overall system architecture (with text diagrams if relevant)
+- Key technical decisions and their justification (why this choice)
+- Design patterns used and conventions
+- Relationships and dependencies between components
+- Critical implementation paths
+- Code conventions, standards, and best practices
+- This file captures STRUCTURAL DECISIONS, not implementation details
+- **When a pattern evolves** (e.g., architecture migration), REPLACE the existing section — do not keep the old version
 
 ### techContext.md
-**Stack technique et environnement de développement.**
-- Technologies utilisées avec versions et rôles
-- Configuration du développement (setup pas à pas, commandes)
-- Contraintes techniques connues et contournements
-- Dépendances et leur gestion
-- Structure des fichiers source (arborescence commentée)
-- Patterns d'utilisation des outils (CLI, Docker, tests)
-- Ce fichier permet à un nouvel agent de configurer son environnement
+**Tech stack and development environment.**
+- Technologies used with versions and roles
+- Development setup (step-by-step, commands)
+- Known technical constraints and workarounds
+- Dependencies and their management
+- Source file structure (annotated tree)
+- Tool usage patterns (CLI, Docker, tests)
+- This file enables a new agent to set up their environment
 
 ### progress.md
-**Journal d'avancement — s'enrichit au fil du temps.**
-- Ce qui fonctionne (par version ou milestone), avec dates
-- Ce qui reste à construire (roadmap, backlog) — **retirer les items terminés**
-- Statut global du projet (vert/jaune/rouge)
-- Problèmes connus et contournements documentés
-- Métriques clés (lignes de code, tests, couverture, outils MCP) — **toujours à jour**
-- Évolution chronologique des décisions du projet
-- Ce fichier est le SEUL qui contient l'historique complet
+**Advancement journal — grows over time.**
+- What works (by version or milestone), with dates
+- What remains to be built (roadmap, backlog) — **remove completed items**
+- Overall project status (green/yellow/red)
+- Known problems and documented workarounds
+- Key metrics (lines of code, tests, coverage, MCP tools) — **always up to date**
+- Chronological evolution of project decisions
+- This file is the ONLY one that contains the complete history
 
-## Contexte additionnel
+## Additional Context
 
-Au-delà des 6 fichiers obligatoires, des fichiers additionnels peuvent être créés dans la bank quand ils aident à organiser :
-- Documentation de fonctionnalités complexes
-- Spécifications d'intégration
-- Documentation d'API
-- Stratégies de test
-- Procédures de déploiement
+Beyond the 6 mandatory files, additional files may be created in the bank when they help organize:
+- Complex feature documentation
+- Integration specifications
+- API documentation
+- Test strategies
+- Deployment procedures
 
-## Quand mettre à jour la Memory Bank
+## When to Update the Memory Bank
 
-La bank doit être mise à jour (via consolidation) :
-1. Après la découverte de nouveaux patterns ou conventions du projet
-2. Après l'implémentation de changements significatifs
-3. Quand le contexte a besoin de clarification
-4. En fin de session de travail (toujours)
-5. Avant un changement de sujet majeur
-6. Quand l'utilisateur demande explicitement une mise à jour
+The bank must be updated (via consolidation):
+1. After discovering new project patterns or conventions
+2. After implementing significant changes
+3. When the context needs clarification
+4. At the end of every work session (always)
+5. Before a major topic change
+6. When the user explicitly requests an update
 
-## Workflow agent recommandé
+## Recommended Agent Workflow
 
-### Au démarrage (chaque session)
-1. Lire TOUS les fichiers bank (`bank_read_all`)
-2. Vérifier que les fichiers sont complets et cohérents
-3. Identifier le focus actuel dans `activeContext.md`
-4. Développer une stratégie de travail
+### At Session Start (every session)
+1. Read ALL bank files (`bank_read_all`)
+2. Verify that files are complete and consistent
+3. Identify the current focus in `activeContext.md`
+4. Develop a work strategy
 
-### Pendant le travail
-1. Écrire des notes fréquentes et atomiques via `live_note` :
-   - `observation` : constats factuels, résultats de commandes
-   - `decision` : choix techniques et leur justification
-   - `todo` : tâches identifiées à faire
-   - `progress` : avancement, ce qui est terminé
-   - `issue` : problèmes rencontrés, bugs
-   - `insight` : apprentissages, patterns découverts
-   - `question` : points à clarifier, décisions en suspens
-2. Ne JAMAIS écrire directement dans la bank — seule la consolidation LLM le fait
-3. Consulter les notes des autres agents via `live_read` si multi-agents
+### During Work
+1. Write frequent, atomic notes via `live_note`:
+   - `observation`: factual findings, command outputs
+   - `decision`: technical choices and their justification
+   - `todo`: identified tasks to do
+   - `progress`: advancement, what is completed
+   - `issue`: problems encountered, bugs
+   - `insight`: learnings, patterns discovered
+   - `question`: points to clarify, pending decisions
+2. NEVER write directly to the bank — only the LLM consolidation does that
+3. Check other agents' notes via `live_read` if working in a multi-agent setup
 
-### En fin de session
-1. Consolider les notes via `bank_consolidate`
-2. Vérifier que la bank reflète bien le travail accompli
+### At Session End
+1. Consolidate notes via `bank_consolidate`
+2. Verify the bank reflects the work accomplished
 
-## Instructions pour le LLM consolidateur
+## Instructions for the LLM Consolidator
 
-### Mapping catégories de notes vers fichiers bank
-- `observation` → `activeContext.md` (travail récent) + fichier pertinent selon le sujet
-- `decision` → `activeContext.md` (décisions actives) + `systemPatterns.md` si c'est architectural
-- `todo` → `activeContext.md` (prochaines étapes)
-- `progress` → `progress.md` (ce qui fonctionne) + `activeContext.md` (travail récent)
-- `issue` → `progress.md` (problèmes connus) + `activeContext.md` si c'est bloquant
-- `insight` → `activeContext.md` (apprentissages) + `systemPatterns.md` si c'est un pattern
-- `question` → `activeContext.md` (décisions en cours)
+### Mapping Note Categories to Bank Files
+- `observation` → `activeContext.md` (recent work) + relevant file depending on the topic
+- `decision` → `activeContext.md` (active decisions) + `systemPatterns.md` if architectural
+- `todo` → `activeContext.md` (next steps)
+- `progress` → `progress.md` (what works) + `activeContext.md` (recent work)
+- `issue` → `progress.md` (known problems) + `activeContext.md` if blocking
+- `insight` → `activeContext.md` (learnings) + `systemPatterns.md` if it is a pattern
+- `question` → `activeContext.md` (pending decisions)
 
-### Règles de consolidation
-1. **Ne jamais perdre d'information pertinente** — toute note doit être reflétée quelque part dans la bank. Les données obsolètes, remplacées ou dupliquées DOIVENT être nettoyées.
-2. **activeContext.md est le point d'entrée** — c'est le premier fichier qu'un agent lit au démarrage
-3. **Synthétiser, ne pas copier** — regrouper les notes similaires en paragraphes cohérents et lisibles
-4. **Maintenir la chronologie dans progress.md** — grouper par version/milestone avec dates
-5. **projectbrief.md est quasi-immuable** — ne le modifier que si une note change fondamentalement la vision du projet
-6. **Nettoyer activeContext.md** — déplacer les éléments terminés vers progress.md pour garder le focus actuel léger
-7. **Mettre à jour, ne pas dupliquer** — si une section existe déjà sur le même sujet, la REMPLACER avec le contenu actualisé. Ne jamais créer de doublon de section.
-8. **Respecter la hiérarchie** — les informations doivent être dans le fichier approprié selon la hiérarchie définie
-9. **Nettoyer l'obsolète** — retirer les items terminés des backlogs ("Ce Qui Reste à Construire"), corriger les métriques quand elles évoluent, supprimer les sections remplacées par de nouvelles versions
-10. **Garder les fichiers concis** — activeContext.md < 8 KB, les autres fichiers < 15 KB. Au-delà, synthétiser ou archiver dans progress.md
+### Consolidation Rules
+1. **Never lose relevant information** — every note must be reflected somewhere in the bank. Obsolete, replaced, or duplicated data MUST be cleaned up.
+2. **activeContext.md is the entry point** — it is the first file an agent reads at session start
+3. **Synthesize, don't copy** — group similar notes into coherent, readable paragraphs
+4. **Maintain chronology in progress.md** — group by version/milestone with dates
+5. **projectbrief.md is quasi-immutable** — only modify if a note fundamentally changes the project's vision
+6. **Clean activeContext.md** — move completed items to progress.md to keep the current focus lightweight
+7. **Update, don't duplicate** — if a section already exists on the same topic, REPLACE it with updated content. Never create duplicate sections.
+8. **Respect the hierarchy** — information must live in the appropriate file per the defined hierarchy
+9. **Clean up obsolete content** — remove completed items from backlogs ("What Remains to Be Built"), update metrics when they change, delete sections superseded by newer versions
+10. **Keep files concise** — activeContext.md < 8 KB, other files < 15 KB. Beyond that, synthesize or archive to progress.md

@@ -46,7 +46,7 @@ Ta mission : intégrer des notes de travail dans des fichiers Markdown structur�
 ## Ce que tu reçois :
 1. Les RULES qui définissent la structure de la memory bank
 2. La SYNTHÈSE PRÉCÉDENTE (contexte des consolidations antérieures)
-3. Les NOTES LIVE nouvelles à intégrer
+3. Les NOTES LIVE nouvelles à intégrer (avec leurs métadonnées : agent, catégorie, tags)
 4. Les FICHIERS BANK actuels (le contenu existant)
 
 ## Ce que tu dois retourner :
@@ -79,7 +79,49 @@ Tout ce que tu ne touches pas explicitement reste INTACT — c'est le but.
 
 5. **delete_section** — Supprime une section entière (heading + contenu)
 
-## Règles :
+## ⚠️ RÈGLES ANTI-HALLUCINATION (CRITIQUE)
+
+Ces règles sont OBLIGATOIRES et prioritaires sur toute autre considération :
+
+1. **Attribution stricte aux sources** : TOUT fait factuel écrit dans la bank DOIT être
+   dérivable d'au moins une note du batch. Si les notes ne fournissent pas l'information
+   pour remplir une section attendue par les rules, laisse la section VIDE ou écris
+   "À définir — non spécifié dans les notes disponibles." N'invente JAMAIS de contenu
+   pour "compléter" une section.
+
+2. **Préservation du vocabulaire métier** : quand une note contient une définition
+   ou un terme métier spécifique au projet (ex: nom de concept, d'entité, de rôle),
+   utilise la définition EXACTE des notes. Ne ré-interprète JAMAIS un terme via tes
+   connaissances générales. Le vocabulaire du projet prime sur le vocabulaire commun.
+
+3. **Gating des métriques et chiffres** : les chiffres (lignes de code, nombre de tests,
+   pourcentages, temps, scores) ne doivent apparaître dans la bank QUE s'ils proviennent
+   explicitement d'une note. N'invente JAMAIS de métrique, même approximative.
+   Quand les notes fournissent des métriques, ASSURE-TOI de les reprendre dans le fichier
+   approprié (ex: nombre de tests → section Métriques de progress.md).
+
+4. **Pas de structure inventée** : si les notes ne décrivent pas l'arborescence des fichiers,
+   NE GÉNÈRE PAS d'arborescence. Si la stack est mentionnée (ex: "Rails 8"), tu peux
+   mentionner la stack mais PAS inventer l'arborescence correspondante.
+
+5. **Isolation par agent et tâche** : quand les notes proviennent de PLUSIEURS agents ou
+   portent sur des tâches INDÉPENDANTES (branches/tags différents), ne fusionne JAMAIS
+   des facts de sources différentes dans une même phrase ou paragraphe. Garde des
+   paragraphes séparés par agent/tâche. Ne forge JAMAIS de jointure entre des notes
+   indépendantes.
+
+## Règles d'inférence et de retrait :
+
+6. **Retrait d'éléments remplacés** : quand une note `decision` introduit explicitement
+   un nouveau plan/scope/séquence qui REMPLACE une version antérieure inscrite dans la bank,
+   RETIRE les éléments de l'ancien scope du backlog/roadmap. Ne les conserve pas
+   silencieusement. Si le doute persiste, marque "DÉPRÉCIÉ — à vérifier".
+
+7. **Inférence transitive sur les statuts** : si une note `progress` décrit l'achèvement
+   d'une étape N, et que la bank affiche encore "Étape N-1 en cours", marque N-1 comme
+   terminée par inférence. De même, si Phase N+1 est en cours → Phase N est terminée.
+
+## Règles générales :
 - Respecte STRICTEMENT la structure définie dans les rules
 - Intègre les nouvelles informations des notes live
 - Préfère append_to_section et replace_section — ce sont les opérations les plus courantes
@@ -448,11 +490,40 @@ class ConsolidatorService:
         Returns:
             Liste de messages [{"role": "system", ...}, {"role": "user", ...}]
         """
-        # Construire la section notes
+        # Construire la section notes avec métadonnées (agent, catégorie, tags)
+        # Issue #17 : les métadonnées permettent au LLM d'isoler les notes
+        # par agent/tâche et de mieux respecter les catégories sémantiques.
         notes_section = ""
         for i, note in enumerate(notes, 1):
             content = note["content"]
-            notes_section += f"\n--- Note {i}/{len(notes)} ---\n{content}\n"
+            # Extraire les métadonnées du nom de fichier S3
+            # Format: {ts}_{agent}_{category}_{uuid}.md
+            note_key = note.get("key", "")
+            note_filename = note_key.split("/")[-1] if note_key else ""
+            parts = note_filename.replace(".md", "").split("_") if note_filename else []
+            # Extraction robuste : timestamp_agent_category_uuid
+            agent_name = parts[1] if len(parts) >= 3 else "unknown"
+            category = parts[2] if len(parts) >= 3 else "unknown"
+            # Les tags ne sont pas dans le filename, mais dans le contenu YAML front-matter
+            # On les extrait si présents au début du contenu
+            tags = ""
+            content_clean = content
+            if content.startswith("---"):
+                # Front-matter YAML possible
+                fm_end = content.find("---", 3)
+                if fm_end != -1:
+                    front_matter = content[3:fm_end]
+                    content_clean = content[fm_end + 3:].strip()
+                    for line in front_matter.split("\n"):
+                        if line.strip().startswith("tags:"):
+                            tags = line.split(":", 1)[1].strip()
+
+            notes_section += (
+                f"\n--- Note {i}/{len(notes)} "
+                f"[agent={agent_name}, catégorie={category}"
+                f"{', tags=' + tags if tags else ''}] ---\n"
+                f"{content_clean}\n"
+            )
 
         # Construire la section bank (fichiers existants avec leur contenu)
         # On sanitise les filenames pour que le LLM voie des noms propres

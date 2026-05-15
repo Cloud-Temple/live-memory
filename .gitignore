@@ -55,3 +55,4 @@ DESIGN/EVALUATION.md
 DESIGN/SYNTHESE_TRANSVERSE.md
 waf/.smbdeleteAAA73f84.4
 .venv-tests/
+scripts/test_hallucination.py

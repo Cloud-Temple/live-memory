@@ -1,39 +1,39 @@
-# Gestion de la Concurrence Multi-Agents — Live Memory
+# Multi-Agent Concurrency Management — Live Memory
 
-> **Version** : 1.6.0 | **Date** : 2026-04-25 | **Auteur** : Cloud Temple
-
----
-
-## 1. Problématique
-
-Plusieurs agents IA peuvent interagir simultanément avec le même espace mémoire. Il faut garantir la cohérence des données sans bloquer les opérations courantes.
+> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
 
 ---
 
-## 2. Analyse par type d'opération
+## 1. Problem Statement
 
-### 2.1 Notes live — ✅ SANS CONFLIT (par design)
+Multiple AI agents can interact simultaneously with the same memory space. Data consistency must be guaranteed without blocking common operations.
 
-Chaque note = **un fichier S3 distinct** avec un nom unique (timestamp + agent + UUID) :
+---
+
+## 2. Analysis by Operation Type
+
+### 2.1 Live Notes — ✅ CONFLICT-FREE (by design)
+
+Each note = **a separate S3 file** with a unique name (timestamp + agent + UUID):
 
 ```
 20260220T170001_cline-dev_observation_a1b2c3d4.md
-20260220T170001_claude-rev_observation_e5f6a7b8.md  ← même seconde, agents différents
+20260220T170001_claude-rev_observation_e5f6a7b8.md  ← same second, different agents
 ```
 
-Deux agents écrivant au même instant créent deux fichiers différents → **zéro conflit**.
+Two agents writing at the same instant create two different files → **zero conflict**.
 
-Le suffixe UUID8 (`uuid.uuid4().hex[:8]`) garantit l'unicité même si deux agents du même nom écrivent dans la même catégorie à la même seconde.
+The UUID8 suffix (`uuid.uuid4().hex[:8]`) guarantees uniqueness even if two agents with the same name write in the same category at the same second.
 
-**Conclusion** : `live_note` ne nécessite aucun mécanisme de lock.
+**Conclusion**: `live_note` requires no locking mechanism.
 
 ---
 
-### 2.2 Fichiers bank — ⚠️ CONFLIT POSSIBLE
+### 2.2 Bank Files — ⚠️ POSSIBLE CONFLICT
 
-Seul `bank_consolidate` écrit dans la bank (les agents n'y écrivent jamais directement). Mais deux agents pourraient déclencher `bank_consolidate` en même temps.
+Only `bank_consolidate` writes to the bank (agents never write directly). However, two agents could trigger `bank_consolidate` simultaneously.
 
-**Solution** : Un `asyncio.Lock` **par espace** pour la consolidation.
+**Solution**: An `asyncio.Lock` **per space** for consolidation.
 
 ```python
 async def bank_consolidate(space_id: str, agent: str = "") -> dict:
@@ -49,18 +49,18 @@ async def bank_consolidate(space_id: str, agent: str = "") -> dict:
         return await get_consolidator().consolidate(space_id, agent=agent)
 ```
 
-**Comportement** :
-- Si un agent demande une consolidation pendant qu'une autre est en cours → retour immédiat `"conflict"`
-- L'agent peut réessayer plus tard
-- Deux espaces différents peuvent être consolidés en parallèle (locks indépendants)
+**Behavior**:
+- If an agent requests a consolidation while another is in progress → immediate `"conflict"` response
+- The agent can retry later
+- Two different spaces can be consolidated in parallel (independent locks)
 
 ---
 
-### 2.3 Fichier tokens.json — ⚠️ CONFLIT POSSIBLE
+### 2.3 tokens.json File — ⚠️ POSSIBLE CONFLICT
 
-Deux admins créant/modifiant des tokens simultanément pourraient écraser les modifications l'un de l'autre.
+Two admins creating/modifying tokens simultaneously could overwrite each other's changes.
 
-**Solution** : Un `asyncio.Lock` unique pour le fichier tokens.
+**Solution**: A single `asyncio.Lock` for the tokens file.
 
 ```python
 async with get_lock_manager().tokens:
@@ -71,141 +71,141 @@ async with get_lock_manager().tokens:
 
 ---
 
-### 2.4 Fichier _meta.json — ⚠️ CONFLIT POSSIBLE
+### 2.4 _meta.json File — ⚠️ POSSIBLE CONFLICT
 
-Mis à jour lors de la consolidation et du `graph_push`. Protégé par le lock de consolidation pour les consolidations. Les opérations graph utilisent une lecture-modification-écriture séquentielle.
+Updated during consolidation and `graph_push`. Protected by the consolidation lock for consolidations. Graph operations use sequential read-modify-write.
 
 ---
 
-## 3. Matrice récapitulative
+## 3. Summary Matrix
 
-| Opération | Risque | Solution | Impact performance |
+| Operation | Risk | Solution | Performance Impact |
 |---|---|---|---|
-| `live_note` (N agents simultanés) | Aucun | Fichiers uniques (timestamp+UUID) | **Zéro** |
-| `live_read` / `live_search` (lecture //) | Aucun | Lectures S3 parallèles | **Zéro** |
-| `bank_read` / `bank_read_all` (lecture //) | Aucun | Lectures S3 parallèles | **Zéro** |
-| `bank_consolidate` (2 agents, même espace) | Écrasement | `asyncio.Lock` par espace | Le 2ème reçoit "conflict" |
-| `bank_consolidate` (2 agents, espaces différents) | Aucun | Locks indépendants | **Zéro** |
-| `admin_create_token` (2 admins) | Écrasement tokens.json | `asyncio.Lock` unique tokens | Sérialisation (~200ms) |
-| `graph_connect` / `graph_push` | MAJ _meta.json | Séquentiel (opérations longues) | **Zéro** |
-| `backup_create` (même espace) | Lecture seule de l'espace | Aucun lock nécessaire (snapshot) | **Zéro** |
+| `live_note` (N simultaneous agents) | None | Unique files (timestamp+UUID) | **Zero** |
+| `live_read` / `live_search` (parallel reads) | None | Parallel S3 reads | **Zero** |
+| `bank_read` / `bank_read_all` (parallel reads) | None | Parallel S3 reads | **Zero** |
+| `bank_consolidate` (2 agents, same space) | Overwrite | `asyncio.Lock` per space | 2nd receives "conflict" |
+| `bank_consolidate` (2 agents, different spaces) | None | Independent locks | **Zero** |
+| `admin_create_token` (2 admins) | tokens.json overwrite | Single `asyncio.Lock` for tokens | Serialization (~200ms) |
+| `graph_connect` / `graph_push` | _meta.json update | Sequential (long operations) | **Zero** |
+| `backup_create` (same space) | Read-only of the space | No lock needed (snapshot) | **Zero** |
 
 ---
 
-## 4. Pattern de lock utilisé
+## 4. Lock Pattern
 
-### 4.1 Locks en mémoire (asyncio.Lock)
+### 4.1 In-memory Locks (asyncio.Lock)
 
-Le serveur MCP est un **processus unique** (une seule instance Python). Toutes les requêtes passent par le même event loop asyncio. Les `asyncio.Lock` sont donc suffisants.
+The MCP server is a **single process** (one Python instance). All requests go through the same asyncio event loop. `asyncio.Lock` is therefore sufficient.
 
 ```python
 class LockManager:
-    """Gestionnaire centralisé des locks asyncio."""
+    """Centralized asyncio lock manager."""
     
     def __init__(self):
         self._consolidation_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._tokens_lock = asyncio.Lock()
     
     def consolidation(self, space_id: str) -> asyncio.Lock:
-        """Lock par espace pour la consolidation."""
+        """Per-space lock for consolidation."""
         return self._consolidation_locks[space_id]
     
     @property
     def tokens(self) -> asyncio.Lock:
-        """Lock unique pour tokens.json."""
+        """Single lock for tokens.json."""
         return self._tokens_lock
 ```
 
-### 4.2 Pourquoi pas de locks S3 ?
+### 4.2 Why Not S3 Locks?
 
-S3 n'a pas de mécanisme de lock natif. Les alternatives ajoutent de la complexité pour un gain marginal :
+S3 has no native locking mechanism. Alternatives add complexity for marginal gain:
 
-- **Lock files S3** : Fragiles (si le serveur crash, le lock reste → deadlock)
-- **ETags conditionnels** : Dell ECS ne supporte pas bien `If-Match` sur PUT
-- **DynamoDB locks** : Hors périmètre
+- **S3 lock files**: Fragile (if the server crashes, the lock remains → deadlock)
+- **Conditional ETags**: Dell ECS does not properly support `If-Match` on PUT
+- **DynamoDB locks**: Out of scope
 
-Le `asyncio.Lock` en mémoire est **suffisant** car :
-1. Le serveur MCP est un processus unique
-2. Pas de multi-instance (un seul container `mcp-service`)
-3. Les opérations critiques sont courtes (< 1 minute sauf consolidation)
+The in-memory `asyncio.Lock` is **sufficient** because:
+1. The MCP server is a single process
+2. No multi-instance deployment (one `mcp-service` container)
+3. Critical operations are short (< 1 minute except consolidation)
 
-### 4.3 Cas multi-instance (futur)
+### 4.3 Multi-instance Case (future)
 
-Si live-mem devait tourner en multi-instance (load balancing), il faudrait :
-- Redis pour les locks distribués (`redlock`)
-- Ou un système de lease sur S3 (lock file avec TTL)
-- Ou un routage par espace (chaque instance gère un sous-ensemble d'espaces)
+If live-mem were to run in multi-instance mode (load balancing), it would require:
+- Redis for distributed locks (`redlock`)
+- Or an S3 lease system (lock file with TTL)
+- Or space-based routing (each instance handles a subset of spaces)
 
-Ce n'est **pas prévu** pour la v0.5.0.
-
----
-
-## 5. Scénarios concrets
-
-### Scénario 1 : 3 agents écrivent simultanément (nominal)
-
-```
-T+0s: Agent A → live_note("observation", "Build OK")      → PUT S3 : note_A.md ✅
-T+0s: Agent B → live_note("decision", "On utilise FastAPI") → PUT S3 : note_B.md ✅
-T+0s: Agent C → live_note("todo", "Écrire les tests")      → PUT S3 : note_C.md ✅
-```
-
-3 fichiers distincts, aucun conflit, aucun lock.
-
-### Scénario 2 : 2 agents consolident en même temps
-
-```
-T+0s:  Agent A → bank_consolidate("projet-alpha", agent="agent-A")
-       → Lock acquis ✅, consolidation démarre (prend 30s)
-
-T+5s:  Agent B → bank_consolidate("projet-alpha", agent="agent-B")
-       → Lock déjà pris → retour immédiat {"status": "conflict"} ⚡
-
-T+30s: Agent A → consolidation terminée, lock relâché ✅
-T+31s: Agent B → bank_consolidate("projet-alpha", agent="agent-B")
-       → Lock acquis ✅, consolidation démarre
-```
-
-### Scénario 3 : Agent écrit pendant une consolidation
-
-```
-T+0s:  Agent A → bank_consolidate("projet-alpha", agent="agent-A")
-       → Lock acquis, lit les notes live de agent-A
-
-T+5s:  Agent B → live_note("observation", "Nouveau fait")
-       → PUT S3 : note_new.md ✅ (pas de lock nécessaire)
-       → Cette note ne sera PAS incluse dans la consolidation en cours
-       → Elle sera traitée à la PROCHAINE consolidation
-
-T+30s: Agent A → consolidation terminée
-       → Seules les notes de agent-A collectées au T+0 sont supprimées
-       → note_new.md (agent-B) reste dans live/
-```
-
-### Scénario 4 : Graph push pendant une consolidation
-
-```
-T+0s:  Agent A → bank_consolidate("projet-alpha")
-       → Lock consolidation acquis
-
-T+5s:  Agent B → graph_push("projet-alpha")
-       → Pas de lock nécessaire (lecture seule de la bank + appel MCP Streamable HTTP)
-       → Pousse la bank dans son état actuel (pas celle en cours de mise à jour)
-```
+This is **not planned** for v0.5.0.
 
 ---
 
-## 6. Performances
+## 5. Concrete Scenarios
 
-| Opération | Latence typique | Lock ? | Impact |
+### Scenario 1: 3 agents write simultaneously (nominal)
+
+```
+T+0s: Agent A → live_note("observation", "Build OK")          → PUT S3: note_A.md ✅
+T+0s: Agent B → live_note("decision", "We'll use FastAPI")    → PUT S3: note_B.md ✅
+T+0s: Agent C → live_note("todo", "Write tests")              → PUT S3: note_C.md ✅
+```
+
+3 distinct files, no conflict, no lock.
+
+### Scenario 2: 2 agents consolidate at the same time
+
+```
+T+0s:  Agent A → bank_consolidate("project-alpha", agent="agent-A")
+       → Lock acquired ✅, consolidation starts (takes 30s)
+
+T+5s:  Agent B → bank_consolidate("project-alpha", agent="agent-B")
+       → Lock already held → immediate return {"status": "conflict"} ⚡
+
+T+30s: Agent A → consolidation complete, lock released ✅
+T+31s: Agent B → bank_consolidate("project-alpha", agent="agent-B")
+       → Lock acquired ✅, consolidation starts
+```
+
+### Scenario 3: Agent writes during a consolidation
+
+```
+T+0s:  Agent A → bank_consolidate("project-alpha", agent="agent-A")
+       → Lock acquired, reads agent-A's live notes
+
+T+5s:  Agent B → live_note("observation", "New finding")
+       → PUT S3: note_new.md ✅ (no lock needed)
+       → This note will NOT be included in the current consolidation
+       → It will be processed in the NEXT consolidation
+
+T+30s: Agent A → consolidation complete
+       → Only agent-A notes collected at T+0 are deleted
+       → note_new.md (agent-B) remains in live/
+```
+
+### Scenario 4: Graph push during a consolidation
+
+```
+T+0s:  Agent A → bank_consolidate("project-alpha")
+       → Consolidation lock acquired
+
+T+5s:  Agent B → graph_push("project-alpha")
+       → No lock needed (read-only access to bank + MCP Streamable HTTP call)
+       → Pushes the bank in its current state (not the one being updated)
+```
+
+---
+
+## 6. Performance
+
+| Operation | Typical Latency | Lock? | Impact |
 |---|---|---|---|
-| `live_note` | 50-100ms (1 PUT S3) | Non | Aucun |
-| `live_read` (50 notes) | 200-500ms (1 LIST + N GETs) | Non | Aucun |
-| `bank_read_all` (6 fichiers) | 100-300ms (1 LIST + 6 GETs) | Non | Aucun |
-| `bank_consolidate` | 20-60s (LLM + I/O S3) | Oui (par espace) | Bloque les autres conso du même espace |
-| `graph_push` (6 fichiers) | 60-180s (MCP Streamable HTTP) | Non | Aucun |
-| `admin_create_token` | 100-200ms (1 GET + 1 PUT S3) | Oui (tokens) | Sérialisation courte |
+| `live_note` | 50-100ms (1 PUT S3) | No | None |
+| `live_read` (50 notes) | 200-500ms (1 LIST + N GETs) | No | None |
+| `bank_read_all` (6 files) | 100-300ms (1 LIST + 6 GETs) | No | None |
+| `bank_consolidate` | 20-60s (LLM + S3 I/O) | Yes (per space) | Blocks other consolidations for the same space |
+| `graph_push` (6 files) | 60-180s (MCP Streamable HTTP) | No | None |
+| `admin_create_token` | 100-200ms (1 GET + 1 PUT S3) | Yes (tokens) | Short serialization |
 
 ---
 
-*Document mis à jour le 25 avril 2026 — Live Memory v1.6.0*
+*Document updated April 25, 2026 — Live Memory v1.6.0*

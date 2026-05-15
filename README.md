@@ -1,108 +1,109 @@
-# 🧠 Live Memory — MCP Knowledge Live memory Service
+# 🧠 Live Memory — MCP Knowledge Live Memory Service
 
-> **Mémoire de travail partagée pour agents IA collaboratifs**
+> **Shared working memory for collaborative AI agents**
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-1.7.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.9.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
 
+🇫🇷 [Version française](README.fr.md)
+
 ---
 
-## 📋 Table des matières
+## 📋 Table of Contents
 
 - [Concept](#-concept)
 - [Architecture](#-architecture)
-- [Prérequis](#-prérequis)
+- [Prerequisites](#-prerequisites)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
-- [Démarrage](#-démarrage)
-- [Outils MCP](#-outils-mcp)
-- [Graph Bridge](#-graph-bridge--pont-vers-graph-memory)
-- [README English](#-readme-english)
-- [Interface Web](#-interface-web)
-- [Intégration MCP](#-intégration-mcp)
-- [CLI et Shell](#-cli-et-shell)
+- [Getting Started](#-getting-started)
+- [MCP Tools](#-mcp-tools)
+- [Graph Bridge](#-graph-bridge--link-to-graph-memory)
+- [Web Interface](#-web-interface)
+- [MCP Integration](#-mcp-integration)
+- [CLI and Shell](#-cli-and-shell)
 - [Tests](#-tests)
-- [Sécurité](#-sécurité)
-- [Structure du projet](#-structure-du-projet)
-- [Dépannage](#-dépannage)
+- [Security](#-security)
+- [Project Structure](#-project-structure)
+- [Troubleshooting](#-troubleshooting)
 
 ---
 
 ## 🎯 Concept
 
-**Live Memory** est un serveur MCP (Model Context Protocol) qui fournit une **Memory Bank as a Service** pour agents IA. Plusieurs agents collaborent sur un même projet en partageant une mémoire de travail commune.
+**Live Memory** is an MCP (Model Context Protocol) server that provides **Memory Bank as a Service** for AI agents. Multiple agents collaborate on the same project by sharing a common working memory.
 
 ```
-graph-memory  = Mémoire LONG TERME (documents → Knowledge Graph → RAG vectoriel)
-live-memory   = Mémoire de TRAVAIL (notes live → LLM → Memory Bank structurée)
+graph-memory  = LONG-TERM memory (documents → Knowledge Graph → Vector RAG)
+live-memory   = WORKING memory (live notes → LLM → Structured Memory Bank)
 ```
 
-### Deux modes complémentaires
+### Two Complementary Modes
 
-| Mode         | Description                                                       | Analogie                   |
-| ------------ | ----------------------------------------------------------------- | -------------------------- |
-| **🔴 Live** | Notes temps réel (observations, décisions, todos...) append-only  | Tableau blanc partagé      |
-| **📘 Bank** | Consolidation LLM en fichiers Markdown structurés selon des rules | Cahier de projet structuré |
+| Mode         | Description                                                     | Analogy                |
+| ------------ | --------------------------------------------------------------- | ---------------------- |
+| **🔴 Live** | Real-time notes (observations, decisions, todos...) append-only | Shared whiteboard      |
+| **📘 Bank** | LLM consolidation into structured Markdown files based on rules | Structured project log |
 
-### Pourquoi Live Memory ?
+### Why Live Memory?
 
-| Problème                                    | Solution Live Memory                                            |
-| ------------------------------------------- | --------------------------------------------------------------- |
-| Agents perdent leur contexte entre sessions | `bank_read_all` → contexte complet en 1 appel                   |
-| Collaboration multi-agents impossible       | Notes append-only, pas de conflit, visibilité croisée           |
-| Consolidation manuelle fastidieuse          | LLM transforme les notes brutes en documentation structurée     |
-| Mémoire dispersée en fichiers locaux        | Point central S3, accessible de partout                         |
-| Pas de lien avec la mémoire long terme      | 🌉 Graph Bridge pousse la bank dans un graphe de connaissances |
+| Problem                                 | Live Memory Solution                                    |
+| --------------------------------------- | ------------------------------------------------------- |
+| Agents lose context between sessions    | `bank_read_all` → complete context in 1 call            |
+| Multi-agent collaboration is impossible | Append-only notes, no conflicts, cross-visibility       |
+| Manual consolidation is tedious         | LLM transforms raw notes into structured documentation  |
+| Memory scattered in local files         | Central S3 point, accessible from everywhere            |
+| No link with long-term memory           | 🌉 Graph Bridge pushes the bank into a knowledge graph |
 
-### 🧠 Collaboration multi-agents et architecture mémoire à deux niveaux
+### 🧠 Multi-agent Collaboration and Two-Level Memory Architecture
 
-La recherche récente sur les systèmes multi-agents à base de LLM ([Tran et al., 2025 — *Multi-Agent Collaboration Mechanisms: A Survey of LLMs*](https://arxiv.org/abs/2501.06322)) identifie la **mémoire partagée** comme un composant fondamental. Dans leur cadre formel, un système multi-agents est défini par des **agents** (A), un **environnement partagé** (E) et des **canaux de collaboration** (C). Les auteurs soulignent que les LLM sont intrinsèquement des algorithmes isolés, non conçus pour collaborer — ils ont besoin d'une **infrastructure de mémoire partagée** pour coordonner leurs actions.
+Recent research on LLM-based multi-agent systems ([Tran et al., 2025 — *Multi-Agent Collaboration Mechanisms: A Survey of LLMs*](https://arxiv.org/abs/2501.06322)) identifies **shared memory** as a fundamental component. In their formal framework, a multi-agent system is defined by **agents** (A), a **shared environment** (E), and **collaboration channels** (C). The authors emphasize that LLMs are inherently isolated algorithms, not designed to collaborate — they need a **shared memory infrastructure** to coordinate their actions.
 
-Live Memory + Graph Memory implémente directement cette architecture :
+Live Memory + Graph Memory directly implements this architecture:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                  Environnement partagé E                    │
+│                  Shared Environment E                       │
 │                                                             │
-│  ┌──────────────────┐   LLM    ┌─────────────────────┐      │
-│  │   Live           │ ──────►  │   Bank              │      │
-│  │  Notes temps réel│ consolide│  Mémoire de travail │      │
-│  │  (append-only)   │          │  structurée         │      │
-│  └──────────────────┘          └──────────┬──────────┘      │
+│  ┌──────────────────┐   LLM   ┌──────────────────────┐      │
+│  │   Live           │ ──────► │   Bank               │      │
+│  │  Real-time notes │ consolid│  Structured working  │      │
+│  │  (append-only)   │  -ates  │  memory              │      │
+│  └──────────────────┘         └──────────┬───────────┘      │
 │                                          │                  │
 │                                     graph_push              │
 │                                     (MCP Streamable HTTP)   │
 │                                          │                  │
 │                               ┌──────────▼───────────┐      │
-│                               │     Graph Memory     │      │
+│                               │  🌐 Graph Memory     │      │
 │                               │  Knowledge Graph     │      │
-│                               │  (entités, relations,│      │
+│                               │  (entities, relations│      │
 │                               │   embeddings, RAG)   │      │
 │                               └──────────────────────┘      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-| Niveau                 | Service      | Durée            | Contenu                                     | Usage                                                  |
-| ---------------------- | ------------ | ---------------- | ------------------------------------------- | ------------------------------------------------------ |
-| **Mémoire de travail** | Live Memory  | Session / projet | Notes brutes + bank consolidée Markdown     | Contexte opérationnel, coordination quotidienne        |
-| **Mémoire long terme** | Graph Memory | Permanent        | Entités + relations + embeddings vectoriels | Base de connaissances interrogeable en langage naturel |
+| Level                | Service      | Duration          | Content                                  | Usage                                         |
+| -------------------- | ------------ | ----------------- | ---------------------------------------- | --------------------------------------------- |
+| **Working Memory**   | Live Memory  | Session / project | Raw notes + consolidated Markdown bank   | Operational context, daily coordination       |
+| **Long-term Memory** | Graph Memory | Permanent         | Entities + relations + vector embeddings | Searchable knowledge base in natural language |
 
-**Le Graph Bridge** (`graph_push`) est le canal de collaboration entre ces deux niveaux. Conformément au pattern **late-stage collaboration** décrit dans la littérature (partage des outputs consolidés comme inputs d'un autre système), il transforme la documentation de travail (Markdown) en connaissances structurées (graphe d'entités/relations).
+**The Graph Bridge** (`graph_push`) is the collaboration channel between these two levels. Following the **late-stage collaboration** pattern described in literature (sharing consolidated outputs as inputs to another system), it transforms working documentation (Markdown) into structured knowledge (entities/relations graph).
 
-**Pourquoi deux niveaux ?** Un seul niveau ne suffit pas :
-- La mémoire de travail seule est **éphémère** — elle disparaît quand le projet se termine
-- Le graphe de connaissances seul est **trop lourd** pour des notes quotidiennes rapides
-- Le pont entre les deux permet aux agents de **travailler vite** (notes live) tout en **capitalisant** les connaissances (graphe)
+**Why two levels?** One level is not enough:
+- Working memory alone is **ephemeral** — it disappears when the project ends
+- Knowledge graph alone is **too heavy** for quick daily notes
+- The bridge between the two allows agents to **work fast** (live notes) while **capitalizing** knowledge (graph)
 
-Concrètement, les agents peuvent :
-1. **Écrire rapidement** des notes sans friction (live-memory, append-only, ~50ms)
-2. **Consolider automatiquement** via LLM en documentation structurée (bank, ~15s)
-3. **Pérenniser les connaissances** dans un graphe interrogeable (graph-memory, ~2min)
-4. **Interroger le graphe** en langage naturel pour retrouver des informations de projets passés
+Specifically, agents can:
+1. **Write quickly** without friction (live-memory, append-only, ~50ms)
+2. **Automatically consolidate** via LLM into structured documentation (bank, ~15s)
+3. **Persist knowledge** in a searchable graph (graph-memory, ~2min)
+4. **Query the graph** in natural language to retrieve information from past projects
 
 ---
 
@@ -121,333 +122,333 @@ Concrètement, les agents peuvent :
                        │
           ┌────────────┴───────────────────┐
           │   Live Memory MCP (:8002)      │
-          │   40 outils • Auth Bearer      │
-          │   Consolidation LLM            │
+          │   40 tools • Auth Bearer       │
+          │   LLM Consolidation            │
           └──────┬──────────┬──────┬───────┘
                  │          │      │
           ┌──────┴──┐  ┌────┴───┐  │
           │   S3    │  │ LLMaaS │  │  MCP Streamable HTTP
-          │Dell ECS │  │ CT API │  │  (optionnel)
+          │Dell ECS │  │ CT API │  │  (optional)
           └─────────┘  └────────┘  │
                        ┌───────────┴────────────┐
                        │   Graph Memory         │
-                       │   (mémoire long terme) │
+                       │   (long-term memory)   │
                        │   Neo4j + Qdrant       │
                        └────────────────────────┘
 ```
 
-**Stack minimale** : S3 + LLM. Pas de base de données locale.
-**Optionnel** : connexion à Graph Memory pour la mémoire long terme (graphe de connaissances).
+**Minimal Stack**: S3 + LLM. No local database.
+**Optional**: connection to Graph Memory for long-term memory (knowledge graph).
 
 ---
 
-## 📦 Prérequis
+## 📦 Prerequisites
 
 - **Docker** >= 24.0 + **Docker Compose** v2
-- **Python 3.11+** (pour la CLI, optionnel)
-- Un **stockage S3** compatible (Cloud Temple Dell ECS, AWS, MinIO)
-- Un **LLM** compatible OpenAI API (Cloud Temple LLMaaS, OpenAI, etc.)
+- **Python 3.11+** (for CLI, optional)
+- A compatible **S3 storage** (Cloud Temple Dell ECS, AWS, MinIO)
+- An OpenAI API compatible **LLM** (Cloud Temple LLMaaS, OpenAI, etc.)
 
 ---
 
 ## 🚀 Installation
 
-### 1. Cloner le dépôt
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/Cloud-Temple/live-memory.git
 cd live-memory
 ```
 
-### 2. Configurer l'environnement
+### 2. Configure the environment
 
 ```bash
 cp .env.example .env
 ```
 
-Éditez `.env` avec vos valeurs (voir section [Configuration](#-configuration)).
+Edit `.env` with your values (see [Configuration](#-configuration)).
 
-### 3a. Démarrage avec l'image pré-construite (recommandé)
-
-Des images Docker multi-arch (amd64 / arm64) sont publiées automatiquement par la CI sur GHCR.
-
-| Tag | Description |
-|-----|-------------|
-| `latest` | Dernière version stable |
-| `1.7.0` | Version fixée |
-| `main` | Dernier commit sur `main` |
-
-**Avec WAF (déploiement normal — port 8080) :**
+### 3a. Docker Start (recommended)
 
 ```bash
-# Éditez .env avec vos valeurs, puis :
-IMAGE_TAG=latest docker compose up -d
-curl -s http://localhost:8080/health
-```
-
-**Sans WAF (dev / test — port 8002 direct) :**
-
-```bash
-# Éditez .env avec vos valeurs, puis :
-IMAGE_TAG=latest docker compose -f docker-compose.nowaf.yml up -d
-curl -s http://localhost:8002/health
-```
-
-> **Note** : pour utiliser l'image distante, remplacez `build: .` par `image: ghcr.io/cloud-temple/live-memory:${IMAGE_TAG:-latest}` dans votre fichier compose.
-
-### 3b. Démarrage Docker avec build local
-
-```bash
-# Construire les images (WAF + serveur MCP)
+# Build images (WAF + MCP server)
 docker compose build
 
-# Démarrer les services
+# Start services
 docker compose up -d
 
-# Vérifier que tout tourne
+# Check status
 docker compose ps
 
-# Vérifier la santé
+# Health check
 curl -s http://localhost:8080/health
 ```
 
-### 3c. Démarrage local (développement)
+### 3b. Local Start (development)
 
 ```bash
-# Installer les dépendances
+# Install dependencies
 uv pip install -e .
 
-# Lancer le serveur
+# Run server
 python -m live_mem
 ```
 
-### 4. Installer la CLI (optionnel)
+### 4. Install CLI (optional)
 
 ```bash
 uv pip install -e .
 ```
 
-### 5. Vérifier l'installation
+### 5. Verify Installation
 
 ```bash
-# Health check via la CLI
+# Health check via CLI
 python scripts/mcp_cli.py health
 
-# Ou test E2E complet (crée un espace, écrit des notes, consolide)
+# Or full E2E test (creates space, writes notes, consolidates)
 python scripts/test_recette.py
 ```
 
-### Ports exposés
+### Exposed Ports
 
-| Service                 | Port   | Description                                                              |
-| ----------------------- | ------ | ------------------------------------------------------------------------ |
-| **WAF**                 | `8080` | Seul port exposé (mode normal) — Caddy WAF → Live Memory                 |
-| **MCP Server (no WAF)** | `8002` | Accessible directement via `docker-compose.nowaf.yml` (dev / test)       |
-| MCP Server              | `8002` | Réseau Docker interne uniquement (mode normal)                           |
+| Service    | Port   | Description                                 |
+| ---------- | ------ | ------------------------------------------- |
+| **WAF**    | `8080` | Only exposed port — Caddy WAF → Live Memory |
+| MCP Server | `8002` | Internal Docker network only                |
 
 ---
 
 ## ⚙️ Configuration
 
-Éditez `.env`. Toutes les variables sont documentées dans `.env.example`.
+Edit `.env`. All variables are documented in `.env.example`.
 
-### Variables obligatoires
+### Mandatory Variables
 
-| Variable               | Description              | Exemple                                      |
+| Variable               | Description              | Example                                      |
 | ---------------------- | ------------------------ | -------------------------------------------- |
-| `S3_ENDPOINT_URL`      | URL endpoint S3          | `https://takinc5acc.s3.fr1.cloud-temple.com` |
-| `S3_ACCESS_KEY_ID`     | Access key S3            | `AKIA...`                                    |
-| `S3_SECRET_ACCESS_KEY` | Secret key S3            | `wJal...`                                    |
-| `S3_BUCKET_NAME`       | Nom du bucket            | `live-mem`                                   |
-| `S3_REGION_NAME`       | Région S3                | `fr1`                                        |
-| `LLMAAS_API_URL`       | URL API LLM (doit inclure `/v1`)  | `https://api.ai.cloud-temple.com/v1` |
-| `LLMAAS_API_KEY`       | Clé API LLM                       | `sk-...`                             |
-| `ADMIN_BOOTSTRAP_KEY`  | Clé admin bootstrap (≥ 32 chars)  | `ma-cle-secrete-changez-moi`        |
+| `S3_ENDPOINT_URL`      | S3 endpoint URL          | `https://takinc5acc.s3.fr1.cloud-temple.com` |
+| `S3_ACCESS_KEY_ID`     | S3 access key            | `AKIA...`                                    |
+| `S3_SECRET_ACCESS_KEY` | S3 secret key            | `wJal...`                                    |
+| `S3_BUCKET_NAME`       | Bucket name              | `live-mem`                                   |
+| `S3_REGION_NAME`       | S3 region                | `fr1`                                        |
+| `LLMAAS_API_URL`       | LLM API URL (must include `/v1`)  | `https://api.ai.cloud-temple.com/v1` |
+| `LLMAAS_API_KEY`       | LLM API key                       | `sk-...`                             |
+| `ADMIN_BOOTSTRAP_KEY`  | Admin bootstrap key (≥ 32 chars)  | `my-secret-key-change-me`           |
 
-### Variables optionnelles — LLM
+### Optional Variables — LLM
 
-Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les notes live en fichiers bank structurés.
+The consolidator uses an LLM (OpenAI-compatible API) to transform live notes into structured bank files.
 
-| Variable                  | Défaut            | Description                      |
-| ------------------------- | ----------------- | -------------------------------- |
-| `LLMAAS_MODEL`            | `qwen3.5:27b` | Nom du modèle LLM tel qu'exposé par le provider |
-| `LLMAAS_CONTEXT_WINDOW`   | `131072`          | Fenêtre de contexte TOTALE du modèle (entrée + sortie combinés, en tokens). Qwen3 235B = 128K |
-| `LLMAAS_MAX_TOKENS`       | `16384`           | Budget de SORTIE max par requête (en tokens). Le consolidateur l'ajuste dynamiquement : `output = min(MAX_TOKENS, CONTEXT_WINDOW - input)` |
-| `LLMAAS_TEMPERATURE`      | `0.3`             | Créativité du LLM (0.0 = déterministe, 1.0 = très créatif) |
+| Variable                  | Default           | Description                     |
+| ------------------------- | ----------------- | ------------------------------- |
+| `LLMAAS_MODEL`            | `qwen3.5:27b` | LLM model name as exposed by the provider |
+| `LLMAAS_CONTEXT_WINDOW`   | `131072`          | TOTAL context window of the model (input + output combined, in tokens). Qwen3 235B = 128K |
+| `LLMAAS_MAX_TOKENS`       | `16384`           | Max OUTPUT tokens per request. The consolidator adjusts dynamically: `output = min(MAX_TOKENS, CONTEXT_WINDOW - input)` |
+| `LLMAAS_TEMPERATURE`      | `0.3`             | LLM creativity (0.0 = deterministic, 1.0 = very creative) |
+| `PROXY_URL`               | _(none)_          | Outbound HTTP proxy (e.g. `http://10.0.0.1:3128`). **Custom variable** (not `HTTP_PROXY`) — injected manually into boto3 (S3) and httpx (LLM). Not supported for Graph Memory connections. |
 
-### Variables optionnelles — Consolidation et compaction
+### Optional Variables — Consolidation and Compaction
 
-| Variable                  | Défaut            | Description                      |
-| ------------------------- | ----------------- | -------------------------------- |
-| `MCP_SERVER_PORT`         | `8002`            | Port d'écoute du serveur MCP     |
-| `MCP_SERVER_DEBUG`        | `false`           | Logs détaillés (messages d'erreur complets) |
-| `CONSOLIDATION_TIMEOUT`   | `600`             | Timeout par appel LLM (secondes) |
-| `CONSOLIDATION_MAX_NOTES` | `500`             | Max notes traitées par consolidation |
-| `CONSOLIDATION_BATCH_SIZE`| `5`               | Notes par lot LLM (petit = précis, grand = rapide) |
-| `COMPACT_THRESHOLD`       | `0.6`             | Seuil auto-compaction (0.6 = compacte si bank > 60% du budget) |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Taille max par fichier bank (bytes, 15 KB). Au-delà = compaction |
-| `PROXY_URL`               | _(aucun)_         | Proxy HTTP sortant (ex: `http://10.0.0.1:3128`). Variable **custom** (pas `HTTP_PROXY`) — injecté manuellement dans boto3 (S3) et httpx (LLM). Non supporté pour Graph Memory. |
+| Variable                  | Default           | Description                     |
+| ------------------------- | ----------------- | ------------------------------- |
+| `MCP_SERVER_PORT`         | `8002`            | MCP server listening port       |
+| `MCP_SERVER_DEBUG`        | `false`           | Detailed logs (full error messages) |
+| `CONSOLIDATION_TIMEOUT`   | `600`             | Timeout per LLM call (seconds)  |
+| `CONSOLIDATION_MAX_NOTES` | `500`             | Max notes per consolidation     |
+| `CONSOLIDATION_BATCH_SIZE`| `5`               | Notes per LLM batch (small = precise, large = faster) |
+| `COMPACT_THRESHOLD`       | `0.6`             | Auto-compaction trigger (0.6 = compact if bank > 60% of budget) |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Max size per bank file (bytes, 15 KB). Above = compaction candidate |
 
 ---
 
-## ▶️ Démarrage
+## ▶️ Getting Started
 
 ```bash
 docker compose up -d
-docker compose ps       # Vérifier le statut
+docker compose ps       # Check status
 docker compose logs -f live-mem-service --tail 50  # Logs
 ```
 
 ---
 
-## 🔧 Outils MCP
+## 🔧 MCP Tools
 
-40 outils exposés via le protocole MCP (Streamable HTTP), répartis en 7 catégories.
+40 tools exposed via the MCP protocol (Streamable HTTP), divided into 7 categories.
 
-### System (3 outils)
+### System (3 tools)
 
-| Outil           | Paramètres | Description                                               |
-| --------------- | ---------- | --------------------------------------------------------- |
-| `system_health` | —          | État de santé (S3, LLMaaS, nombre d'espaces)              |
-| `system_whoami` | —          | 👤 Identité du token courant (nom, permissions, espaces) |
-| `system_about`  | —          | Identité du service (version, outils, capacités)          |
+| Tool            | Parameters | Description                                            |
+| --------------- | ---------- | ------------------------------------------------------ |
+| `system_health` | —          | Health status (S3, LLMaaS, number of spaces)           |
+| `system_whoami` | —          | 👤 Current token identity (name, permissions, spaces) |
+| `system_about`  | —          | Service identity (version, tools, capabilities)        |
 
-### Space (9 outils)
+### Space (9 tools)
 
-| Outil                | Paramètres                                   | Description                                                |
-| -------------------- | -------------------------------------------- | ---------------------------------------------------------- |
-| `space_create`       | `space_id`, `description`, `rules`, `owner?` | Crée un espace avec ses rules (structure de la bank)       |
-| `space_update`       | `space_id`, `description?`, `owner?`         | Met à jour la description et/ou le owner                   |
-| `space_update_rules` | `space_id`, `rules`                          | 📜 Met à jour les rules d'un espace (admin only)          |
-| `space_list`         | —                                            | Liste les espaces accessibles par le token courant         |
-| `space_info`    | `space_id`                                   | Infos détaillées (notes, bank, consolidation)              |
-| `space_rules`   | `space_id`                                   | Lit les rules immuables de l'espace                        |
-| `space_summary` | `space_id`                                   | Synthèse complète : rules + bank + stats (démarrage agent) |
-| `space_export`  | `space_id`                                   | Export tar.gz en base64                                    |
-| `space_delete`  | `space_id`, `confirm`                        | Supprime l'espace (⚠️ irréversible, admin requis)        |
+| Tool                 | Parameters                                   | Description                                               |
+| -------------------- | -------------------------------------------- | --------------------------------------------------------- |
+| `space_create`       | `space_id`, `description`, `rules`, `owner?` | Creates a space with its rules (bank structure)           |
+| `space_update`       | `space_id`, `description?`, `owner?`         | Updates description and/or owner                          |
+| `space_update_rules` | `space_id`, `rules`                          | 📜 Updates space rules (admin only)                      |
+| `space_list`         | —                                            | Lists spaces accessible by current token                  |
+| `space_info`    | `space_id`                                   | Detailed info (notes, bank, consolidation)                |
+| `space_rules`   | `space_id`                                   | Reads immutable space rules                               |
+| `space_summary` | `space_id`                                   | Complete summary: rules + bank + stats (agent startup)    |
+| `space_export`  | `space_id`                                   | tar.gz export in base64                                   |
+| `space_delete`  | `space_id`, `confirm`                        | Deletes the space (⚠️ irreversible, admin required)     |
 
-### Live (3 outils)
+### Live (3 tools)
 
-| Outil         | Paramètres                                  | Description                                                                                                                 |
+| Tool          | Parameters                                  | Description                                                                                                                 |
 | ------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `live_note`   | `space_id`, `category`, `content`, `tags?`  | Écrit une note horodatée (agent = token name). Catégories : observation, decision, todo, insight, question, progress, issue |
-| `live_read`   | `space_id`, `limit?`, `category?`, `agent?` | Lit les notes live (filtres optionnels)                                                                                     |
-| `live_search` | `space_id`, `query`, `limit?`               | Recherche plein texte dans les notes                                                                                        |
+| `live_note`   | `space_id`, `category`, `content`, `tags?`  | Writes a timestamped note (agent = token name). Categories: observation, decision, todo, insight, question, progress, issue |
+| `live_read`   | `space_id`, `limit?`, `category?`, `agent?` | Reads live notes (optional filters)                                                                                         |
+| `live_search` | `space_id`, `query`, `limit?`               | Full-text search in notes                                                                                                   |
 
-### Bank (7 outils)
+### Bank (7 tools)
 
-| Outil              | Paramètres                            | Description                                                                                                |
-| ------------------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `bank_read`        | `space_id`, `filename`                | Lit un fichier bank (supporte les sous-dossiers : `personaProfiles/acheteur.md`)                           |
-| `bank_read_all`    | `space_id`                            | Lit toute la bank en une requête (🚀 démarrage agent)                                                     |
-| `bank_list`        | `space_id`                            | Liste les fichiers bank avec chemins relatifs (sans contenu)                                               |
-| `bank_consolidate` | `space_id`, `agent?`                  | 🧠 Consolide les notes via LLM. `agent` vide = toutes les notes (admin). `agent=nom` = notes de cet agent |
-| `bank_repair`      | `space_id`, `dry_run?`                | 🔧 Répare les noms corrompus (Unicode, préfixes parasites). `dry_run=True` par défaut (admin)              |
-| `bank_write`       | `space_id`, `filename`, `content`     | ✏️ Écrit/remplace un fichier bank directement — contourne la consolidation LLM (admin)                    |
-| `bank_delete`      | `space_id`, `filename`                | 🗑️ Supprime un fichier bank + ses doublons Unicode (admin, irréversible)                                  |
+| Tool               | Parameters                        | Description                                                                                             |
+| ------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `bank_read`        | `space_id`, `filename`            | Reads a bank file (supports subfolders: `personaProfiles/buyer.md`)                                     |
+| `bank_read_all`    | `space_id`                        | Reads entire bank in one request (🚀 agent startup)                                                    |
+| `bank_list`        | `space_id`                        | Lists bank files with relative paths (without content)                                                  |
+| `bank_consolidate` | `space_id`, `agent?`              | 🧠 Consolidates notes via LLM. Empty `agent` = all notes (admin). `agent=name` = notes from this agent |
+| `bank_repair`      | `space_id`, `dry_run?`            | 🔧 Repairs corrupted filenames (Unicode, parasitic prefixes). `dry_run=True` by default (admin)        |
+| `bank_write`       | `space_id`, `filename`, `content` | ✏️ Writes/replaces a bank file directly — bypasses LLM consolidation (admin)                          |
+| `bank_delete`      | `space_id`, `filename`            | 🗑️ Deletes a bank file + its Unicode duplicates (admin, irreversible)                                |
 
-### Graph (4 outils) — 🌉 Pont vers Graph Memory
+### Graph (4 tools) — 🌉 Link to Graph Memory
 
-| Outil              | Paramètres                                           | Description                                                                                                  |
-| ------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `graph_connect`    | `space_id`, `url`, `token`, `memory_id`, `ontology?` | Connecte un space à Graph Memory. Teste la connexion, crée la mémoire si besoin. Ontologie défaut: `general` |
-| `graph_push`       | `space_id`                                           | Synchronise la bank → graphe. Delete + re-ingest intelligent, nettoyage orphelins. ~30s/fichier              |
-| `graph_status`     | `space_id`                                           | Statut connexion + stats graphe (documents, entités, relations, top entités, liste documents)                |
-| `graph_disconnect` | `space_id`                                           | Déconnecte (les données restent dans le graphe)                                                              |
+| Tool               | Parameters                                           | Description                                                                                               |
+| ------------------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `graph_connect`    | `space_id`, `url`, `token`, `memory_id`, `ontology?` | Connects a space to Graph Memory. Tests connection, creates memory if needed. Default ontology: `general` |
+| `graph_push`       | `space_id`                                           | Synchronizes bank → graph. Smart delete + re-ingest, orphan cleanup. ~30s/file                            |
+| `graph_status`     | `space_id`                                           | Connection status + graph stats (documents, entities, relations, top entities, documents list)            |
+| `graph_disconnect` | `space_id`                                           | Disconnects (data remains in graph)                                                                       |
 
-### Backup (5 outils)
+### Backup (5 tools)
 
-| Outil             | Paramètres                 | Description                                       |
-| ----------------- | -------------------------- | ------------------------------------------------- |
-| `backup_create`   | `space_id`, `description?` | Crée un snapshot complet sur S3                   |
-| `backup_list`     | `space_id?`                | Liste les backups disponibles                     |
-| `backup_restore`  | `backup_id`                | Restaure un backup (l'espace ne doit pas exister) |
-| `backup_download` | `backup_id`                | Télécharge en tar.gz base64                       |
-| `backup_delete`   | `backup_id`                | Supprime un backup                                |
+| Tool              | Parameters                 | Description                              |
+| ----------------- | -------------------------- | ---------------------------------------- |
+| `backup_create`   | `space_id`, `description?` | Creates a full snapshot on S3            |
+| `backup_list`     | `space_id?`                | Lists available backups                  |
+| `backup_restore`  | `backup_id`                | Restores a backup (space must not exist) |
+| `backup_download` | `backup_id`                | Download as tar.gz base64                |
+| `backup_delete`   | `backup_id`                | Deletes a backup                         |
 
-### Admin (7 outils)
+### Admin (7 tools)
 
-| Outil                | Paramètres                                                        | Description                                                                                                    |
-| -------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `admin_create_token` | `name`, `permissions`, `space_ids?`, `expires_in_days?`, `email?` | Crée un token (⚠️ affiché une seule fois). Permissions: read, write, admin. Email optionnel pour traçabilité |
-| `admin_list_tokens`  | —                                                                 | Liste les tokens actifs                                                                                        |
-| `admin_revoke_token` | `token_hash`                                                      | Révoque un token (le rend inutilisable)                                                                        |
-| `admin_delete_token` | `token_hash`                                                      | Supprime physiquement un token du registre (⚠️ irréversible)                                                 |
-| `admin_purge_tokens` | `revoked_only?`                                                   | Purge en masse : révoqués seuls (défaut) ou tous les tokens                                                    |
-| `admin_update_token` | `token_hash`, `space_ids`, `action`                               | Modifie les espaces d'un token (add/remove/set)                                                                |
-| `admin_gc_notes`     | `space_id?`, `max_age_days?`, `confirm?`, `delete_only?`          | Garbage Collector : nettoie les notes orphelines                                                               |
-
----
-
-## 🌉 Graph Bridge — Pont vers Graph Memory
-
-Live Memory peut pousser sa Memory Bank dans une instance [Graph Memory](https://github.com/Cloud-Temple/graph-memory) pour la mémoire long terme. Le graphe de connaissances extrait les entités, relations et embeddings des fichiers bank.
+| Tool                 | Parameters                                                        | Description                                                                                                  |
+| -------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `admin_create_token` | `name`, `permissions`, `space_ids?`, `expires_in_days?`, `email?` | Creates a token (⚠️ displayed only once). Permissions: read, write, admin. Optional email for traceability |
+| `admin_list_tokens`  | —                                                                 | Lists active tokens                                                                                          |
+| `admin_revoke_token` | `token_hash`                                                      | Revokes a token (makes it unusable)                                                                          |
+| `admin_delete_token` | `token_hash`                                                      | Physically deletes a token from the registry (⚠️ irreversible)                                             |
+| `admin_purge_tokens` | `revoked_only?`                                                   | Bulk purge: revoked only (default) or all tokens                                                             |
+| `admin_update_token` | `token_hash`, `space_ids`, `action`                               | Modifies token spaces (add/remove/set)                                                                       |
+| `admin_gc_notes`     | `space_id?`, `max_age_days?`, `confirm?`, `delete_only?`          | Garbage Collector: cleans orphaned notes                                                                     |
 
 ---
 
-## 🇬🇧 README English
+## 🌉 Graph Bridge — Link to Graph Memory
 
-Une version anglaise de cette documentation est disponible ici : [README.en.md](README.en.md)
+Live Memory can push its Memory Bank into a [Graph Memory](https://github.com/Cloud-Temple/graph-memory) instance for long-term memory. The knowledge graph extracts entities, relations, and embeddings from bank files.
+
+### Workflow
+
+```
+1. graph_connect(space_id, url, token, memory_id, ontology="general")
+   └─ Tests connection, creates Graph Memory if needed
+
+2. bank_consolidate(space_id)
+   └─ LLM produces/updates bank files
+
+3. graph_push(space_id)
+   ├─ Lists documents in Graph Memory
+   ├─ For each modified bank file:
+   │   ├─ document_delete (removes orphaned entities)
+   │   └─ memory_ingest (complete graph recalculation)
+   ├─ Cleans deleted bank documents
+   └─ Updates metrics (last_push, push_count)
+
+4. graph_status(space_id)
+   └─ Stats: 79 entities, 61 relations, top entities, documents...
+```
+
+### Smart Push (delete + re-ingest)
+
+Each push is a **complete refresh** of the graph for that file. Existing files are deleted then re-ingested so Graph Memory recalculates entities, relations, and embeddings with up-to-date content.
+
+### Available Ontologies
+
+| Ontology            | Usage                                      |
+| ------------------- | ------------------------------------------ |
+| `general` (default) | Versatile: FAQ, specs, certifications, CSR |
+| `legal`             | Legal documents, contracts                 |
+| `cloud`             | Cloud infrastructure, product sheets       |
+| `managed-services`  | Managed services, outsourcing              |
+| `presales`          | Pre-sales, RFP/RFI, proposals              |
 
 ---
 
-## 🖥️ Interface Web
+## 🖥️ Web Interface
 
-Live Memory expose une **interface web** sur `/live` pour visualiser les espaces mémoire en temps réel.
+Live Memory exposes a **web interface** on `/live` to visualize memory spaces in real-time.
 
-### Accès
+### Access
 
 ```
 http://localhost:8080/live
 ```
 
-### Fonctionnalités
+### Features
 
-| Zone                                | Contenu                                                                                                                          |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **📊 Dashboard** (gauche)          | Infos espace, consolidation (date + compteurs), stats live/bank, agents colorés, catégories avec %, rules Markdown, Graph Memory |
-| **🔴 Live Timeline** (haut-droite) | Notes live groupées par date (Aujourd'hui/Hier/date), cards avec agent + catégorie + Markdown                                    |
-| **📘 Bank Viewer** (bas-droite)    | Onglets de fichiers consolidés, rendu Markdown avec marked.js                                                                    |
+| Zone                               | Content                                                                                                                       |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **📊 Dashboard** (left)           | Space info, consolidation (date + counters), live/bank stats, colored agents, categories with %, Markdown rules, Graph Memory |
+| **🔴 Live Timeline** (top-right)  | Live notes grouped by date (Today/Yesterday/date), cards with agent + category + Markdown                                     |
+| **📘 Bank Viewer** (bottom-right) | Consolidated file tabs, Markdown rendering with marked.js                                                                     |
 
 ### Layout
 
 ```
 ┌──────────────┬────────────────────────────┐
 │  📊 Dashboard│  🔴 Live Timeline          │
-│  (infos,     │  (auto-refresh, groupé/date)│
+│  (info,      │  (auto-refresh, date group)│
 │   agents,    ├────────────────────────────┤
-│   rules...)  │  📘 Bank (onglets Markdown) │
+│   rules...)  │  📘 Bank (Markdown tabs)   │
 └──────────────┴────────────────────────────┘
 ```
 
-### Auto-refresh intelligent
+### Smart Auto-refresh
 
-- Configurable : 3s / 5s / 10s / 30s / manuel
-- **Anti-flicker** : ne re-rend le DOM que si les données ont changé
-- Pastille verte pulsante avec timestamp du dernier refresh
-- Sélection d'espace → chargement immédiat (pas de bouton)
+- Configurable: 3s / 5s / 10s / 30s / manual
+- **Anti-flicker**: only re-renders DOM if data has changed
+- Pulsing green dot with last refresh timestamp
+- Space selection → immediate loading (no button needed)
 
-### API REST (5 endpoints)
+### REST API (5 endpoints)
 
 | Endpoint                        | Description                                              |
 | ------------------------------- | -------------------------------------------------------- |
-| `GET /api/spaces`               | Liste des espaces                                        |
-| `GET /api/space/{id}`           | Info complète (meta + rules + stats + graph-memory)      |
-| `GET /api/live/{id}`            | Notes live (filtres: `?agent=`, `?category=`, `?limit=`) |
-| `GET /api/bank/{id}`            | Liste des fichiers bank                                  |
-| `GET /api/bank/{id}/{filename}` | Contenu d'un fichier bank                                |
+| `GET /api/spaces`               | List of spaces                                           |
+| `GET /api/space/{id}`           | Complete info (meta + rules + stats + graph-memory)      |
+| `GET /api/live/{id}`            | Live notes (filters: `?agent=`, `?category=`, `?limit=`) |
+| `GET /api/bank/{id}`            | Bank file list                                           |
+| `GET /api/bank/{id}/{filename}` | Bank file content                                        |
 
-Les endpoints `/api/*` nécessitent un Bearer Token. La page `/live` et les fichiers `/static/*` sont publics.
+`/api/*` endpoints require a Bearer Token. `/live` page and `/static/*` files are public.
 
 ---
 
-## 🔌 Intégration MCP
+## 🔌 MCP Integration
 
-> 📖 **Guide complet** : Voir [GUIDE_INTEGRATION_CLINE.md](GUIDE_INTEGRATION_CLINE.md) pour le guide pas-à-pas détaillé (configuration Cline, custom instructions, workflow, multi-agents, dépannage).
+> 📖 **Full Guide**: See [GUIDE_INTEGRATION_CLINE.md](GUIDE_INTEGRATION_CLINE.md) for the step-by-step guide (Cline configuration, custom instructions, workflow, multi-agents, troubleshooting).
 
-### Avec Cline (VS Code / VSCodium)
+### With Cline (VS Code / VSCodium)
 
-Dans les settings MCP de Cline (`cline_mcp_settings.json`) - n'oubliez pas /mcp :
+In Cline's MCP settings (`cline_mcp_settings.json`):
 
 ```json
 {
@@ -455,26 +456,26 @@ Dans les settings MCP de Cline (`cline_mcp_settings.json`) - n'oubliez pas /mcp 
     "live-memory": {
       "url": "http://localhost:8080/mcp",
       "headers": {
-        "Authorization": "Bearer lm_VOTRE_TOKEN"
+        "Authorization": "Bearer lm_YOUR_TOKEN"
       }
     }
   }
 }
 ```
 
-Pour configurer les **Custom Instructions** de votre agent, copiez le fichier [`clinerules.md`](clinerules.md) dans vos Custom Instructions globales Cline (ou dans un `.clinerules/` de votre projet). Il suffit de modifier **deux valeurs** :
-- Le **nom du serveur MCP** (tel que configuré dans `cline_mcp_settings.json`, ex: `my-live-mem`)
-- Le **nom de votre espace mémoire** (l'identifiant passé à `space_create`, ex: `mon-projet`)
+To configure the **Custom Instructions** for your agent, copy the [`clinerules.md`](clinerules.md) file into your Cline global Custom Instructions (or into a `.clinerules/` directory in your project). You only need to change **two values**:
+- The **MCP server name** (as configured in `cline_mcp_settings.json`, e.g. `my-live-mem`)
+- The **name of your memory space** (the ID passed to `space_create`, e.g. `my-project`)
 
-Le nom de l'agent est **auto-détecté** depuis le token d'authentification — rien d'autre à configurer.
+The agent name is **auto-detected** from the authentication token — nothing else to configure.
 
-> 💡 **Template prêt à l'emploi :** [`clinerules.md`](clinerules.md) — copier et personnaliser les 2 valeurs en gras
+> 💡 **Ready-to-use template:** [`clinerules.md`](clinerules.md) — copy and customize the 2 bold values
 >
-> 📖 **Guide détaillé :** [Guide d'intégration Cline & Custom Instructions](GUIDE_INTEGRATION_CLINE.md)
+> 📖 **Detailed guide:** [Cline Integration & Custom Instructions Guide](GUIDE_INTEGRATION_CLINE.md)
 
-### Avec Claude Desktop
+### With Claude Desktop
 
-Dans `claude_desktop_config.json` :
+In `claude_desktop_config.json`:
 
 ```json
 {
@@ -482,257 +483,224 @@ Dans `claude_desktop_config.json` :
     "live-memory": {
       "url": "http://localhost:8080/mcp",
       "headers": {
-        "Authorization": "Bearer lm_VOTRE_TOKEN"
+        "Authorization": "Bearer lm_YOUR_TOKEN"
       }
     }
   }
 }
 ```
 
-### Via Python (client MCP)
+### Via Python (MCP client)
 
 ```python
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
 
-async def exemple():
-    headers = {"Authorization": "Bearer votre_token"}
+async def example():
+    headers = {"Authorization": "Bearer your_token"}
     async with streamablehttp_client("http://localhost:8080/mcp", headers=headers) as (r, w, _):
         async with ClientSession(r, w) as session:
             await session.initialize()
 
-            # Charger tout le contexte
+            # Load all context
             result = await session.call_tool("bank_read_all", {
-                "space_id": "mon-projet"
+                "space_id": "my-project"
             })
 
-            # Écrire une note
+            # Write a note
             await session.call_tool("live_note", {
-                "space_id": "mon-projet",
+                "space_id": "my-project",
                 "category": "observation",
-                "content": "Le build passe en CI"
+                "content": "Build passing in CI"
             })
 ```
 
 ---
 
-## 💻 CLI et Shell
+## 💻 CLI and Shell
 
-### Installation CLI
+### CLI Installation
 
 ```bash
 pip install click rich prompt-toolkit mcp[cli]>=1.8.0
 export MCP_URL=http://localhost:8080
-export MCP_TOKEN=votre_token
+export MCP_TOKEN=your_token
 ```
 
-### Commandes CLI (Click)
+### CLI Commands (Click)
 
 ```bash
 python scripts/mcp_cli.py health
-python scripts/mcp_cli.py whoami                       # Identité du token courant
+python scripts/mcp_cli.py whoami                       # Current token identity
 python scripts/mcp_cli.py about
 python scripts/mcp_cli.py space list
-python scripts/mcp_cli.py space create mon-projet --rules-file rules.md
-python scripts/mcp_cli.py live note mon-projet observation "Build OK"
-python scripts/mcp_cli.py bank consolidate mon-projet
-python scripts/mcp_cli.py bank read-all mon-projet
+python scripts/mcp_cli.py space create my-project --rules-file rules.md
+python scripts/mcp_cli.py live note my-project observation "Build OK"
+python scripts/mcp_cli.py bank consolidate my-project
+python scripts/mcp_cli.py bank read-all my-project
 python scripts/mcp_cli.py token create agent-cline read,write
-python scripts/mcp_cli.py graph connect mon-projet URL TOKEN MEM-ID -o general
-python scripts/mcp_cli.py graph push mon-projet
-python scripts/mcp_cli.py graph status mon-projet
-python scripts/mcp_cli.py graph disconnect mon-projet
+python scripts/mcp_cli.py graph connect my-project URL TOKEN MEM-ID -o general
+python scripts/mcp_cli.py graph push my-project
+python scripts/mcp_cli.py graph status my-project
+python scripts/mcp_cli.py graph disconnect my-project
 ```
 
-### Shell interactif
+### Interactive Shell
 
 ```bash
 python scripts/mcp_cli.py shell
 ```
 
-Autocomplétion, historique, affichage Rich. Voir [scripts/README.md](scripts/README.md) pour la référence complète.
+Autocomplete, history, Rich display. See [scripts/README.md](scripts/README.md) for full reference.
 
 ---
 
 ## 🧪 Tests
 
-Script de recette **unifié** avec 4 suites sélectionnables par `--suite` :
+Unified test script with **4 selectable suites** via `--suite`:
 
 ```bash
-docker compose up -d   # Prérequis
+docker compose up -d   # Prerequisite
 
-# Toutes les suites (44 tests, ~60s)
+# All suites (44 tests, ~60s)
 python scripts/test_recette.py --url http://localhost:8080
 
-# Juste une suite
-python scripts/test_recette.py --suite recette     # Pipeline agent (7 tests)
+# Single suite
+python scripts/test_recette.py --suite recette     # Agent pipeline (7 tests)
 python scripts/test_recette.py --suite isolation    # Multi-tenant (18 tests)
-python scripts/test_recette.py --suite qualite      # Outils MCP (19 tests)
+python scripts/test_recette.py --suite qualite      # MCP tools (19 tests)
 
-# Suite Graph Memory (optionnelle, nécessite graph-memory en cours)
+# Graph Memory suite (optional, requires running graph-memory)
 python scripts/test_recette.py --suite graph \
   --graph-url http://host.docker.internal:8080 \
-  --graph-token votre_token
+  --graph-token your_token
 
-# Lister les suites disponibles
+# List available suites
 python scripts/test_recette.py --list
 
-# Mode pas-à-pas + verbose
+# Step-by-step + verbose
 python scripts/test_recette.py --suite isolation -v --step --no-cleanup
 ```
 
-| Suite       | Tests | Description                                                                             |
-| ----------- | ----- | --------------------------------------------------------------------------------------- |
-| `recette`   | 7     | Pipeline complet : token → notes → consolidation LLM → bank                             |
-| `isolation` | 18    | Isolation multi-tenant v0.7.1 : accès inter-espaces, filtrage backups, auto-ajout token |
-| `qualite`   | 19    | Tests des 32 outils MCP : system, admin, space, live, bank, backup, GC                  |
-| `graph`     | ~8    | Pont Graph Memory : connect, push, status, disconnect (optionnel)                       |
-
-Voir [scripts/README.md](scripts/README.md) pour le détail complet.
+| Suite       | Tests | Description                                                                         |
+| ----------- | ----- | ----------------------------------------------------------------------------------- |
+| `recette`   | 7     | Full pipeline: token → notes → LLM consolidation → bank                             |
+| `isolation` | 18    | Multi-tenant isolation v0.7.1: cross-space access, backup filtering, auto-add token |
+| `qualite`   | 19    | 35 MCP tools testing: system, admin, space, live, bank, backup, GC                  |
+| `graph`     | ~8    | Graph Memory bridge: connect, push, status, disconnect (optional)                   |
 
 ---
 
-## 🔒 Sécurité
+## 🔒 Security
 
-### Authentification
+### Authentication
 
-- **Bearer Token** obligatoire sur toutes les requêtes MCP
-- **Bootstrap key** pour créer le premier token admin
-- **Tokens SHA-256** stockés sur S3 (jamais en clair)
-- **3 niveaux** : read, write, admin
-- **Scope par espace** : un token peut être limité à certains espaces
+- **Bearer Token** mandatory on all MCP requests
+- **Bootstrap key** to create the first admin token
+- **SHA-256 Tokens** stored on S3 (never in clear text)
+- **3 levels**: read, write, admin
+- **Space scope**: a token can be limited to specific spaces
 
 ### WAF (Caddy + Coraza)
 
-- **OWASP CRS** : injection SQL/XSS, path traversal, SSRF
-- **Rate Limiting** : 200 MCP/min (Streamable HTTP)
-- **TLS automatique** : Let's Encrypt en production (`SITE_ADDRESS=domaine.com`)
-- **Container non-root** : utilisateur `mcp`
-
-### Bonnes pratiques
-
-1. **Changez `ADMIN_BOOTSTRAP_KEY`** en production
-2. Ne commitez jamais `.env`
-3. Créez des tokens avec les permissions minimales
-4. Activez HTTPS via `SITE_ADDRESS`
+- **OWASP CRS**: SQL/XSS injection, path traversal, SSRF
+- **Rate Limiting**: 200 MCP/min (Streamable HTTP)
+- **Automatic TLS**: Let's Encrypt in production (`SITE_ADDRESS=domain.com`)
+- **Non-root container**: `mcp` user
 
 ---
 
-## 📂 Structure du projet
+## 📂 Project Structure
 
 ```
 live-memory/
-├── src/live_mem/              # Code source (40 outils MCP + interface web)
-│   ├── server.py              # Serveur FastMCP + middlewares
-│   ├── config.py              # Configuration pydantic-settings
-│   ├── auth/                  # Authentification
+├── src/live_mem/              # Source code (40 MCP tools + web interface)
+│   ├── server.py              # FastMCP server + middlewares
+│   ├── config.py              # pydantic-settings configuration
+│   ├── auth/                  # Authentication
 │   │   ├── middleware.py      #   Auth + Logging + StaticFiles
 │   │   └── context.py         #   check_access, check_write, check_admin
-│   ├── static/                # Interface web /live
+│   ├── static/                # /live web interface
 │   │   ├── live.html          #   SPA (Dashboard + Live + Bank)
-│   │   ├── css/live.css       #   Styles (thème Cloud Temple)
-│   │   ├── js/                #   7 modules JS (config, api, app, dashboard, timeline, bank, sidebar)
-│   │   └── img/               #   Logo Cloud Temple SVG
-│   ├── core/                  # Services métier
+│   │   ├── css/live.css       #   Styles (Cloud Temple theme)
+│   │   ├── js/                #   7 JS modules (config, api, app, dashboard, timeline, bank, sidebar)
+│   │   └── img/               #   Cloud Temple SVG Logo
+│   ├── core/                  # Business services
 │   │   ├── storage.py         #   S3 dual SigV2/SigV4 (Dell ECS)
-│   │   ├── space.py           #   CRUD espaces mémoire
-│   │   ├── live.py            #   Notes live (append-only)
-│   │   ├── consolidator.py    #   Pipeline LLM (4 étapes)
-│   │   ├── graph_bridge.py    #   🌉 Pont vers Graph Memory
-│   │   ├── tokens.py          #   Gestion tokens SHA-256
-│   │   ├── backup.py          #   Snapshots S3
+│   │   ├── space.py           #   Memory spaces CRUD
+│   │   ├── live.py            #   Live notes (append-only)
+│   │   ├── consolidator.py    #   LLM Pipeline (4 steps)
+│   │   ├── graph_bridge.py    #   🌉 Link to Graph Memory
+│   │   ├── tokens.py          #   SHA-256 tokens management
+│   │   ├── backup.py          #   S3 snapshots
 │   │   ├── gc.py              #   Garbage Collector
-│   │   ├── locks.py           #   Locks asyncio par espace
-│   │   └── models.py          #   Modèles Pydantic
-│   └── tools/                 # Outils MCP (7 modules, 57 params documentés)
-│       ├── system.py          #   3 outils (health, whoami, about)
-│       ├── space.py           #   9 outils (CRUD espaces) — 15 params
-│       ├── live.py            #   3 outils (notes) — 13 params
-│       ├── bank.py            #   7 outils (bank + consolidation + admin) — 10 params
-│       ├── graph.py           #   4 outils (Graph Bridge) — 8 params
-│       ├── backup.py          #   5 outils (snapshots) — 8 params
-│       └── admin.py           #   7 outils (tokens + GC + purge) — 14 params
+│   │   ├── locks.py           #   asyncio locks per space
+│   │   └── models.py          #   Pydantic models
+│   └── tools/                 # MCP Tools (7 modules)
+│       ├── system.py          #   3 tools (health, whoami, about)
+│       ├── space.py           #   9 tools (spaces CRUD)
+│       ├── live.py            #   3 tools (notes)
+│       ├── bank.py            #   8 tools (bank + consolidation + compaction + admin)
+│       ├── graph.py           #   4 tools (Graph Bridge)
+│       ├── backup.py          #   5 tools (snapshots)
+│       └── admin.py           #   8 tools (tokens + GC + purge + bulk)
 ├── scripts/                   # CLI + Shell + Tests
-│   ├── mcp_cli.py             #   Point d'entrée CLI Click + Shell
-│   ├── test_recette.py        #   🧪 Script de recette unifié (4 suites, ~50 tests)
-│   └── cli/                   #   Package CLI (client, commands, display, shell)
-├── waf/                       # WAF Caddy + Coraza
-│   ├── Caddyfile              #   Config WAF + rate limiting
-│   └── Dockerfile             #   Image Caddy + Coraza
-├── RULES/                     # 📐 Modèles de rules pour créer des espaces (5 templates)
-│   ├── README.md              #   Guide d'utilisation + pourquoi les rules sont critiques
-│   ├── live-mem.standard.memory.bank.md  # Modèle standard (6 fichiers, dev/archi/projet)
-│   ├── book.memory.bank.md    #   Modèle écriture de livre (6 fichiers, suivi narratif)
-│   ├── medical.memory.bank.md #   Modèle suivi médical (7+2 fichiers, fiabilité absolue)
-│   └── presales.memory.bank.md#   Modèle avant-vente B2B (5+N fichiers, personas dynamiques)
-├── clinerules.md              # 📋 Template Custom Instructions Cline (copier + personnaliser)
-├── DESIGN/live-mem/           # 9 documents d'architecture
+├── waf/                       # Caddy + Coraza WAF
+├── clinerules.md              # 📋 Cline Custom Instructions template (copy + customize)
+├── DESIGN/live-mem/           # 9 architecture documents
 ├── docker-compose.yml
-├── docker-compose.nowaf.yml   # Stack sans WAF (dev / test) — port 8002 direct
 ├── Dockerfile
-├── pyproject.toml             # Dépendances & config projet (uv)
-├── uv.lock                    # Lockfile uv
-├── VERSION                    # 1.4.1
+├── pyproject.toml             # Dependencies & project config (uv)
+├── uv.lock                    # uv lockfile
+├── VERSION                    # 1.9.0
 ├── CHANGELOG.md
-└── FAQ.md                     # 20 questions/réponses
+└── FAQ.md
 ```
 
 ---
 
-## 🔍 Dépannage
+## 🔍 Troubleshooting
 
-### Le service ne démarre pas
+### Service does not start
 
 ```bash
 docker compose logs live-mem-service --tail 50
 docker compose logs waf --tail 20
 ```
 
-### Erreur 401 Unauthorized
+### 401 Unauthorized
 
-- Vérifiez votre token : `Authorization: Bearer VOTRE_TOKEN`
-- La bootstrap key n'est pas un token — créez d'abord un token via `admin_create_token`
+- Check your token: `Authorization: Bearer YOUR_TOKEN`
+- Bootstrap key is not a token — create a token first via `admin_create_token`
 
-### Consolidation échoue
+### Consolidation fails
 
-- Vérifiez les credentials LLMaaS dans `.env`
-- Le timeout par défaut est 600s — augmentez `CONSOLIDATION_TIMEOUT` si nécessaire
-- Un seul `bank_consolidate` à la fois par espace (lock asyncio)
-
-### Graph Bridge : connexion impossible
-
-- Vérifiez que Graph Memory est accessible : `curl https://votre-graph-memory/mcp`
-- Vérifiez le token Graph Memory (Bearer)
-- L'URL peut être avec ou sans `/mcp` (normalisée automatiquement)
-
-### Rebuild après modification du code
-
-```bash
-docker compose build live-mem-service && docker compose up -d live-mem-service
-```
+- Check LLMaaS credentials in `.env`
+- Default timeout is 600s — increase `CONSOLIDATION_TIMEOUT` if needed
+- Only one `bank_consolidate` at a time per space (asyncio lock)
 
 ---
 
-## 🔗 Projets liés
+## 🔗 Related Projects
 
-| Projet           | Description                                | Lien                                                                         |
-| ---------------- | ------------------------------------------ | ---------------------------------------------------------------------------- |
-| **graph-memory** | Mémoire long terme (Knowledge Graph + RAG) | [github.com/Cloud-Temple/graph-memory](https://github.com/Cloud-Temple/graph-memory) |
+| Project          | Description                              | Link                                                                                 |
+| ---------------- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| **graph-memory** | Long-term memory (Knowledge Graph + RAG) | [github.com/Cloud-Temple/graph-memory](https://github.com/Cloud-Temple/graph-memory) |
 
 ---
 
-## 📄 Licence
+## 📄 License
 
 Apache License 2.0
 
 ---
 
-## 👤 Auteur
+## 👤 Author
 
 **Cloud Temple** — [cloud-temple.com](https://www.cloud-temple.com)
 
-Développé par **Christophe Lesur**.
+Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v1.3.0 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v1.9.0 — Shared working memory for collaborative AI agents*

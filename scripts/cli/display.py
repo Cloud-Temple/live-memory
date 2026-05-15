@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Fonctions d'affichage Rich — partagées entre CLI Click et Shell interactif.
+Rich display functions — shared between CLI Click and interactive Shell.
 
-Chaque outil MCP a sa fonction show_xxx_result() pour un rendu coloré.
-Ces fonctions sont importées dans commands.py ET shell.py (DRY).
+Each MCP tool has its show_xxx_result() function for colored rendering.
+These functions are imported in both commands.py and shell.py (DRY).
 """
 
 import json
@@ -16,30 +16,30 @@ console = Console()
 
 
 # =============================================================================
-# Utilitaires communs
+# Common utilities
 # =============================================================================
 
 
 def show_error(msg: str):
-    """Affiche un message d'erreur."""
+    """Displays an error message."""
     console.print(f"[red]❌ {msg}[/red]")
 
 
 def show_success(msg: str):
-    """Affiche un message de succès."""
+    """Displays a success message."""
     console.print(f"[green]✅ {msg}[/green]")
 
 
 def show_warning(msg: str):
-    """Affiche un avertissement."""
+    """Displays a warning message."""
     console.print(f"[yellow]⚠️  {msg}[/yellow]")
 
 
 def show_json(data: dict):
-    """Affiche un dict en JSON brut sur stdout (machine-readable, pipeable).
+    """Displays a dict as raw JSON on stdout (machine-readable, pipeable).
 
-    Utilise print() au lieu de Rich pour éviter la pollution ANSI
-    quand la sortie est redirigée ou pipée vers un autre processus.
+    Uses print() instead of Rich to avoid ANSI pollution
+    when output is redirected or piped to another process.
     """
     print(json.dumps(data, indent=2, ensure_ascii=False))
 
@@ -50,7 +50,7 @@ def show_json(data: dict):
 
 
 def show_health_result(result: dict):
-    """Affiche le résultat du health check (HTTP /health ou MCP system_health)."""
+    """Displays the health check result (HTTP /health or MCP system_health)."""
     status = result.get("status", "?")
     services = result.get("services", {})
     svc_name = result.get("service_name") or result.get("service", "?")
@@ -69,8 +69,8 @@ def show_health_result(result: dict):
 
     table = Table(title=title, show_header=True)
     table.add_column("Service", style="cyan bold")
-    table.add_column("Statut")
-    table.add_column("Détails", style="dim")
+    table.add_column("Status")
+    table.add_column("Details", style="dim")
 
     for name, info in services.items():
         if isinstance(info, dict):
@@ -97,12 +97,12 @@ def show_health_result(result: dict):
 
 
 def show_whoami_result(result: dict):
-    """Affiche le résultat de system_whoami."""
+    """Displays the system_whoami result."""
     auth_type = result.get("auth_type", "?")
     type_icon = "🔑" if auth_type == "bootstrap" else "🏷️"
     perms = result.get("permissions", [])
-    perm_str = ", ".join(perms) if perms else "aucune"
-    # Icônes de permissions
+    perm_str = ", ".join(perms) if perms else "none"
+    # Permission icons
     perm_icons = []
     if "read" in perms:
         perm_icons.append("🔑 read")
@@ -116,68 +116,68 @@ def show_whoami_result(result: dict):
 
     spaces = result.get("allowed_spaces") or result.get("space_ids") or []
     is_admin = "admin" in (result.get("permissions") or [])
-    spaces_str = ", ".join(spaces) if spaces else ("[dim]tous (admin)[/dim]" if is_admin else "[yellow]aucun (auto-ajout à la création)[/yellow]")
+    spaces_str = ", ".join(spaces) if spaces else ("[dim]all (admin)[/dim]" if is_admin else "[yellow]none (auto-added on creation)[/yellow]")
 
     lines = [
-        f"[bold]Identité :[/bold] [cyan bold]{result.get('client_name', '?')}[/cyan bold]",
+        f"[bold]Identity:[/bold] [cyan bold]{result.get('client_name', '?')}[/cyan bold]",
         f"[bold]Type     :[/bold] {type_icon} {auth_type}",
-        f"[bold]Droits   :[/bold] {perm_display}",
-        f"[bold]Espaces  :[/bold] {spaces_str}",
+        f"[bold]Rights   :[/bold] {perm_display}",
+        f"[bold]Spaces   :[/bold] {spaces_str}",
     ]
 
-    # Métadonnées supplémentaires pour les tokens S3
+    # Additional metadata for S3 tokens
     if result.get("email"):
         lines.append(f"[bold]Email    :[/bold] {result['email']}")
     if result.get("token_hash"):
         lines.append(f"[bold]Hash     :[/bold] [dim]{result['token_hash']}[/dim]")
     if result.get("created_at"):
-        lines.append(f"[bold]Créé le  :[/bold] {result['created_at'][:19]}")
+        lines.append(f"[bold]Created  :[/bold] {result['created_at'][:19]}")
     expires = result.get("expires_at")
     if expires:
         lines.append(f"[bold]Expire   :[/bold] {expires[:19]}")
     elif result.get("auth_type") == "token":
-        lines.append("[bold]Expire   :[/bold] jamais")
+        lines.append("[bold]Expires  :[/bold] never")
     if result.get("note"):
         lines.append(f"\n[dim italic]{result['note']}[/dim italic]")
 
     console.print(
         Panel.fit(
             "\n".join(lines),
-            title="👤 Qui suis-je ?",
+            title="👤 Who am I?",
             border_style="cyan",
         )
     )
 
 
 def show_about_result(result: dict):
-    """Affiche le résultat de system_about."""
+    """Displays the system_about result."""
     console.print(
         Panel.fit(
             f"[bold]Service :[/bold] [cyan]{result.get('name', '?')}[/cyan]\n"
             f"[bold]Version :[/bold] [green]{result.get('version', '?')}[/green]\n"
             f"[bold]Python  :[/bold] {result.get('python_version', '?')}\n"
-            f"[bold]Outils  :[/bold] {result.get('tools_count', 0)}",
-            title="ℹ️  À propos",
+            f"[bold]Tools   :[/bold] {result.get('tools_count', 0)}",
+            title="ℹ️  About",
             border_style="blue",
         )
     )
     tools = result.get("tools", [])
     if tools:
-        # Grouper par catégorie (préfixe avant le _)
+        # Group by category (prefix before _)
         categories = {}
         for t in tools:
             name = t.get("name", "?")
             cat = name.split("_")[0].capitalize() if "_" in name else "Other"
             categories.setdefault(cat, []).append(t)
 
-        table = Table(show_header=True, title="Outils MCP", title_style="bold")
+        table = Table(show_header=True, title="MCP Tools", title_style="bold")
         table.add_column("Cat.", style="bold", width=8)
         table.add_column("Outil", style="cyan bold", width=20)
         table.add_column("Description", style="dim", max_width=55)
 
         for cat, cat_tools in categories.items():
             for i, t in enumerate(cat_tools):
-                # Extraire la première ligne non-vide de la description
+                # Extract the first non-empty line of the description
                 desc = t.get("description", "")
                 first_line = ""
                 for line in desc.strip().split("\n"):
@@ -201,48 +201,48 @@ def show_about_result(result: dict):
 
 
 def show_space_created(result: dict):
-    """Affiche un espace créé."""
+    """Displays a created space."""
     console.print(
         Panel.fit(
             f"[bold]Space ID :[/bold] [cyan]{result.get('space_id', '?')}[/cyan]\n"
             f"[bold]Description :[/bold] {result.get('description', '')}\n"
-            f"[bold]Rules :[/bold] {result.get('rules_size', 0)} octets\n"
-            f"[bold]Créé le :[/bold] {result.get('created_at', '')}",
-            title="✅ Espace créé",
+            f"[bold]Rules :[/bold] {result.get('rules_size', 0)} bytes\n"
+            f"[bold]Created:[/bold] {result.get('created_at', '')}",
+            title="✅ Space Created",
             border_style="green",
         )
     )
 
 
 def show_space_updated(result: dict):
-    """Affiche le résultat d'une mise à jour d'espace."""
+    """Displays the result of a space update."""
     updated = result.get("updated_fields", [])
     panel_content = f"[bold]{result.get('space_id', '?')}[/bold]\n"
     if "description" in updated:
         panel_content += f"Description → {result.get('description', '')}\n"
     if "owner" in updated:
         panel_content += f"Owner → {result.get('owner', '')}\n"
-    panel_content += f"Champs modifiés : {', '.join(updated)}"
+    panel_content += f"Updated fields: {', '.join(updated)}"
     console.print(
-        Panel(panel_content, title="✏️ Espace mis à jour", border_style="green")
+        Panel(panel_content, title="✏️ Space Updated", border_style="green")
     )
 
 
 def show_rules_updated(result: dict):
-    """Affiche le résultat d'une mise à jour de rules."""
+    """Displays the result of a rules update."""
     panel_content = (
         f"[bold]{result.get('space_id', '?')}[/bold]\n"
-        f"Taille : {result.get('rules_size', '?')} octets"
+        f"Size: {result.get('rules_size', '?')} bytes"
     )
     console.print(
-        Panel(panel_content, title="📜 Rules mises à jour", border_style="green")
+        Panel(panel_content, title="📜 Rules Updated", border_style="green")
     )
 
 
 def show_space_list(result: dict):
-    """Affiche la liste des espaces."""
+    """Displays the list of spaces."""
     spaces = result.get("spaces", [])
-    table = Table(title=f"📂 {result.get('total', 0)} espaces", show_header=True)
+    table = Table(title=f"📂 {result.get('total', 0)} spaces", show_header=True)
     table.add_column("Space ID", style="cyan bold")
     table.add_column("Description")
     table.add_column("Owner", style="dim")
@@ -260,7 +260,7 @@ def show_space_list(result: dict):
 
 
 def show_space_info(result: dict):
-    """Affiche les infos détaillées d'un espace."""
+    """Displays detailed space info."""
     live = result.get("live", {})
     bank = result.get("bank", {})
     console.print(
@@ -268,18 +268,18 @@ def show_space_info(result: dict):
             f"[bold]Space ID :[/bold] [cyan]{result.get('space_id', '?')}[/cyan]\n"
             f"[bold]Description :[/bold] {result.get('description', '')}\n"
             f"[bold]Owner :[/bold] {result.get('owner', '') or '[dim]—[/dim]'}\n"
-            f"[bold]Notes live :[/bold] {live.get('notes_count', 0)} ({live.get('total_size', 0)} octets)\n"
-            f"[bold]Bank files :[/bold] {bank.get('files_count', 0)} ({bank.get('total_size', 0)} octets)\n"
+            f"[bold]Live notes :[/bold] {live.get('notes_count', 0)} ({live.get('total_size', 0)} bytes)\n"
+            f"[bold]Bank files :[/bold] {bank.get('files_count', 0)} ({bank.get('total_size', 0)} bytes)\n"
             f"[bold]Consolidations :[/bold] {result.get('consolidation_count', 0)}\n"
-            f"[bold]Dernière :[/bold] {result.get('last_consolidation', 'jamais')}",
-            title="📋 Espace",
+            f"[bold]Last:[/bold] {result.get('last_consolidation', 'never')}",
+            title="📋 Space",
             border_style="blue",
         )
     )
 
 
 def show_rules(result: dict):
-    """Affiche les rules d'un espace."""
+    """Displays the rules of a space."""
     rules = result.get("rules", "")
     console.print(
         Panel(Syntax(rules, "markdown"), title="📐 Rules", border_style="blue")
@@ -287,9 +287,9 @@ def show_rules(result: dict):
 
 
 def show_notes(result: dict):
-    """Affiche les notes live."""
+    """Displays live notes."""
     notes = result.get("notes", [])
-    # Couleurs par catégorie
+    # Colors by category
     colors = {
         "observation": "green",
         "decision": "yellow",
@@ -301,8 +301,8 @@ def show_notes(result: dict):
     }
     table = Table(title=f"📝 {result.get('total', 0)} notes", show_header=True)
     table.add_column("Agent", style="cyan")
-    table.add_column("Catégorie")
-    table.add_column("Contenu", max_width=60)
+    table.add_column("Category")
+    table.add_column("Content", max_width=60)
     table.add_column("Timestamp", style="dim")
     for n in notes:
         cat = n.get("category", "?")
@@ -322,20 +322,20 @@ def show_notes(result: dict):
 
 
 def show_bank_list(result: dict):
-    """Affiche la liste des fichiers bank."""
+    """Displays the list of bank files."""
     files = result.get("files", [])
     table = Table(
-        title=f"📘 Bank — {result.get('file_count', 0)} fichiers", show_header=True
+        title=f"📘 Bank — {result.get('file_count', 0)} files", show_header=True
     )
-    table.add_column("Fichier", style="cyan bold")
-    table.add_column("Taille", justify="right")
+    table.add_column("File", style="cyan bold")
+    table.add_column("Size", justify="right")
     for f in files:
-        table.add_row(f.get("filename", "?"), f"{f.get('size', 0)} oct")
+        table.add_row(f.get("filename", "?"), f"{f.get('size', 0)} B")
     console.print(table)
 
 
 def show_bank_content(result: dict):
-    """Affiche le contenu d'un fichier bank."""
+    """Displays the content of a bank file."""
     console.print(
         Panel(
             Syntax(result.get("content", ""), "markdown"),
@@ -346,18 +346,18 @@ def show_bank_content(result: dict):
 
 
 def show_bank_write_result(result: dict):
-    """Affiche le résultat d'un bank_write."""
+    """Displays the bank_write result."""
     action = result.get("action", "?")
-    icon = "✏️ Remplacé" if action == "replaced" else "✨ Créé"
+    icon = "✏️ Replaced" if action == "replaced" else "✨ Created"
     cleaned = result.get("unicode_duplicates_cleaned", 0)
     lines = [
-        f"[bold]Fichier :[/bold] [cyan]{result.get('filename', '?')}[/cyan]",
+        f"[bold]File    :[/bold] [cyan]{result.get('filename', '?')}[/cyan]",
         f"[bold]Action  :[/bold] {icon}",
-        f"[bold]Taille  :[/bold] {result.get('size', 0)} octets",
+        f"[bold]Size    :[/bold] {result.get('size', 0)} bytes",
     ]
     if cleaned:
         lines.append(
-            f"[bold]Doublons Unicode nettoyés :[/bold] [yellow]{cleaned}[/yellow]"
+            f"[bold]Unicode duplicates cleaned:[/bold] [yellow]{cleaned}[/yellow]"
         )
     console.print(
         Panel.fit("\n".join(lines), title="📝 Bank Write", border_style="green")
@@ -365,37 +365,37 @@ def show_bank_write_result(result: dict):
 
 
 def show_bank_delete_result(result: dict):
-    """Affiche le résultat d'un bank_delete."""
+    """Displays the bank_delete result."""
     deleted = result.get("files_deleted", 0)
     keys = result.get("keys_deleted", [])
     lines = [
-        f"[bold]Fichier :[/bold] [cyan]{result.get('filename', '?')}[/cyan]",
-        f"[bold]Supprimés :[/bold] {deleted} fichier(s)",
+        f"[bold]File    :[/bold] [cyan]{result.get('filename', '?')}[/cyan]",
+        f"[bold]Deleted   :[/bold] {deleted} file(s)",
     ]
     if len(keys) > 1:
-        lines.append(f"[bold]Variantes :[/bold] {', '.join(keys)}")
+        lines.append(f"[bold]Variants  :[/bold] {', '.join(keys)}")
     console.print(
         Panel.fit("\n".join(lines), title="🗑️ Bank Delete", border_style="red")
     )
 
 
 def show_bank_repair_result(result: dict):
-    """Affiche le résultat d'un bank_repair."""
+    """Displays the bank_repair result."""
     mode = result.get("mode", "?")
     mode_label = (
-        "[yellow]DRY-RUN (aucune modification)[/yellow]"
+        "[yellow]DRY-RUN (no modifications)[/yellow]"
         if mode == "dry-run"
-        else "[green]APPLIQUÉ[/green]"
+        else "[green]APPLIED[/green]"
     )
 
     console.print(
         Panel.fit(
-            f"[bold]Espace  :[/bold] [cyan]{result.get('space_id', '?')}[/cyan]\n"
+            f"[bold]Space   :[/bold] [cyan]{result.get('space_id', '?')}[/cyan]\n"
             f"[bold]Mode    :[/bold] {mode_label}\n"
-            f"[bold]Scannés :[/bold] {result.get('files_scanned', 0)} fichiers uniques\n"
+            f"[bold]Scanned :[/bold] {result.get('files_scanned', 0)} unique files\n"
             f"[bold]OK      :[/bold] {result.get('files_ok', 0)}\n"
-            f"[bold]À réparer :[/bold] {result.get('files_to_repair', 0)}\n"
-            f"[bold]Doublons  :[/bold] {result.get('duplicates_found', 0)}",
+            f"[bold]To repair :[/bold] {result.get('files_to_repair', 0)}\n"
+            f"[bold]Duplicates:[/bold] {result.get('duplicates_found', 0)}",
             title="🔧 Bank Repair",
             border_style="yellow" if mode == "dry-run" else "green",
         )
@@ -403,11 +403,11 @@ def show_bank_repair_result(result: dict):
 
     repairs = result.get("repairs", [])
     if repairs:
-        table = Table(title="Fichiers à déplacer", show_header=True)
+        table = Table(title="Files to move", show_header=True)
         table.add_column("Original", style="red")
         table.add_column("→", justify="center", width=2)
-        table.add_column("Corrigé", style="green")
-        table.add_column("Statut")
+        table.add_column("Corrected", style="green")
+        table.add_column("Status")
         for r in repairs:
             status_icon = "✅" if r.get("status") == "repaired" else "🔍"
             table.add_row(
@@ -420,42 +420,42 @@ def show_bank_repair_result(result: dict):
 
     duplicates = result.get("duplicates", [])
     if duplicates:
-        table = Table(title="Doublons à supprimer", show_header=True)
-        table.add_column("Fichier", style="red")
-        table.add_column("Canonique", style="dim")
-        table.add_column("Statut")
+        table = Table(title="Duplicates to delete", show_header=True)
+        table.add_column("File", style="red")
+        table.add_column("Canonical", style="dim")
+        table.add_column("Status")
         for d in duplicates:
             status_icon = "🗑️" if d.get("status") == "deleted" else "🔍"
             table.add_row(d.get("relpath", "?"), d.get("canonical", "?"), status_icon)
         console.print(table)
 
     if not repairs and not duplicates:
-        show_success("Tous les fichiers bank sont OK !")
+        show_success("All bank files are OK!")
 
 
 def show_consolidation_result(result: dict):
-    """Affiche le résultat d'une consolidation."""
+    """Displays the consolidation result."""
     console.print(
         Panel.fit(
-            f"[bold]Notes traitées :[/bold] {result.get('notes_processed', 0)}\n"
-            f"[bold]Fichiers créés :[/bold] {result.get('bank_files_created', 0)}\n"
-            f"[bold]Fichiers MAJ :[/bold] {result.get('bank_files_updated', 0)}\n"
-            f"[bold]Synthèse :[/bold] {result.get('synthesis_size', 0)} chars\n"
-            f"[bold]Tokens LLM :[/bold] {result.get('llm_tokens_used', 0)}\n"
-            f"[bold]Durée :[/bold] {result.get('duration_seconds', 0)}s",
-            title="🧠 Consolidation terminée",
+            f"[bold]Notes processed:[/bold] {result.get('notes_processed', 0)}\n"
+            f"[bold]Files created  :[/bold] {result.get('bank_files_created', 0)}\n"
+            f"[bold]Files updated  :[/bold] {result.get('bank_files_updated', 0)}\n"
+            f"[bold]Synthesis  :[/bold] {result.get('synthesis_size', 0)} chars\n"
+            f"[bold]LLM tokens :[/bold] {result.get('llm_tokens_used', 0)}\n"
+            f"[bold]Duration   :[/bold] {result.get('duration_seconds', 0)}s",
+            title="🧠 Consolidation complete",
             border_style="green",
         )
     )
 
 
 def show_bank_compact_result(result: dict):
-    """Affiche le résultat d'un bank_compact."""
+    """Displays the bank_compact result."""
     dry_run = result.get("dry_run", True)
     mode_label = (
-        "[yellow]DRY-RUN (aucune modification)[/yellow]"
+        "[yellow]DRY-RUN (no modifications)[/yellow]"
         if dry_run
-        else "[green]APPLIQUÉ[/green]"
+        else "[green]APPLIED[/green]"
     )
     files_over = result.get("files_over_limit", 0)
     border = "yellow" if dry_run else ("green" if files_over == 0 else "cyan")
@@ -465,29 +465,29 @@ def show_bank_compact_result(result: dict):
     reduction = ""
     if not dry_run and size_before > 0 and size_after < size_before:
         pct = round((1 - size_after / size_before) * 100)
-        reduction = f"\n[bold]Réduction :[/bold] [green]-{pct}%[/green] ({size_before} → {size_after} bytes)"
+        reduction = f"\n[bold]Reduction  :[/bold] [green]-{pct}%[/green] ({size_before} → {size_after} bytes)"
 
     console.print(
         Panel.fit(
-            f"[bold]Espace     :[/bold] [cyan]{result.get('space_id', '?')}[/cyan]\n"
+            f"[bold]Space      :[/bold] [cyan]{result.get('space_id', '?')}[/cyan]\n"
             f"[bold]Mode       :[/bold] {mode_label}\n"
-            f"[bold]Fichiers   :[/bold] {result.get('files_total', 0)} total\n"
-            f"[bold]Surdimensionnés :[/bold] {files_over}\n"
-            f"[bold]Taille bank :[/bold] {size_before} bytes" + reduction,
+            f"[bold]Files      :[/bold] {result.get('files_total', 0)} total\n"
+            f"[bold]Oversized  :[/bold] {files_over}\n"
+            f"[bold]Bank size  :[/bold] {size_before} bytes" + reduction,
             title="📦 Bank Compact",
             border_style=border,
         )
     )
 
-    # Tableau des fichiers avec détails
+    # File details table
     files = result.get("files", [])
     if files:
-        table = Table(title="Détails par fichier", show_header=True)
-        table.add_column("Fichier", style="cyan bold")
-        table.add_column("Taille", justify="right")
-        table.add_column("Limite", justify="right")
+        table = Table(title="Details per file", show_header=True)
+        table.add_column("File", style="cyan bold")
+        table.add_column("Size", justify="right")
+        table.add_column("Limit", justify="right")
         table.add_column("Ratio", justify="right")
-        table.add_column("Statut")
+        table.add_column("Status")
 
         for f in files:
             size = f.get("size", 0)
@@ -495,7 +495,7 @@ def show_bank_compact_result(result: dict):
             ratio = f.get("ratio", 0)
             over = f.get("over_limit", False)
 
-            # Indicateur de ratio coloré
+            # Colored ratio indicator
             if ratio > 1.5:
                 ratio_str = f"[red bold]{ratio}x[/red bold]"
             elif ratio > 1.0:
@@ -512,7 +512,7 @@ def show_bank_compact_result(result: dict):
             elif f.get("error"):
                 status = f"[red]❌ {f['error']}[/red]"
             else:
-                status = "⚠️ à compacter" if dry_run else "⚠️ surdimensionné"
+                status = "⚠️ needs compaction" if dry_run else "⚠️ oversized"
 
             table.add_row(
                 f.get("filename", "?"),
@@ -524,10 +524,10 @@ def show_bank_compact_result(result: dict):
         console.print(table)
 
     if files_over == 0:
-        show_success("Tous les fichiers bank sont sous leur limite de taille !")
+        show_success("All bank files are within their size limit!")
     elif dry_run and files_over > 0:
         show_warning(
-            f"{files_over} fichier(s) surdimensionné(s). Lancez avec --apply pour compacter."
+            f"{files_over} oversized file(s). Run with --apply to compact."
         )
 
 
@@ -537,43 +537,43 @@ def show_bank_compact_result(result: dict):
 
 
 def show_token_created(result: dict):
-    """Affiche un token créé (avec avertissement)."""
+    """Displays a created token (with warning)."""
     console.print(
         Panel.fit(
-            f"[bold]Nom :[/bold] {result.get('name', '?')}\n"
+            f"[bold]Name:[/bold] {result.get('name', '?')}\n"
             f"[bold red]Token :[/bold red] [red]{result.get('token', '?')}[/red]\n"
-            f"[bold]Permissions :[/bold] {', '.join(result.get('permissions', []))}\n"
-            f"[bold]Espaces :[/bold] {', '.join(result.get('space_ids', [])) or ('tous (admin)' if 'admin' in result.get('permissions', []) else 'aucun (auto-ajout à la création)')}\n"
-            f"[bold]Expire :[/bold] {result.get('expires_at', 'jamais')}\n\n"
+            f"[bold]Perms:[/bold] {', '.join(result.get('permissions', []))}\n"
+            f"[bold]Spaces:[/bold] {', '.join(result.get('space_ids', [])) or ('all (admin)' if 'admin' in result.get('permissions', []) else 'none (auto-added on creation)')}\n"
+            f"[bold]Expires:[/bold] {result.get('expires_at', 'never')}\n\n"
             f"[bold yellow]{result.get('warning', '')}[/bold yellow]",
-            title="🔑 Token créé",
+            title="🔑 Token Created",
             border_style="red",
         )
     )
 
 
 def show_token_list(result: dict):
-    """Affiche la liste des tokens."""
+    """Displays the list of tokens."""
     tokens = result.get("tokens", [])
     table = Table(title=f"🔑 {result.get('total', 0)} tokens", show_header=True)
-    table.add_column("Nom", style="cyan bold")
+    table.add_column("Name", style="cyan bold")
     table.add_column("Email")
     table.add_column("Hash (ID)", style="dim")
     table.add_column("Permissions")
-    table.add_column("Espaces")
-    table.add_column("Créé le")
-    table.add_column("Expire")
+    table.add_column("Spaces")
+    table.add_column("Created")
+    table.add_column("Expires")
     for t in tokens:
         created = t.get("created_at", "?")[:10] if t.get("created_at") else "?"
         expires = t.get("expires_at") or None
-        expires = expires[:10] if expires else "jamais"
+        expires = expires[:10] if expires else "never"
         is_admin_token = "admin" in t.get("permissions", [])
-        spaces = ", ".join(t.get("space_ids", [])) or ("tous" if is_admin_token else "aucun")
+        spaces = ", ".join(t.get("space_ids", [])) or ("all" if is_admin_token else "none")
         name = t.get("name", "?")
         if t.get("revoked"):
             name = f"[dim strikethrough]{name}[/dim strikethrough]"
-        # Hash tronqué à 24 chars min (suffisant pour token update/revoke
-        # qui exigent 16 chars min). Le hash complet est disponible via --json.
+        # Hash truncated to 24 chars min (sufficient for token update/revoke
+        # which require 16 chars min). Full hash available via --json.
         raw_hash = t.get("hash", "?")
         token_hash = raw_hash[:24] + "…" if len(raw_hash) > 24 else raw_hash
         table.add_row(
@@ -597,29 +597,29 @@ def show_token_list(result: dict):
         if filters.get("include_revoked") is False:
             parts.append("no-revoked")
         if parts:
-            console.print(f"[dim]🔎 Filtres appliqués : {', '.join(parts)}[/dim]")
+            console.print(f"[dim]🔎 Active filters: {', '.join(parts)}[/dim]")
     # Aide contextuelle
     console.print(
-        "[dim]💡 Copiez le Hash pour : token revoke <hash> · token update <hash> --email user@example.com · token delete <hash>[/dim]"
+        "[dim]💡 Copy the Hash for: token revoke <hash> · token update <hash> --email user@example.com · token delete <hash>[/dim]"
     )
 
 
 def show_bulk_update_result(result: dict):
-    """Affiche le rapport d'un bulk update (issue #13)."""
+    """Displays the bulk update report (issue #13)."""
     updated = result.get("updated", 0)
     tokens = result.get("tokens", [])
     filters = result.get("filters", {})
     operations = result.get("operations", {})
 
     if updated == 0:
-        show_warning(result.get("message", "Aucun token modifié."))
+        show_warning(result.get("message", "No tokens modified."))
         if filters:
             console.print(f"[dim]Filtres : {filters}[/dim]")
         return
 
-    show_success(f"{updated} token(s) mis à jour")
+    show_success(f"{updated} token(s) updated")
 
-    # Récapitulatif des opérations demandées
+    # Summary of requested operations
     op_parts = []
     if operations.get("space_ids_add"):
         op_parts.append(f"+spaces={operations['space_ids_add']}")
@@ -630,15 +630,15 @@ def show_bulk_update_result(result: dict):
     if operations.get("email"):
         op_parts.append(f"email={operations['email']}")
     if op_parts:
-        console.print(f"[dim]Opérations : {', '.join(op_parts)}[/dim]")
+        console.print(f"[dim]Operations: {', '.join(op_parts)}[/dim]")
 
     # Table before/after par token
-    table = Table(title="📋 Détail des modifications", show_header=True)
+    table = Table(title="📋 Modification details", show_header=True)
     table.add_column("Token", style="cyan bold")
-    table.add_column("Ajoutés", style="green")
-    table.add_column("Retirés", style="red")
-    table.add_column("Spaces avant", style="dim")
-    table.add_column("Spaces après")
+    table.add_column("Added", style="green")
+    table.add_column("Removed", style="red")
+    table.add_column("Spaces before", style="dim")
+    table.add_column("Spaces after")
     table.add_column("No-op", style="yellow")
     for t in tokens:
         before = t.get("before", {})
@@ -646,8 +646,8 @@ def show_bulk_update_result(result: dict):
         added = ", ".join(t.get("space_ids_added", [])) or "—"
         removed = ", ".join(t.get("space_ids_removed", [])) or "—"
         noop = ", ".join(t.get("space_ids_noop", [])) or "—"
-        before_spaces = ", ".join(before.get("space_ids", [])) or "(aucun)"
-        after_spaces = ", ".join(after.get("space_ids", [])) or "(aucun)"
+        before_spaces = ", ".join(before.get("space_ids", [])) or "(none)"
+        after_spaces = ", ".join(after.get("space_ids", [])) or "(none)"
         table.add_row(
             t.get("name", "?"),
             added,
@@ -665,16 +665,16 @@ def show_bulk_update_result(result: dict):
 
 
 def show_backup_created(result: dict):
-    """Affiche un backup créé."""
+    """Displays a created backup."""
     show_success(
         f"Backup '{result.get('backup_id', '?')}' — "
-        f"{result.get('files_backed_up', 0)} fichiers, "
-        f"{result.get('total_size', 0)} octets"
+        f"{result.get('files_backed_up', 0)} files, "
+        f"{result.get('total_size', 0)} bytes"
     )
 
 
 def show_backup_all_result(result: dict):
-    """Affiche le résultat d'un backup de tous les espaces."""
+    """Displays the result of an all-spaces backup."""
     ok = result.get("spaces_backed_up", 0)
     failed = result.get("spaces_failed", 0)
     total = result.get("spaces_total", 0)
@@ -682,9 +682,9 @@ def show_backup_all_result(result: dict):
 
     console.print(
         Panel.fit(
-            f"[bold]Espaces total  :[/bold] {total}\n"
-            f"[bold]Sauvegardés    :[/bold] [green]{ok}[/green]\n"
-            f"[bold]Échoués        :[/bold] {'[red]' + str(failed) + '[/red]' if failed else '0'}",
+            f"[bold]Total spaces   :[/bold] {total}\n"
+            f"[bold]Backed up      :[/bold] [green]{ok}[/green]\n"
+            f"[bold]Failed         :[/bold] {'[red]' + str(failed) + '[/red]' if failed else '0'}",
             title="💾 Backup ALL",
             border_style=border,
         )
@@ -692,12 +692,12 @@ def show_backup_all_result(result: dict):
 
     details = result.get("details", [])
     if details:
-        table = Table(title="Détails par espace", show_header=True)
+        table = Table(title="Details per space", show_header=True)
         table.add_column("Space", style="cyan bold")
         table.add_column("Backup ID", style="dim")
-        table.add_column("Fichiers", justify="right")
-        table.add_column("Taille", justify="right")
-        table.add_column("Statut")
+        table.add_column("Files", justify="right")
+        table.add_column("Size", justify="right")
+        table.add_column("Status")
 
         for d in details:
             if d.get("status") == "created":
@@ -705,7 +705,7 @@ def show_backup_all_result(result: dict):
                     d.get("space_id", "?"),
                     d.get("backup_id", ""),
                     str(d.get("files", 0)),
-                    f"{d.get('size', 0)} oct",
+                    f"{d.get('size', 0)} B",
                     "✅",
                 )
             else:
@@ -725,31 +725,31 @@ def show_backup_all_result(result: dict):
 
 
 def show_graph_connected(result: dict):
-    """Affiche le résultat d'un graph_connect."""
+    """Displays the graph_connect result."""
     gm = result.get("graph_memory", {})
-    created = "✨ créée" if gm.get("memory_created") else "existait déjà"
+    created = "✨ created" if gm.get("memory_created") else "already existed"
     console.print(
         Panel.fit(
             f"[bold]Space :[/bold] [cyan]{result.get('space_id', '?')}[/cyan]\n"
             f"[bold]URL :[/bold] {gm.get('url', '?')}\n"
             f"[bold]Memory ID :[/bold] [green]{gm.get('memory_id', '?')}[/green]\n"
-            f"[bold]Ontologie :[/bold] {gm.get('ontology', '?')}\n"
-            f"[bold]Mémoire :[/bold] {created}",
-            title="🌉 Connecté à Graph Memory",
+            f"[bold]Ontology  :[/bold] {gm.get('ontology', '?')}\n"
+            f"[bold]Memory    :[/bold] {created}",
+            title="🌉 Connected to Graph Memory",
             border_style="green",
         )
     )
 
 
 def show_graph_status(result: dict):
-    """Affiche le résultat d'un graph_status."""
+    """Displays the graph_status result."""
     connected = result.get("connected", False)
     if not connected:
         console.print(
             Panel.fit(
                 f"[bold]Space :[/bold] [cyan]{result.get('space_id', '?')}[/cyan]\n"
-                f"[dim]{result.get('message', 'Non connecté')}[/dim]",
-                title="🌉 Graph Memory — Non connecté",
+                f"[dim]{result.get('message', 'Not connected')}[/dim]",
+                title="🌉 Graph Memory — Not connected",
                 border_style="dim",
             )
         )
@@ -765,15 +765,15 @@ def show_graph_status(result: dict):
     lines = [
         f"[bold]URL :[/bold] {config.get('url', '?')}",
         f"[bold]Memory ID :[/bold] [green]{config.get('memory_id', '?')}[/green]",
-        f"[bold]Ontologie :[/bold] {config.get('ontology', '?')}",
-        f"[bold]Joignable :[/bold] {'✅ oui' if reachable else '❌ non'}",
+        f"[bold]Ontology  :[/bold] {config.get('ontology', '?')}",
+        f"[bold]Reachable  :[/bold] {'✅ yes' if reachable else '❌ no'}",
     ]
 
     # Section pushs
     if result.get("last_push"):
-        lines.append(f"[bold]Dernier push :[/bold] {result['last_push'][:19]}")
-        lines.append(f"[bold]Pushs totaux :[/bold] {result.get('push_count', 0)}")
-        lines.append(f"[bold]Fichiers :[/bold] {result.get('files_pushed', 0)}")
+        lines.append(f"[bold]Last push   :[/bold] {result['last_push'][:19]}")
+        lines.append(f"[bold]Total pushes:[/bold] {result.get('push_count', 0)}")
+        lines.append(f"[bold]Files      :[/bold] {result.get('files_pushed', 0)}")
 
     console.print(
         Panel.fit(
@@ -783,33 +783,33 @@ def show_graph_status(result: dict):
 
     # Section stats graphe
     if stats:
-        table = Table(title="📊 Statistiques du graphe", show_header=True)
-        table.add_column("Métrique", style="cyan bold")
-        table.add_column("Valeur", justify="right")
+        table = Table(title="📊 Graph statistics", show_header=True)
+        table.add_column("Metric", style="cyan bold")
+        table.add_column("Value", justify="right")
         table.add_row("Documents", str(stats.get("document_count", 0)))
-        table.add_row("Entités", str(stats.get("entity_count", 0)))
+        table.add_row("Entities", str(stats.get("entity_count", 0)))
         table.add_row("Relations", str(stats.get("relation_count", 0)))
         console.print(table)
 
     # Section documents
     if docs:
-        table = Table(title="📄 Documents ingérés", show_header=True)
-        table.add_column("Fichier", style="cyan bold")
-        table.add_column("Entités", justify="right")
-        table.add_column("Taille", justify="right")
+        table = Table(title="📄 Ingested documents", show_header=True)
+        table.add_column("File", style="cyan bold")
+        table.add_column("Entities", justify="right")
+        table.add_column("Size", justify="right")
         for d in docs:
             table.add_row(
                 d.get("filename", "?"),
                 str(d.get("entity_count", 0)),
-                f"{d.get('size', 0)} oct",
+                f"{d.get('size', 0)} B",
             )
         console.print(table)
 
-    # Section top entités
+    # Top entities section
     if top:
-        table = Table(title="🏷️  Top entités", show_header=True)
+        table = Table(title="🏷️  Top entities", show_header=True)
         table.add_column("Type", style="magenta")
-        table.add_column("Nom", style="cyan bold")
+        table.add_column("Name", style="cyan bold")
         for e in top[:10]:
             if isinstance(e, dict):
                 table.add_row(
@@ -822,15 +822,15 @@ def show_graph_status(result: dict):
 
 
 def show_graph_push_result(result: dict):
-    """Affiche le résultat d'un graph_push."""
+    """Displays the graph_push result."""
     errs = result.get("errors", 0)
     border = "green" if errs == 0 else "yellow"
     lines = [
-        f"[bold]Fichiers poussés :[/bold] {result.get('pushed', 0)}",
-        f"[bold]Supprimés (ré-ingest) :[/bold] {result.get('deleted_before_reingest', 0)}",
-        f"[bold]Orphelins nettoyés :[/bold] {result.get('cleaned_orphans', 0)}",
-        f"[bold]Erreurs :[/bold] {'[red]' + str(errs) + '[/red]' if errs else '0'}",
-        f"[bold]Durée :[/bold] {result.get('duration_seconds', 0)}s",
+        f"[bold]Files pushed    :[/bold] {result.get('pushed', 0)}",
+        f"[bold]Deleted (re-ingest):[/bold] {result.get('deleted_before_reingest', 0)}",
+        f"[bold]Orphans cleaned :[/bold] {result.get('cleaned_orphans', 0)}",
+        f"[bold]Errors         :[/bold] {'[red]' + str(errs) + '[/red]' if errs else '0'}",
+        f"[bold]Duration   :[/bold] {result.get('duration_seconds', 0)}s",
     ]
     error_details = result.get("error_details", [])
     if error_details:
@@ -845,15 +845,15 @@ def show_graph_push_result(result: dict):
 
 
 def show_graph_disconnected(result: dict):
-    """Affiche le résultat d'un graph_disconnect."""
+    """Displays the graph_disconnect result."""
     was = result.get("was_connected_to", {})
     console.print(
         Panel.fit(
             f"[bold]Space :[/bold] [cyan]{result.get('space_id', '?')}[/cyan]\n"
-            f"[bold]Était connecté à :[/bold] {was.get('memory_id', '?')}\n"
+            f"[bold]Was connected to:[/bold] {was.get('memory_id', '?')}\n"
             f"[bold]URL :[/bold] {was.get('url', '?')}\n"
-            f"[bold]Pushs effectués :[/bold] {was.get('push_count', 0)}",
-            title="🔌 Déconnecté de Graph Memory",
+            f"[bold]Pushes done    :[/bold] {was.get('push_count', 0)}",
+            title="🔌 Disconnected from Graph Memory",
             border_style="yellow",
         )
     )
@@ -865,7 +865,7 @@ def show_graph_disconnected(result: dict):
 
 
 def show_backup_list(result: dict):
-    """Affiche la liste des backups."""
+    """Displays the list of backups."""
     backups = result.get("backups", [])
     table = Table(title=f"💾 {result.get('total', 0)} backups", show_header=True)
     table.add_column("Backup ID", style="cyan bold")

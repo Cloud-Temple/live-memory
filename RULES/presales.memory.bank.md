@@ -1,169 +1,169 @@
-# Presales Memory Bank Rules — LIVE MEMORY v1.1.0
+# Presales Memory Bank Rules — LIVE MEMORY v1.9.0
 
-## Principe fondamental
+## Core Principle
 
-La Memory Bank Presales est la SEULE source de vérité entre les sessions d'un agent IA dédié à l'analyse et l'amélioration de propositions commerciales. Après chaque réinitialisation, l'agent recommence à zéro et dépend ENTIÈREMENT de ces fichiers pour comprendre le contexte de l'opportunité, les personas impliqués, et l'état d'avancement de l'analyse.
+The Presales Memory Bank is the ONLY source of truth between sessions for an AI agent dedicated to the analysis and improvement of sales proposals. After every memory reset, the agent starts from zero and depends ENTIRELY on these files to understand the opportunity context, the personas involved, and the current state of the analysis.
 
-**La rigueur commerciale et la cohérence argumentaire sont critiques. Aucun insight, aucune contradiction identifiée, aucun pattern efficace ne doit être perdu.**
+**Commercial rigor and argumentative consistency are critical. No insight, no identified contradiction, no effective pattern may be lost.**
 
-## Structure et hiérarchie des fichiers
+## File Structure and Hierarchy
 
-Les fichiers se construisent les uns sur les autres dans une hiérarchie claire :
+Files build on each other in a clear hierarchy:
 
 ```
-proposalContext.md (fondation — opportunité, client, enjeux)
-├── persona-*.md (un fichier par décideur : dirigeant, acheteur, DSI, RSSI, expert...)
-├── rulesLearned.md (patterns efficaces, préférences, leçons apprises)
-└── methodologieAnalyse.md (process d'analyse et conventions)
-    └── activeAnalysis.md (focus actuel — point d'entrée de chaque session)
-        └── analysisProgress.md (journal d'avancement et tracking)
+proposalContext.md (foundation — opportunity, client, stakes)
+├── persona-*.md (one file per decision-maker: executive, buyer, CIO, CISO, expert…)
+├── rulesLearned.md (effective patterns, preferences, lessons learned)
+└── analysisMethodology.md (analysis process and conventions)
+    └── activeAnalysis.md (current focus — entry point of every session)
+        └── analysisProgress.md (advancement journal and tracking)
 ```
 
-- `proposalContext.md` est le document fondateur qui cadre toute l'analyse
-- Les fichiers `persona-*.md` documentent chaque décideur impliqué
-- `rulesLearned.md` capitalise les apprentissages transverses
-- `activeAnalysis.md` synthétise le focus actuel et les prochaines étapes
-- `analysisProgress.md` trace l'avancement complet avec statuts visuels
+- `proposalContext.md` is the foundational document that frames the entire analysis
+- `persona-*.md` files document each decision-maker involved
+- `rulesLearned.md` capitalizes cross-cutting learnings
+- `activeAnalysis.md` synthesizes the current focus and next steps
+- `analysisProgress.md` tracks complete advancement with visual statuses
 
-## Fichiers obligatoires (5 fichiers de base)
+## Mandatory Files (5 base files)
 
 ### proposalContext.md
-**Fondation de l'analyse — rarement modifié.**
-- Client cible : secteur, taille, contexte métier, enjeux stratégiques
-- Opportunité : périmètre, montant estimé, timeline, concurrents identifiés
-- Documents analysés : liste des propositions, annexes, RFP/RFI
-- Positionnement : forces et faiblesses identifiées, différenciateurs clés
-- Contraintes : budget, calendrier, exigences réglementaires, critères éliminatoires
-- Ce fichier ne change que si le contexte de l'opportunité évolue fondamentalement
-- Tout nouvel agent doit lire ce fichier en premier
+**Analysis foundation — rarely modified.**
+- Target client: industry, size, business context, strategic stakes
+- Opportunity: scope, estimated amount, timeline, identified competitors
+- Analyzed documents: list of proposals, appendices, RFP/RFI
+- Positioning: identified strengths and weaknesses, key differentiators
+- Constraints: budget, schedule, regulatory requirements, elimination criteria
+- This file only changes if the opportunity context fundamentally evolves
+- Every new agent must read this file first
 
 ### activeAnalysis.md
-**Le fichier le plus dynamique — le point d'entrée de chaque session.**
-- Focus actuel : quelle analyse est en cours
-- Insights récents : découvertes, points forts, faiblesses identifiées
-- Contradictions détectées : incohérences dans la proposition et pistes de résolution
-- Prochaines étapes concrètes (analyses à mener, documents à produire)
-- Décisions en cours : arbitrages argumentaires, choix de positionnement
-- IMPORTANT : ce fichier reflète l'ÉTAT ACTUEL, pas l'historique complet
-- Les éléments terminés doivent être déplacés vers analysisProgress.md
-- C'est le PREMIER fichier qu'un agent lit pour reprendre l'analyse
+**The most dynamic file — the entry point of every session.**
+- Current focus: which analysis is in progress
+- Recent insights: discoveries, strengths, identified weaknesses
+- Detected contradictions: inconsistencies in the proposal and resolution paths
+- Concrete next steps (analyses to conduct, documents to produce)
+- Pending decisions: argumentative trade-offs, positioning choices
+- IMPORTANT: this file reflects the CURRENT STATE, not the full history
+- Completed items must be moved to analysisProgress.md
+- This is the FIRST file an agent reads to resume the analysis
 
 ### analysisProgress.md
-**Journal d'avancement — s'enrichit au fil du temps.**
-- Phases d'analyse complétées et en cours, avec statuts visuels :
-  - ✅ Terminé
-  - 🔄 En cours
-  - ⏱️ Planifié
-  - ❓ En attente de clarification
-- Améliorations réalisées avec impact mesuré (avant/après quand possible)
-- Questions/réponses organisées par section de la proposition
-- Documents complémentaires produits (synthèses, analyses, refontes)
-- Problèmes identifiés et contournements
-- Ce fichier est le SEUL qui contient l'historique chronologique complet
+**Advancement journal — grows over time.**
+- Completed and in-progress analysis phases, with visual statuses:
+  - ✅ Completed
+  - 🔄 In progress
+  - ⏱️ Planned
+  - ❓ Awaiting clarification
+- Improvements made with measured impact (before/after when possible)
+- Questions/answers organized by proposal section
+- Supplementary documents produced (summaries, analyses, rewrites)
+- Identified problems and workarounds
+- This file is the ONLY one that contains the complete chronological history
 
 ### rulesLearned.md
-**Capitalisation des apprentissages — fichier CRITIQUE.**
-- Patterns argumentaires efficaces (formulations qui fonctionnent par persona)
-- Préférences et conventions de rédaction découvertes
-- Leçons apprises : ce qui marche, ce qui ne marche pas
-- Seuils et repères : ratios de prix acceptables, benchmarks sectoriels
-- Règles de cohérence identifiées (ex: ne pas contredire le positionnement sur la customisation)
-- Ce fichier s'enrichit à chaque session et doit être consulté avant toute rédaction
+**Learning capitalization — a CRITICAL file.**
+- Effective argumentative patterns (phrasing that works, by persona)
+- Discovered writing preferences and conventions
+- Lessons learned: what works, what doesn't
+- Thresholds and benchmarks: acceptable price ratios, industry benchmarks
+- Identified consistency rules (e.g., don't contradict the customization positioning)
+- This file grows every session and must be consulted before any writing
 
-### methodologieAnalyse.md
-**Process d'analyse et conventions — rarement modifié.**
-- Processus d'analyse en 4 phases (préparatoire, fondamentale, persona, synthèse)
-- Séquence d'analyse par persona : Dirigeant → Acheteur → RSSI → DSI → Expert → Utilisateurs
-- Gestion des contradictions : identification, évaluation, résolution, documentation
-- Convention de nommage des documents complémentaires : `[base_doc]-[decimal].[nom]`
-- Méthodologie d'intégration de nouvelles sources de connaissances
-- Ce fichier cadre le "comment" de l'analyse
+### analysisMethodology.md
+**Analysis process and conventions — rarely modified.**
+- 4-phase analysis process (preparatory, foundational, persona, synthesis)
+- Analysis sequence by persona: Executive → Buyer → CISO → CIO → Expert → End Users
+- Contradiction management: identification, evaluation, resolution, documentation
+- Naming convention for supplementary documents: `[base_doc]-[decimal].[name]`
+- Methodology for integrating new knowledge sources
+- This file frames the "how" of the analysis
 
-## Fichiers personas (un par décideur — créés selon besoin)
+## Persona Files (one per decision-maker — created as needed)
 
-Chaque persona impliqué dans la décision d'achat a son propre fichier bank. Le LLM consolidateur doit créer ces fichiers dès qu'une note fournit des informations sur un persona.
+Each persona involved in the purchasing decision has its own bank file. The LLM consolidator must create these files as soon as a note provides information about a persona.
 
-### Structure type d'un fichier persona (`persona-[nom].md`)
+### Standard Persona File Structure (`persona-[name].md`)
 
 ```
-# Persona : [Rôle]
-## Caractéristiques
-Rôle, objectifs, indicateurs de performance, contraintes
-## Critères d'Évaluation
-Priorités, seuils d'acceptabilité, points de vigilance
-## Processus Décisionnel
-Étapes, influences, facteurs de risque
-## Objections Typiques
-Objections attendues et contre-arguments validés
-## Messages Efficaces
-Formulations validées, arguments qui résonnent
-## Éléments de Preuve
-Références, chiffres, certifications attendues
-## Notes Spécifiques
-Particularités, adaptations contextuelles
+# Persona: [Role]
+## Characteristics
+Role, objectives, performance indicators, constraints
+## Evaluation Criteria
+Priorities, acceptability thresholds, vigilance points
+## Decision Process
+Steps, influences, risk factors
+## Typical Objections
+Expected objections and validated counter-arguments
+## Effective Messages
+Validated phrasing, arguments that resonate
+## Evidence Elements
+References, figures, expected certifications
+## Specific Notes
+Particularities, contextual adaptations
 ```
 
-### Personas standards (à créer selon le contexte)
-- `persona-dirigeant.md` — CEO/DG : vision stratégique, ROI, risques business
-- `persona-acheteur.md` — Responsable achats : TCO, flexibilité contractuelle, benchmarks
-- `persona-dsi.md` — DSI : intégration technique, roadmap, dette technique
-- `persona-rssi.md` — RSSI : conformité, certifications, gouvernance sécurité
-- `persona-expert-technique.md` — Expert : architecture, performance, évolutivité
+### Standard Personas (created as needed)
+- `persona-executive.md` — CEO/Managing Director: strategic vision, ROI, business risks
+- `persona-buyer.md` — Procurement Manager: TCO, contractual flexibility, benchmarks
+- `persona-cio.md` — CIO: technical integration, roadmap, technical debt
+- `persona-ciso.md` — CISO: compliance, certifications, security governance
+- `persona-technical-expert.md` — Expert: architecture, performance, scalability
 
-## Fichiers optionnels
+## Optional Files
 
-- **Documents d'analyse produits** (synthèse exécutive, analyse concurrentielle, etc.) — stockés comme fichiers bank additionnels
-- **Fichiers de résolution de contradictions** — quand une contradiction nécessite un document dédié
+- **Produced analysis documents** (executive summary, competitive analysis, etc.) — stored as additional bank files
+- **Contradiction resolution files** — when a contradiction requires a dedicated document
 
-## Catégories de notes et leur usage presales
+## Note Categories and Their Presales Usage
 
-Pendant l'analyse, l'agent écrit des notes atomiques via `live_note` avec ces catégories :
+During analysis, the agent writes atomic notes via `live_note` with these categories:
 
-- **`observation`** — Constats factuels sur la proposition (forces, faiblesses, incohérences, données chiffrées)
-- **`decision`** — Choix argumentaires, positionnement retenu, reformulations validées
-- **`progress`** — Analyses terminées, documents produits, phases complétées
-- **`issue`** — Contradictions détectées, faiblesses critiques, points bloquants
-- **`todo`** — Analyses à mener, documents à produire, personas à compléter
-- **`insight`** — Patterns découverts, arguments efficaces, corrélations entre objections et réponses
-- **`question`** — Points à clarifier avec l'équipe commerciale, informations manquantes
+- **`observation`** — Factual findings about the proposal (strengths, weaknesses, inconsistencies, numerical data)
+- **`decision`** — Argumentative choices, positioning adopted, validated rewrites
+- **`progress`** — Completed analyses, documents produced, phases completed
+- **`issue`** — Detected contradictions, critical weaknesses, blocking points
+- **`todo`** — Analyses to conduct, documents to produce, personas to complete
+- **`insight`** — Discovered patterns, effective arguments, correlations between objections and responses
+- **`question`** — Points to clarify with the sales team, missing information
 
-## Quand mettre à jour la Memory Bank
+## When to Update the Memory Bank
 
-La bank doit être mise à jour (via consolidation) :
-1. Après chaque phase d'analyse complétée
-2. Après la découverte d'une contradiction majeure
-3. Après la production d'un document d'analyse (synthèse, refonte, etc.)
-4. Quand de nouveaux patterns argumentaires sont identifiés
-5. En fin de session de travail (toujours)
-6. Quand l'utilisateur demande explicitement une mise à jour
+The bank must be updated (via consolidation):
+1. After each completed analysis phase
+2. After discovering a major contradiction
+3. After producing an analysis document (summary, rewrite, etc.)
+4. When new argumentative patterns are identified
+5. At the end of every work session (always)
+6. When the user explicitly requests an update
 
-## Instructions pour le LLM consolidateur
+## Instructions for the LLM Consolidator
 
-### Mapping catégories de notes vers fichiers bank
+### Mapping Note Categories to Bank Files
 
-- `observation` (constats sur la proposition) → `activeAnalysis.md` (insights récents) + `persona-*.md` (si concerne un persona spécifique)
-- `decision` (choix argumentaires) → `activeAnalysis.md` (décisions actives) + `rulesLearned.md` (si c'est un pattern réutilisable)
-- `progress` (avancement) → `analysisProgress.md` (journal) + `activeAnalysis.md` (état actuel)
-- `issue` (contradictions, faiblesses) → `activeAnalysis.md` (contradictions détectées) + `analysisProgress.md` (problèmes connus)
-- `todo` (analyses à faire) → `activeAnalysis.md` (prochaines étapes)
-- `insight` (patterns, arguments efficaces) → `rulesLearned.md` (capitalisation) + `persona-*.md` (si spécifique à un persona)
-- `question` (points à clarifier) → `activeAnalysis.md` (décisions en cours) + `analysisProgress.md` (Q&A)
+- `observation` (findings about the proposal) → `activeAnalysis.md` (recent insights) + `persona-*.md` (if related to a specific persona)
+- `decision` (argumentative choices) → `activeAnalysis.md` (active decisions) + `rulesLearned.md` (if it is a reusable pattern)
+- `progress` (advancement) → `analysisProgress.md` (journal) + `activeAnalysis.md` (current state)
+- `issue` (contradictions, weaknesses) → `activeAnalysis.md` (detected contradictions) + `analysisProgress.md` (known problems)
+- `todo` (analyses to do) → `activeAnalysis.md` (next steps)
+- `insight` (patterns, effective arguments) → `rulesLearned.md` (capitalization) + `persona-*.md` (if persona-specific)
+- `question` (points to clarify) → `activeAnalysis.md` (pending decisions) + `analysisProgress.md` (Q&A)
 
-### Gestion des fichiers personas par le consolidateur
+### Managing Persona Files
 
-- Si une note mentionne un persona spécifique (dirigeant, acheteur, DSI, RSSI, expert), le consolidateur doit mettre à jour le fichier `persona-[nom].md` correspondant
-- Si le fichier persona n'existe pas encore, le créer avec la structure type définie ci-dessus
-- Les informations transverses à plusieurs personas vont dans `rulesLearned.md`
+- If a note mentions a specific persona (executive, buyer, CIO, CISO, expert), the consolidator must update the corresponding `persona-[name].md` file
+- If the persona file does not exist yet, create it using the standard structure defined above
+- Cross-persona information goes into `rulesLearned.md`
 
-### Règles de consolidation
+### Consolidation Rules
 
-1. **Ne jamais perdre d'information commerciale** — tout insight, toute objection, tout argument efficace doit être capitalisé
-2. **activeAnalysis.md est le point d'entrée** — c'est le premier fichier lu au démarrage de chaque session
-3. **Synthétiser, ne pas copier** — regrouper les observations similaires en paragraphes cohérents
-4. **Maintenir les statuts visuels dans analysisProgress.md** — utiliser ✅🔄⏱️❓ systématiquement
-5. **proposalContext.md est quasi-immuable** — ne le modifier que si le contexte de l'opportunité change
-6. **rulesLearned.md ne perd jamais de contenu** — uniquement enrichir, jamais supprimer (c'est la mémoire long terme de l'analyse)
-7. **Nettoyer activeAnalysis.md régulièrement** — déplacer les éléments terminés vers analysisProgress.md
-8. **Enrichir les personas progressivement** — chaque session peut apporter de nouveaux arguments ou objections
-9. **Respecter la hiérarchie** — les informations doivent être dans le fichier approprié
-10. **Documenter les contradictions** — toute contradiction identifiée doit être tracée dans activeAnalysis.md avec une piste de résolution
+1. **Never lose commercial information** — every insight, objection, and effective argument must be capitalized
+2. **activeAnalysis.md is the entry point** — it is the first file read at the start of every session
+3. **Synthesize, don't copy** — group similar observations into coherent paragraphs
+4. **Maintain visual statuses in analysisProgress.md** — systematically use ✅🔄⏱️❓
+5. **proposalContext.md is quasi-immutable** — only modify if the opportunity context changes
+6. **rulesLearned.md never loses content** — only enrich, never delete (it is the long-term memory of the analysis)
+7. **Clean activeAnalysis.md regularly** — move completed items to analysisProgress.md
+8. **Enrich personas progressively** — every session may bring new arguments or objections
+9. **Respect the hierarchy** — information must live in the appropriate file
+10. **Document contradictions** — every identified contradiction must be tracked in activeAnalysis.md with a resolution path

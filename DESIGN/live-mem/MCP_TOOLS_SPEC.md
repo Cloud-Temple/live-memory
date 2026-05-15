@@ -1,64 +1,64 @@
-# Spécification des Outils MCP — Live Memory
+# MCP Tools Specification — Live Memory
 
-> **Version** : 1.6.0 | **Date** : 2026-04-25 | **Auteur** : Cloud Temple
+> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
 
 ---
 
-## Vue d'ensemble
+## Overview
 
-Live Memory expose **40 outils MCP** répartis en 7 catégories :
+Live Memory exposes **40 MCP tools** in 7 categories:
 
-| Catégorie       | Outils | Description                                      |
-| --------------- | ------ | ------------------------------------------------ |
-| **System** (2)  | 2      | Santé & identité du service                      |
-| **Space** (7)   | 7      | CRUD des espaces mémoire                         |
-| **Live** (3)    | 3      | Notes en temps réel                              |
-| **Bank** (5)    | 4      | Memory Bank consolidée via LLM                   |
-| **Graph** (4)   | 4      | Pont vers Graph Memory (mémoire long terme)      |
-| **Backup** (5)  | 5      | Sauvegarde & restauration                        |
-| **Admin** (5)   | 5      | Gestion des tokens + maintenance (GC)            |
+| Category        | Tools | Description                                        |
+| --------------- | ----- | -------------------------------------------------- |
+| **System** (2)  | 2     | Service health & identity                          |
+| **Space** (7)   | 7     | Memory space CRUD                                  |
+| **Live** (3)    | 3     | Real-time notes                                    |
+| **Bank** (5)    | 4     | LLM-consolidated Memory Bank                       |
+| **Graph** (4)   | 4     | Bridge to Graph Memory (long-term memory)          |
+| **Backup** (5)  | 5     | Backup & restore                                   |
+| **Admin** (5)   | 5     | Token management + maintenance (GC)                |
 
 ---
 
 ## Conventions
 
-### Format de retour standardisé
+### Standardized Return Format
 
-Chaque outil retourne un `dict` avec un champ `status` :
+Every tool returns a `dict` with a `status` field:
 
 ```python
-{"status": "ok", "data": ...}           # Succès
-{"status": "error", "message": "..."}   # Erreur
-{"status": "created", ...}              # Ressource créée
-{"status": "deleted", ...}              # Ressource supprimée
-{"status": "not_found", ...}            # Ressource introuvable
-{"status": "forbidden", ...}            # Accès refusé
-{"status": "conflict", ...}             # Conflit (consolidation en cours)
+{"status": "ok", "data": ...}           # Success
+{"status": "error", "message": "..."}   # Error
+{"status": "created", ...}              # Resource created
+{"status": "deleted", ...}              # Resource deleted
+{"status": "not_found", ...}            # Resource not found
+{"status": "forbidden", ...}            # Access denied
+{"status": "conflict", ...}             # Conflict (consolidation in progress)
 ```
 
 ### Permissions
 
-| Symbole | Permission | Description                                      |
-| ------- | ---------- | ------------------------------------------------ |
-| 🔓      | Public     | Aucune auth requise                              |
-| 🔑      | Read       | Token avec permission `read` + accès à l'espace  |
-| ✏️      | Write      | Token avec permission `write` + accès à l'espace |
-| 👑      | Admin      | Token avec permission `admin`                    |
+| Symbol | Permission | Description                                       |
+| ------ | ---------- | ------------------------------------------------- |
+| 🔓     | Public     | No auth required                                  |
+| 🔑     | Read       | Token with `read` permission + space access        |
+| ✏️     | Write      | Token with `write` permission + space access       |
+| 👑     | Admin      | Token with `admin` permission                      |
 
 ---
 
-## 1. System — Santé & identité
+## 1. System — Health & Identity
 
 ### `system_health` 🔓
 
-Vérifie l'état de santé du service (S3, LLMaaS, nombre d'espaces).
+Checks the service health status (S3, LLMaaS, space count).
 
 ```python
 @mcp.tool()
 async def system_health() -> dict:
 ```
 
-**Retour** :
+**Response**:
 ```json
 {
   "status": "ok",
@@ -77,137 +77,65 @@ async def system_health() -> dict:
 
 ### `system_about` 🔓
 
-Informations sur le service, version, outils disponibles.
+Service information, version, available tools.
 
 ```python
 @mcp.tool()
 async def system_about() -> dict:
 ```
 
-**Retour** :
-```json
-{
-  "status": "ok",
-  "name": "Live Memory",
-  "version": "0.8.0",
-  "description": "Mémoire de travail partagée pour agents IA collaboratifs",
-  "author": "Cloud Temple",
-  "documentation": "https://github.com/Cloud-Temple/live-memory",
-  "python_version": "3.14.3",
-  "tools_count": 35,
-  "tools": [
-    {"name": "system_health", "description": "Vérifie l'état de santé..."},
-    ...
-  ]
-}
-```
-
 ---
 
-## 2. Space — Gestion des espaces mémoire
+## 2. Space — Memory Space Management
 
 ### `space_create` ✏️
 
-Crée un nouvel espace mémoire avec ses rules.
+Creates a new memory space with its rules.
 
 ```python
 @mcp.tool()
 async def space_create(
-    space_id: str,          # Identifiant unique (alphanum + tirets, max 64 chars)
-    description: str,       # Description courte de l'espace
-    rules: str,             # Contenu Markdown des rules (structure de la bank)
-    owner: str = ""         # Propriétaire (optionnel, informatif)
+    space_id: str,          # Unique identifier (alphanumeric + hyphens, max 64 chars)
+    description: str,       # Short description
+    rules: str,             # Markdown rules content (bank structure)
+    owner: str = ""         # Owner (optional, informational)
 ) -> dict:
 ```
 
-**Retour** :
-```json
-{
-  "status": "created",
-  "space_id": "projet-alpha",
-  "description": "Projet de refonte API",
-  "rules_size": 2450,
-  "created_at": "2026-02-20T18:00:00Z"
-}
-```
-
-**Comportement** :
-- Valide `space_id` : regex `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`
-- Crée `{space_id}/_meta.json` sur S3
-- Crée `{space_id}/_rules.md` sur S3 (immuable après création)
-- Crée les dossiers `{space_id}/live/` et `{space_id}/bank/` (via un fichier sentinelle `.keep`)
-- Erreur si l'espace existe déjà (`status: "already_exists"`)
+**Behavior**:
+- Validates `space_id`: regex `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`
+- Creates `{space_id}/_meta.json` on S3
+- Creates `{space_id}/_rules.md` on S3 (immutable after creation)
+- Creates `{space_id}/live/` and `{space_id}/bank/` directories (via a `.keep` sentinel file)
+- Error if the space already exists (`status: "already_exists"`)
 
 ---
 
 ### `space_list` 🔑
 
-Liste tous les espaces accessibles par le token courant.
+Lists all spaces accessible by the current token.
 
 ```python
 @mcp.tool()
 async def space_list() -> dict:
 ```
 
-**Retour** :
-```json
-{
-  "status": "ok",
-  "spaces": [
-    {
-      "space_id": "projet-alpha",
-      "description": "Projet de refonte API",
-      "owner": "cline-dev",
-      "created_at": "2026-02-20T18:00:00Z",
-      "live_notes_count": 42,
-      "bank_files_count": 6
-    }
-  ],
-  "total": 1
-}
-```
-
 ---
 
 ### `space_info` 🔑
 
-Informations détaillées sur un espace.
+Detailed information about a space.
 
 ```python
 @mcp.tool()
 async def space_info(space_id: str) -> dict:
 ```
 
-**Retour** :
-```json
-{
-  "status": "ok",
-  "space_id": "projet-alpha",
-  "description": "Projet de refonte API",
-  "owner": "cline-dev",
-  "created_at": "2026-02-20T18:00:00Z",
-  "rules_size": 2450,
-  "live": {
-    "notes_count": 42,
-    "total_size": 15600,
-    "oldest_note": "2026-02-20T14:00:00Z",
-    "newest_note": "2026-02-20T17:55:00Z"
-  },
-  "bank": {
-    "files_count": 6,
-    "total_size": 8900,
-    "files": ["activeContext.md", "progress.md", "projectbrief.md"]
-  },
-  "last_consolidation": "2026-02-20T16:00:00Z",
-  "synthesis_exists": true
-}
-```
-
 ---
 
 ### `space_rules` 🔑
 
-Lit les rules de l'espace (immuables).
+Reads the space rules (immutable).
 
 ```python
 @mcp.tool()
@@ -218,7 +146,7 @@ async def space_rules(space_id: str) -> dict:
 
 ### `space_summary` 🔑
 
-Synthèse complète d'un espace (rules + bank + stats live). Utile pour qu'un agent charge tout le contexte d'un coup au démarrage.
+Complete space synthesis (rules + bank + live stats). Useful for an agent to load all context at once on startup.
 
 ```python
 @mcp.tool()
@@ -229,7 +157,7 @@ async def space_summary(space_id: str) -> dict:
 
 ### `space_export` 🔑
 
-Exporte un espace complet en archive tar.gz (retourne en base64).
+Exports a complete space as a tar.gz archive (returns base64).
 
 ```python
 @mcp.tool()
@@ -240,83 +168,70 @@ async def space_export(space_id: str) -> dict:
 
 ### `space_delete` 👑
 
-Supprime un espace et TOUTES ses données (irréversible).
+Deletes a space and ALL its data (irreversible).
 
 ```python
 @mcp.tool()
 async def space_delete(
     space_id: str,
-    confirm: bool = False    # Doit être True pour confirmer
+    confirm: bool = False    # Must be True to confirm
 ) -> dict:
 ```
 
 ---
 
-## 3. Live — Notes en temps réel
+## 3. Live — Real-time Notes
 
 ### `live_note` ✏️
 
-Écrit une note dans l'espace. C'est l'outil principal utilisé par les agents pendant leur travail.
+Writes a note to the space. This is the primary tool used by agents during their work.
 
 ```python
 @mcp.tool()
 async def live_note(
     space_id: str,
     category: str,          # observation | decision | todo | insight | question | progress | issue
-    content: str,           # Contenu de la note (texte libre)
-    tags: str = ""          # Tags séparés par des virgules (optionnel)
+    content: str,           # Note content (free text)
+    tags: str = ""          # Comma-separated tags (optional)
 ) -> dict:
 ```
 
-> **v0.8.1** : Le paramètre `agent` a été supprimé. L'identité de l'agent est toujours
-> le `client_name` du token d'authentification (Token = Agent).
+> **v0.8.1**: The `agent` parameter was removed. The agent identity is always
+> the authentication token's `client_name` (Token = Agent).
 
-**Retour** :
-```json
-{
-  "status": "created",
-  "space_id": "projet-alpha",
-  "filename": "20260220T180512_cline-dev_observation_a3f8b2c1.md",
-  "category": "observation",
-  "agent": "cline-dev",
-  "size": 350,
-  "timestamp": "2026-02-20T18:05:12Z"
-}
-```
+**Behavior**:
+- Generates a unique filename: `{timestamp}_{agent}_{category}_{uuid8}.md`
+- Creates the file with YAML front-matter + content
+- No conflict possible (append-only, unique name)
+- No lock needed
+- The agent is always the token's `client_name` (Token = Agent, v0.8.1)
 
-**Comportement** :
-- Génère un nom de fichier unique : `{timestamp}_{agent}_{category}_{uuid8}.md`
-- Crée le fichier avec front-matter YAML + contenu
-- Aucun conflit possible (append-only, nom unique)
-- Aucun lock nécessaire
-- L'agent est toujours le `client_name` du token (Token = Agent, v0.8.1)
+**Standard categories**:
 
-**Catégories standard** :
-
-| Catégorie     | Usage                           | Exemples                               |
-| ------------- | ------------------------------- | -------------------------------------- |
-| `observation` | Constat factuel                 | "Le build passe", "L'API retourne 200" |
-| `decision`    | Choix technique/organisationnel | "On part sur S3 au lieu de SQLite"     |
-| `todo`        | Tâche à faire                   | "Implémenter le module backup"         |
-| `insight`     | Analyse, pattern découvert      | "Le pattern X est pertinent ici"       |
-| `question`    | Question ouverte                | "Faut-il supporter le format CSV ?"    |
-| `progress`    | Avancement                      | "Module auth : 80% terminé"            |
-| `issue`       | Problème, bug                   | "Le timeout LLM dépasse 60s"          |
+| Category      | Usage                            | Examples                                |
+| ------------- | -------------------------------- | --------------------------------------- |
+| `observation` | Factual finding                  | "The build passes", "API returns 200"   |
+| `decision`    | Technical/organizational choice  | "Going with S3 instead of SQLite"       |
+| `todo`        | Task to do                       | "Implement the backup module"           |
+| `insight`     | Analysis, discovered pattern     | "Pattern X is relevant here"            |
+| `question`    | Open question                    | "Should we support CSV format?"         |
+| `progress`    | Advancement                      | "Auth module: 80% complete"             |
+| `issue`       | Problem, bug                     | "LLM timeout exceeds 60s"              |
 
 ---
 
 ### `live_read` 🔑
 
-Lit les notes live récentes.
+Reads recent live notes.
 
 ```python
 @mcp.tool()
 async def live_read(
     space_id: str,
-    limit: int = 50,         # Nombre max de notes (défaut 50)
-    category: str = "",      # Filtrer par catégorie (optionnel)
-    agent: str = "",         # Filtrer par agent (optionnel)
-    since: str = ""          # ISO datetime : notes après cette date (optionnel)
+    limit: int = 50,         # Max notes (default 50)
+    category: str = "",      # Filter by category (optional)
+    agent: str = "",         # Filter by agent (optional)
+    since: str = ""          # ISO datetime: notes after this date (optional)
 ) -> dict:
 ```
 
@@ -324,30 +239,30 @@ async def live_read(
 
 ### `live_search` 🔑
 
-Recherche texte dans les notes live (case-insensitive).
+Text search in live notes (case-insensitive).
 
 ```python
 @mcp.tool()
 async def live_search(
     space_id: str,
-    query: str,              # Texte à chercher
+    query: str,              # Text to search for
     limit: int = 20
 ) -> dict:
 ```
 
 ---
 
-## 4. Bank — Memory Bank consolidée
+## 4. Bank — Consolidated Memory Bank
 
 ### `bank_read` 🔑
 
-Lit un fichier spécifique de la bank.
+Reads a specific bank file.
 
 ```python
 @mcp.tool()
 async def bank_read(
     space_id: str,
-    filename: str            # Nom du fichier (ex: "activeContext.md")
+    filename: str            # Filename (e.g.: "activeContext.md")
 ) -> dict:
 ```
 
@@ -355,7 +270,7 @@ async def bank_read(
 
 ### `bank_read_all` 🔑
 
-Lit l'ensemble de la memory bank en une seule requête. C'est l'outil qu'un agent appelle au démarrage pour charger tout son contexte mémoire.
+Reads the entire memory bank in a single request. This is the tool an agent calls at startup to load all its memory context.
 
 ```python
 @mcp.tool()
@@ -366,7 +281,7 @@ async def bank_read_all(space_id: str) -> dict:
 
 ### `bank_list` 🔑
 
-Liste les fichiers de la bank (sans leur contenu).
+Lists bank files (without their content).
 
 ```python
 @mcp.tool()
@@ -377,154 +292,86 @@ async def bank_list(space_id: str) -> dict:
 
 ### `bank_consolidate` ✏️/👑
 
-Déclenche la consolidation LLM : lit les notes live, les rules et la bank actuelle, puis utilise le LLM pour produire les fichiers bank mis à jour.
+Triggers LLM consolidation: reads live notes, rules, and the current bank, then uses the LLM to produce updated bank files.
 
 ```python
 @mcp.tool()
 async def bank_consolidate(
     space_id: str,
-    agent: str = ""          # Filtre par agent (voir permissions ci-dessous)
+    agent: str = ""          # Filter by agent (see permissions below)
 ) -> dict:
 ```
 
-**Paramètre `agent`** (ajouté en v0.2.0, modifié en v0.7.4) :
-- `agent=""` (vide) + **admin** : consolide **TOUTES** les notes
-- `agent=""` (vide) + **write** : auto-détecte le caller → consolide **ses propres notes** uniquement
-- `agent="mon-agent"` (= nom du caller) : consolide uniquement les notes de cet agent → permission write suffit
-- `agent="autre-agent"` (≠ caller) : consolide les notes d'un autre agent → permission admin requise
+**`agent` parameter** (added in v0.2.0, modified in v0.7.4):
+- `agent=""` (empty) + **admin**: consolidates **ALL** notes
+- `agent=""` (empty) + **write**: auto-detects caller → consolidates **own notes only**
+- `agent="my-agent"` (= caller name): consolidates only this agent's notes → write permission sufficient
+- `agent="other-agent"` (≠ caller): consolidates another agent's notes → manage permission required
 
-**Retour** :
-```json
-{
-  "status": "ok",
-  "space_id": "projet-alpha",
-  "notes_processed": 42,
-  "bank_files_updated": 4,
-  "bank_files_created": 2,
-  "bank_files_unchanged": 0,
-  "synthesis_size": 1200,
-  "llm_tokens_used": 45000,
-  "llm_prompt_tokens": 17000,
-  "llm_completion_tokens": 28000,
-  "duration_seconds": 35.2
-}
-```
-
-**⚠️ Restrictions** :
-- Un seul `bank_consolidate` peut s'exécuter à la fois par espace (lock global par espace)
-- Si aucune note live n'existe, retourne `{"status": "ok", "notes_processed": 0, "message": "No new notes to consolidate"}`
-- Timeout configurable (`CONSOLIDATION_TIMEOUT`, défaut 600s)
+**⚠️ Restrictions**:
+- Only one `bank_consolidate` can run at a time per space (global per-space lock)
+- If no live notes exist, returns `{"status": "ok", "notes_processed": 0, "message": "No new notes to consolidate"}`
+- Configurable timeout (`CONSOLIDATION_TIMEOUT`, default 600s)
 
 ---
 
-## 5. Graph — Pont vers Graph Memory
+## 5. Graph — Bridge to Graph Memory
 
 ### `graph_connect` ✏️
 
-Connecte un space Live Memory à une instance Graph Memory. Teste la connexion, crée la mémoire si besoin.
+Connects a Live Memory space to a Graph Memory instance. Tests the connection, creates the memory if needed.
 
 ```python
 @mcp.tool()
 async def graph_connect(
     space_id: str,
-    url: str,                # URL de Graph Memory (ex: "http://localhost:8080/mcp")
-    token: str,              # Bearer token pour Graph Memory
-    memory_id: str,          # Identifiant de la mémoire cible
+    url: str,                # Graph Memory URL (e.g.: "http://localhost:8080/mcp")
+    token: str,              # Bearer token for Graph Memory
+    memory_id: str,          # Target memory identifier
     ontology: str = "general"  # general | legal | cloud | managed-services | presales
 ) -> dict:
 ```
 
-**Retour** :
-```json
-{
-  "status": "ok",
-  "space_id": "projet-alpha",
-  "graph_memory": {
-    "url": "https://graph-mem.mcp.cloud-temple.app/mcp",
-    "memory_id": "projet-alpha-mem",
-    "ontology": "general",
-    "memory_status": "created"
-  }
-}
-```
-
-**Comportement** :
-- Normalise l'URL (ajoute `/mcp` si absent)
-- Teste la connexion MCP Streamable HTTP
-- Crée la mémoire dans Graph Memory si elle n'existe pas
-- Sauvegarde la config dans `_meta.json` (champ `graph_memory`)
+**Behavior**:
+- Normalizes the URL (adds `/mcp` if missing)
+- Tests the MCP Streamable HTTP connection
+- Creates the memory in Graph Memory if it doesn't exist
+- Saves config in `_meta.json` (`graph_memory` field)
 
 ---
 
 ### `graph_push` ✏️
 
-Synchronise la bank dans Graph Memory. Supprime les anciens documents et ré-ingère les fichiers bank à jour.
+Synchronizes the bank into Graph Memory. Deletes old documents and re-ingests up-to-date bank files.
 
 ```python
 @mcp.tool()
 async def graph_push(space_id: str) -> dict:
 ```
 
-**Retour** :
-```json
-{
-  "status": "ok",
-  "space_id": "projet-alpha",
-  "files_pushed": 6,
-  "files_cleaned": 0,
-  "files_failed": 0,
-  "duration_seconds": 45.2,
-  "details": [
-    {"filename": "activeContext.md", "action": "re-ingested", "duration": 8.1},
-    ...
-  ]
-}
-```
-
-**Comportement** :
-- Le space doit d'abord être connecté via `graph_connect`
-- Suppression + ré-ingestion intelligente (recalcul du graphe)
-- Nettoyage des orphelins (fichiers supprimés de la bank)
-- ~10-30s par fichier (extraction LLM d'entités/relations + embeddings)
-- Met à jour les métriques dans `_meta.json`
+**Behavior**:
+- The space must first be connected via `graph_connect`
+- Intelligent delete + re-ingestion (graph recalculation)
+- Orphan cleanup (files removed from the bank)
+- ~10-30s per file (LLM entity/relation extraction + embeddings)
+- Updates metrics in `_meta.json`
 
 ---
 
 ### `graph_status` 🔑
 
-Vérifie le statut de la connexion Graph Memory et récupère les stats du graphe.
+Checks the Graph Memory connection status and retrieves graph stats.
 
 ```python
 @mcp.tool()
 async def graph_status(space_id: str) -> dict:
 ```
 
-**Retour** :
-```json
-{
-  "status": "ok",
-  "connected": true,
-  "graph_memory": {
-    "url": "https://graph-mem.mcp.cloud-temple.app/mcp",
-    "memory_id": "projet-alpha-mem",
-    "last_push": "2026-03-01T14:00:00Z",
-    "push_count": 3,
-    "files_pushed": 6
-  },
-  "graph_stats": {
-    "documents": 6,
-    "entities": 45,
-    "relations": 82,
-    "top_entities": [...]
-  }
-}
-```
-
 ---
 
 ### `graph_disconnect` ✏️
 
-Déconnecte un space de Graph Memory. Les données déjà poussées restent dans le graphe.
+Disconnects a space from Graph Memory. Data already pushed remains in the graph.
 
 ```python
 @mcp.tool()
@@ -533,11 +380,11 @@ async def graph_disconnect(space_id: str) -> dict:
 
 ---
 
-## 6. Backup — Sauvegarde & restauration
+## 6. Backup — Backup & Restore
 
 ### `backup_create` ✏️
 
-Crée un snapshot complet de l'espace sur S3.
+Creates a complete snapshot of the space on S3.
 
 ```python
 @mcp.tool()
@@ -551,7 +398,7 @@ async def backup_create(
 
 ### `backup_list` 🔑
 
-Liste les backups disponibles. Si `space_id` vide → liste tous les backups accessibles.
+Lists available backups. If `space_id` is empty → lists all accessible backups.
 
 ```python
 @mcp.tool()
@@ -562,12 +409,12 @@ async def backup_list(space_id: str = "") -> dict:
 
 ### `backup_restore` 👑
 
-Restaure un espace depuis un backup. L'espace NE DOIT PAS exister (supprimer d'abord).
+Restores a space from a backup. The space MUST NOT exist (delete it first).
 
 ```python
 @mcp.tool()
 async def backup_restore(
-    backup_id: str,          # Format : "space_id/timestamp"
+    backup_id: str,          # Format: "space_id/timestamp"
     confirm: bool = False
 ) -> dict:
 ```
@@ -576,7 +423,7 @@ async def backup_restore(
 
 ### `backup_download` 🔑
 
-Télécharge un backup en archive tar.gz (base64).
+Downloads a backup as a tar.gz archive (base64).
 
 ```python
 @mcp.tool()
@@ -587,7 +434,7 @@ async def backup_download(backup_id: str) -> dict:
 
 ### `backup_delete` 👑
 
-Supprime un backup.
+Deletes a backup.
 
 ```python
 @mcp.tool()
@@ -599,42 +446,29 @@ async def backup_delete(
 
 ---
 
-## 7. Admin — Gestion des tokens & maintenance
+## 7. Admin — Token Management & Maintenance
 
 ### `admin_create_token` 👑
 
-Crée un nouveau token d'authentification.
+Creates a new authentication token.
 
 ```python
 @mcp.tool()
 async def admin_create_token(
-    name: str,               # Nom descriptif du token
-    permissions: str,         # "read", "read,write", ou "read,write,admin"
-    space_ids: str = "",     # Espaces autorisés (vide = tous)
-    expires_in_days: int = 0  # 0 = pas d'expiration
+    name: str,               # Descriptive name
+    permissions: str,         # "read", "read,write", or "read,write,admin"
+    space_ids: str = "",     # Authorized spaces (empty = all)
+    expires_in_days: int = 0  # 0 = no expiration
 ) -> dict:
 ```
 
-**Retour** :
-```json
-{
-  "status": "created",
-  "name": "agent-cline",
-  "token": "lm_a1b2c3d4e5f6...",
-  "permissions": ["read", "write"],
-  "space_ids": ["projet-alpha"],
-  "expires_at": null,
-  "warning": "⚠️ Ce token ne sera PLUS JAMAIS affiché !"
-}
-```
-
-Le token est hashé en SHA-256 avant stockage dans `_system/tokens.json`.
+The token is hashed with SHA-256 before storage in `_system/tokens.json`.
 
 ---
 
 ### `admin_list_tokens` 👑
 
-Liste les métadonnées de tous les tokens (jamais le token en clair).
+Lists metadata of all tokens (never the token itself in clear text).
 
 ```python
 @mcp.tool()
@@ -645,7 +479,7 @@ async def admin_list_tokens() -> dict:
 
 ### `admin_revoke_token` 👑
 
-Révoque un token (le rend définitivement inutilisable).
+Revokes a token (permanently disables it).
 
 ```python
 @mcp.tool()
@@ -656,14 +490,14 @@ async def admin_revoke_token(token_hash: str) -> dict:
 
 ### `admin_update_token` 👑
 
-Met à jour les permissions ou espaces autorisés d'un token.
+Updates a token's permissions or authorized spaces.
 
 ```python
 @mcp.tool()
 async def admin_update_token(
     token_hash: str,
-    space_ids: str = "",     # Nouveaux espaces (vide = pas de changement)
-    permissions: str = ""    # Nouvelles permissions (vide = pas de changement)
+    space_ids: str = "",     # New spaces (empty = no change)
+    permissions: str = ""    # New permissions (empty = no change)
 ) -> dict:
 ```
 
@@ -671,45 +505,28 @@ async def admin_update_token(
 
 ### `admin_gc_notes` 👑
 
-Garbage Collector : identifie et traite les notes orphelines (plus vieilles que `max_age_days`).
+Garbage Collector: identifies and processes orphaned notes (older than `max_age_days`).
 
 ```python
 @mcp.tool()
 async def admin_gc_notes(
-    space_id: str = "",       # Espace cible (vide = tous les espaces)
-    max_age_days: int = 7,    # Seuil en jours
-    confirm: bool = False,    # False = dry-run, True = exécution
-    delete_only: bool = False # Si True + confirm : supprime SANS consolider
+    space_id: str = "",       # Target space (empty = all spaces)
+    max_age_days: int = 7,    # Threshold in days
+    confirm: bool = False,    # False = dry-run, True = execute
+    delete_only: bool = False # If True + confirm: deletes WITHOUT consolidating
 ) -> dict:
 ```
 
-**3 modes** :
-1. `confirm=False` (défaut) : **DRY-RUN** — scanne et rapporte le nombre de notes orphelines
-2. `confirm=True` : **CONSOLIDE** les notes orphelines via LLM (avec notice "⚠️ GC consolidation forcée")
-3. `confirm=True, delete_only=True` : **SUPPRIME** les notes sans consolider (perte de données)
-
-**Retour (dry-run)** :
-```json
-{
-  "status": "ok",
-  "mode": "dry-run",
-  "total_old_notes": 15,
-  "spaces": {
-    "projet-alpha": {
-      "old_notes": 10,
-      "agents": {"agent-disparu": 7, "agent-crash": 3},
-      "total_size": 12500
-    }
-  },
-  "message": "Dry-run : 15 notes orphelines trouvées. confirm=True pour consolider."
-}
-```
+**3 modes**:
+1. `confirm=False` (default): **DRY-RUN** — scans and reports orphaned note count
+2. `confirm=True`: **CONSOLIDATES** orphaned notes via LLM (with "⚠️ GC forced consolidation" notice)
+3. `confirm=True, delete_only=True`: **DELETES** notes without consolidating (data loss)
 
 ---
 
-## Matrice complète — Outils × Permissions
+## Complete Matrix — Tools × Permissions
 
-| Outil                | Read | Write | Admin | Public |
+| Tool                 | Read | Write | Admin | Public |
 | -------------------- | :--: | :---: | :---: | :----: |
 | `system_health`      |      |       |       |   ✅   |
 | `system_about`       |      |       |       |   ✅   |
@@ -742,8 +559,8 @@ async def admin_gc_notes(
 | `admin_update_token` |      |       |  ✅   |        |
 | `admin_gc_notes`     |      |       |  ✅   |        |
 
-\* `bank_consolidate` : write suffit pour consolider ses propres notes (`agent=caller` ou `agent=""` auto-détecté). Admin requis pour consolider TOUTES les notes ou celles d'un autre agent (`agent=autre`).
+\* `bank_consolidate`: write is sufficient for consolidating your own notes (`agent=caller` or `agent=""` auto-detected). Admin required to consolidate ALL notes or another agent's notes (`agent=other`).
 
 ---
 
-*Document mis à jour le 25 avril 2026 — Live Memory v1.6.0*
+*Document updated April 25, 2026 — Live Memory v1.6.0*

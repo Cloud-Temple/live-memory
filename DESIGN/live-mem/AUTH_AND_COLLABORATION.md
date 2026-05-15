@@ -1,10 +1,10 @@
-# Authentification & Collaboration Multi-Agents — Live Memory
+# Authentication & Multi-Agent Collaboration — Live Memory
 
-> **Version** : 1.6.0 | **Date** : 2026-04-25 | **Auteur** : Cloud Temple
+> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
 
 ---
 
-## 1. Modèle d'authentification
+## 1. Authentication Model
 
 ### 1.1 Architecture
 
@@ -17,93 +17,93 @@ Agent (Cline, Claude, etc.)
 ┌────────────────────────────────────┐
 │  Auth Middleware (ASGI)             │
 │                                     │
-│  1. Extrait le token du header      │
-│     (ou query string ?token=xxx)    │
-│  2. Hash SHA-256 du token           │
-│  3. Cherche le hash dans tokens.json│
-│  4. Vérifie : non-révoqué,          │
-│     non-expiré, permissions OK,     │
-│     space_id autorisé               │
-│  5. Stocke l'identité dans          │
-│     contextvars (pour les outils)   │
+│  1. Extracts token from header      │
+│     (or query string ?token=xxx)    │
+│  2. SHA-256 hash of the token       │
+│  3. Looks up hash in tokens.json    │
+│  4. Verifies: not revoked,          │
+│     not expired, permissions OK,    │
+│     space_id authorized             │
+│  5. Stores identity in              │
+│     contextvars (for tools)         │
 └────────────────────────────────────┘
 ```
 
-### 1.2 Types de tokens
+### 1.2 Token Types
 
-| Type       | Permissions          | Usage                   | Exemples d'outils                                 |
-| ---------- | -------------------- | ----------------------- | ------------------------------------------------- |
-| **Reader** | `read`               | Consultation seule      | `bank_read_all`, `live_read`, `space_list`        |
-| **Writer** | `read, write`        | Consultation + écriture | + `live_note`, `bank_consolidate`, `space_create`, `graph_push` |
-| **Admin**  | `read, write, admin` | Tout                    | + `admin_*`, `space_delete`, `backup_restore`, `admin_gc_notes` |
+| Type       | Permissions          | Usage                    | Example Tools                                      |
+| ---------- | -------------------- | ------------------------ | -------------------------------------------------- |
+| **Reader** | `read`               | Read-only access         | `bank_read_all`, `live_read`, `space_list`         |
+| **Writer** | `read, write`        | Read + write access      | + `live_note`, `bank_consolidate`, `space_create`, `graph_push` |
+| **Admin**  | `read, write, admin` | Full access              | + `admin_*`, `space_delete`, `backup_restore`, `admin_gc_notes` |
 
 ### 1.3 Bootstrap Key
 
-Au premier démarrage, seule la `ADMIN_BOOTSTRAP_KEY` (variable d'environnement) permet de s'authentifier. Elle sert à créer le premier token admin, après quoi elle ne devrait plus être utilisée.
+On first startup, only the `ADMIN_BOOTSTRAP_KEY` (environment variable) allows authentication. It is used to create the first admin token, after which it should no longer be used.
 
 ```
-Démarrage → ADMIN_BOOTSTRAP_KEY → admin_create_token → Token admin
+Startup → ADMIN_BOOTSTRAP_KEY → admin_create_token → Admin token
                                                          │
                                                          ▼
-                                              admin_create_token → Tokens agents
+                                              admin_create_token → Agent tokens
 ```
 
 ### 1.4 Space Access Control
 
-Chaque token a une liste `space_ids` :
-- `[]` (vide) = accès à **tous** les espaces
-- `["projet-alpha", "projet-beta"]` = accès restreint à ces espaces
+Each token has a `space_ids` list:
+- `[]` (empty) = access to **all** spaces
+- `["project-alpha", "project-beta"]` = restricted to these spaces
 
-Quand un outil reçoit un `space_id`, le helper `check_access()` vérifie :
+When a tool receives a `space_id`, the `check_access()` helper verifies:
 
 ```python
 def check_access(resource_id: str) -> Optional[dict]:
-    """Vérifie si le token courant peut accéder à cet espace."""
+    """Checks whether the current token can access this space."""
     token_info = current_token_info.get()
     
     if token_info is None:
-        return {"status": "error", "message": "Authentification requise"}
+        return {"status": "error", "message": "Authentication required"}
     
-    # Admin → accès total
+    # Admin → full access
     if "admin" in token_info.get("permissions", []):
         return None
     
-    # Vérifier que l'espace est dans la liste autorisée
+    # Verify the space is in the allowed list
     allowed = token_info.get("allowed_resources", [])
     if allowed and resource_id not in allowed:
-        return {"status": "error", "message": f"Accès refusé à l'espace '{resource_id}'"}
+        return {"status": "error", "message": f"Access denied to space '{resource_id}'"}
     
     return None  # OK
 ```
 
-### 1.5 Token = Agent (v0.8.1+, remplace le découplage v0.2.0)
+### 1.5 Token = Agent (v0.8.1+, replaces the v0.2.0 decoupling)
 
-Le token **est** l'identité de l'agent. Le `client_name` du token est utilisé partout :
+The token **is** the agent's identity. The token's `client_name` is used everywhere:
 
-- `live_note()` : le paramètre `agent` a été **supprimé** — l'identité est toujours le `client_name` du token
-- `bank_consolidate(agent="")` : auto-détecte le `client_name` du token pour les utilisateurs write
-- `bank_consolidate(agent="xxx")` : seul un admin peut consolider les notes d'un autre agent
-- `get_current_agent_name()` retourne le `client_name` du token (ou "anonymous" si pas de token)
-- **Un token = un agent** — pas de partage de token entre plusieurs agents
+- `live_note()`: the `agent` parameter was **removed** — the identity is always the token's `client_name`
+- `bank_consolidate(agent="")`: auto-detects the token's `client_name` for write users
+- `bank_consolidate(agent="xxx")`: only a manage+ user (manage or admin) can consolidate another agent's notes
+- `get_current_agent_name()` returns the token's `client_name` (or "anonymous" if no token)
+- **One token = one agent** — no token sharing between multiple agents
 
-> ⚠️ **Historique** : v0.2.0 introduisait un découplage Token/Agent permettant de passer `agent=` librement.
-> Cette approche a été abandonnée en v0.8.1 car elle causait des notes orphelines (le consolidateur
-> filtre par nom d'agent dans le filename S3 — si le nom ne correspondait pas au token, les notes
-> n'étaient jamais consolidées).
+> ⚠️ **History**: v0.2.0 introduced a Token/Agent decoupling that allowed passing `agent=` freely.
+> This approach was abandoned in v0.8.1 because it caused orphaned notes (the consolidator
+> filters by agent name in the S3 filename — if the name didn't match the token, notes
+> were never consolidated).
 
-### 1.6 Stockage des tokens
+### 1.6 Token Storage
 
-Les tokens sont stockés dans `_system/tokens.json` sur S3 (voir `S3_DATA_MODEL.md`).
+Tokens are stored in `_system/tokens.json` on S3 (see `S3_DATA_MODEL.md`).
 
-**Format du token** : `lm_` + 43 caractères base64url = **46 caractères** totaux.
+**Token format**: `lm_` + 43 base64url characters = **46 characters** total.
 
 ```python
 import secrets
 token = "lm_" + secrets.token_urlsafe(32)
-# Ex: lm_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0u1V2
+# e.g.: lm_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0u1V2
 ```
 
-**Hashage** : SHA-256 du token complet.
+**Hashing**: SHA-256 of the full token.
 
 ```python
 import hashlib
@@ -112,15 +112,15 @@ token_hash = "sha256:" + hashlib.sha256(token.encode()).hexdigest()
 
 ---
 
-## 2. Collaboration Multi-Agents
+## 2. Multi-Agent Collaboration
 
-### 2.1 Scénarios de collaboration
+### 2.1 Collaboration Scenarios
 
-#### Scénario A : Équipe de développement (2-3 agents)
+#### Scenario A: Development Team (2-3 agents)
 
 ```
 ┌──────────────┐     ┌───────────────┐     ┌──────────────┐
-│ Cline (Dev)  │     │Claude (Review)│     │ Agent QA     │
+│ Cline (Dev)  │     │Claude (Review)│     │ QA Agent     │
 │ Token: write │     │ Token: write  │     │ Token: write │
 └──────┬───────┘     └──────┬────────┘     └──────┬───────┘
        │                    │                     │
@@ -134,186 +134,186 @@ token_hash = "sha256:" + hashlib.sha256(token.encode()).hexdigest()
                             │
                             ▼
                     ┌─────────────────┐
-                    │ Espace partagé  │
-                    │ "projet-alpha"  │
+                    │ Shared space    │
+                    │ "project-alpha" │
                     │                 │
-                    │ live/ (toutes   │
-                    │  les notes)     │
+                    │ live/ (all      │
+                    │  notes)         │
                     │                 │
-                    │ bank/ (consolidé│
-                    │  par le LLM)    │
+                    │ bank/ (LLM-    │
+                    │  consolidated)  │
                     └─────────────────┘
 ```
 
-Chaque agent :
-1. Au démarrage : `bank_read_all("projet-alpha")` pour charger le contexte
-2. Pendant le travail : `live_note(...)` pour écrire ses observations
-3. Périodiquement : `live_read(agent="claude-review")` pour voir ce que font les autres
-4. En fin de session : `bank_consolidate("projet-alpha", agent="mon-nom")` pour synthétiser ses propres notes
+Each agent:
+1. At startup: `bank_read_all("project-alpha")` to load context
+2. During work: `live_note(...)` to write observations
+3. Periodically: `live_read(agent="claude-review")` to see what others are doing
+4. At session end: `bank_consolidate("project-alpha", agent="my-name")` to synthesize their own notes
 
-#### Scénario B : Consolidation par agent (v0.2.0+)
+#### Scenario B: Per-agent Consolidation (v0.2.0+)
 
 ```
-Agent Cline écrit 20 notes → bank_consolidate(agent="cline-dev")
-    → Seules les notes de cline-dev sont consolidées
-    → Les notes de claude-review restent dans live/
-    → Permission write suffit
+Agent Cline writes 20 notes → bank_consolidate(agent="cline-dev")
+    → Only cline-dev's notes are consolidated
+    → claude-review's notes remain in live/
+    → Write permission is sufficient
 
-Agent Claude écrit 15 notes → bank_consolidate(agent="claude-review")
-    → Seules les notes de claude-review sont consolidées
-    → Permission write suffit
+Agent Claude writes 15 notes → bank_consolidate(agent="claude-review")
+    → Only claude-review's notes are consolidated
+    → Write permission is sufficient
 
 Admin → bank_consolidate(agent="")
-    → TOUTES les notes sont consolidées
-    → Permission admin requise
+    → ALL notes are consolidated
+    → Manage permission required
 ```
 
-### 2.2 Patterns de communication inter-agents
+### 2.2 Inter-agent Communication Patterns
 
-Les agents ne communiquent pas directement entre eux. Ils communiquent **via l'espace partagé** :
+Agents do not communicate directly with each other. They communicate **via the shared space**:
 
 ```
-Agent A → live_note(category="question", "Faut-il supporter le CSV ?")
+Agent A → live_note(category="question", "Should we support CSV?")
                                             │
                                             ▼
                                         S3 (note)
                                             │
 Agent B → live_read(category="question") ←──┘
-Agent B → live_note(category="decision", "Non, JSON uniquement")
+Agent B → live_note(category="decision", "No, JSON only")
 ```
 
-### 2.3 Bonnes pratiques pour la collaboration
+### 2.3 Collaboration Best Practices
 
-| Practice                     | Description                                                          |
-| ---------------------------- | -------------------------------------------------------------------- |
-| **Identifier l'agent**       | L'agent est le `client_name` du token (automatique depuis v0.8.1)    |
-| **Catégoriser les notes**    | Utiliser les catégories standard (observation, decision, todo, etc.) |
-| **Taguer**                   | Ajouter des tags pour le filtrage (`tags="auth,module"`)             |
-| **Lire avant d'écrire**      | `bank_read_all` au démarrage, `live_read` régulièrement              |
-| **Consolider ses notes**     | `bank_consolidate(agent="mon-nom")` — chaque agent consolide les siennes |
-| **Notes atomiques**          | Une note = un fait, une décision, un todo. Pas de notes méga-longues |
-| **GC périodique**            | `admin_gc_notes` pour nettoyer les notes d'agents disparus           |
-
----
-
-## 3. Matrice des permissions détaillée
-
-### Par catégorie d'outil
-
-| Outil              | Perm min | Check access | Notes                                 |
-| ------------------ | -------- | ------------ | ------------------------------------- |
-| **Space**          |          |              |                                       |
-| `space_create`     | write    | —            | Crée un nouvel espace                 |
-| `space_list`       | read     | filtre       | Ne montre que les espaces autorisés   |
-| `space_info`       | read     | ✅           |                                       |
-| `space_rules`      | read     | ✅           |                                       |
-| `space_summary`    | read     | ✅           |                                       |
-| `space_export`     | read     | ✅           |                                       |
-| `space_delete`     | admin    | ✅           | Irréversible                          |
-| **Live**           |          |              |                                       |
-| `live_note`        | write    | ✅           | Écriture                              |
-| `live_read`        | read     | ✅           | Lecture                               |
-| `live_search`      | read     | ✅           | Lecture                               |
-| **Bank**           |          |              |                                       |
-| `bank_read`        | read     | ✅           | Lecture                               |
-| `bank_read_all`    | read     | ✅           | Lecture                               |
-| `bank_list`        | read     | ✅           | Lecture                               |
-| `bank_consolidate` | write*   | ✅           | *write: auto-détecte caller. admin si agent≠caller ou consolidation globale |
-| **Graph**          |          |              |                                       |
-| `graph_connect`    | write    | ✅           | Configure la connexion Graph Memory   |
-| `graph_push`       | write    | ✅           | Pousse la bank dans le graphe         |
-| `graph_status`     | read     | ✅           | Statut connexion + stats graphe       |
-| `graph_disconnect` | write    | ✅           | Supprime la config de connexion       |
-| **Backup**         |          |              |                                       |
-| `backup_create`    | write    | ✅           | Crée un snapshot                      |
-| `backup_list`      | read     | filtre       | Ne montre que les backups accessibles |
-| `backup_restore`   | admin    | ✅           | Potentiellement destructif            |
-| `backup_download`  | read     | ✅           | Lecture                               |
-| `backup_delete`    | admin    | ✅           | Irréversible                          |
-| **Admin**          |          |              |                                       |
-| `admin_create_token` | admin  | —            | Gestion tokens                        |
-| `admin_list_tokens`  | admin  | —            | Gestion tokens                        |
-| `admin_revoke_token` | admin  | —            | Gestion tokens                        |
-| `admin_update_token` | admin  | —            | Gestion tokens                        |
-| `admin_gc_notes`     | admin  | —            | Maintenance (GC notes orphelines)     |
-| **System**         |          |              |                                       |
-| `system_health`    | public   | —            | Pas d'auth                            |
-| `system_about`     | public   | —            | Pas d'auth                            |
-
-### Résumé : qui peut faire quoi
-
-| Action                         | Reader | Writer | Admin |
-| ------------------------------ | :----: | :----: | :---: |
-| Lire la bank                   |   ✅   |   ✅   |  ✅   |
-| Lire les notes live            |   ✅   |   ✅   |  ✅   |
-| Écrire des notes               |   ❌   |   ✅   |  ✅   |
-| Consolider ses propres notes   |   ❌   |   ✅   |  ✅   |
-| Consolider toutes les notes    |   ❌   |   ❌   |  ✅   |
-| Créer un espace                |   ❌   |   ✅   |  ✅   |
-| Supprimer un espace            |   ❌   |   ❌   |  ✅   |
-| Connecter/pousser Graph Memory |   ❌   |   ✅   |  ✅   |
-| Voir le statut Graph Memory    |   ✅   |   ✅   |  ✅   |
-| Créer un backup                |   ❌   |   ✅   |  ✅   |
-| Restaurer un backup            |   ❌   |   ❌   |  ✅   |
-| Gérer les tokens               |   ❌   |   ❌   |  ✅   |
-| GC notes orphelines            |   ❌   |   ❌   |  ✅   |
+| Practice                      | Description                                                           |
+| ----------------------------- | --------------------------------------------------------------------- |
+| **Identify the agent**        | The agent is the token's `client_name` (automatic since v0.8.1)       |
+| **Categorize notes**          | Use standard categories (observation, decision, todo, etc.)           |
+| **Tag notes**                 | Add tags for filtering (`tags="auth,module"`)                         |
+| **Read before writing**       | `bank_read_all` at startup, `live_read` regularly                     |
+| **Consolidate your notes**    | `bank_consolidate(agent="my-name")` — each agent consolidates their own |
+| **Atomic notes**              | One note = one fact, one decision, one todo. No mega-long notes       |
+| **Periodic GC**               | `admin_gc_notes` to clean up notes from disappeared agents            |
 
 ---
 
-## 4. Sécurité
+## 3. Detailed Permission Matrix
 
-### 4.1 Vérification dans chaque outil
+### By Tool Category
 
-Pattern standard en tête de chaque outil :
+| Tool                 | Min Perm | Check access | Notes                                  |
+| -------------------- | -------- | ------------ | -------------------------------------- |
+| **Space**            |          |              |                                        |
+| `space_create`       | write    | —            | Creates a new space                    |
+| `space_list`         | read     | filter       | Only shows authorized spaces           |
+| `space_info`         | read     | ✅           |                                        |
+| `space_rules`        | read     | ✅           |                                        |
+| `space_summary`      | read     | ✅           |                                        |
+| `space_export`       | read     | ✅           |                                        |
+| `space_delete`       | admin    | ✅           | Irreversible                           |
+| **Live**             |          |              |                                        |
+| `live_note`          | write    | ✅           | Write                                  |
+| `live_read`          | read     | ✅           | Read                                   |
+| `live_search`        | read     | ✅           | Read                                   |
+| **Bank**             |          |              |                                        |
+| `bank_read`          | read     | ✅           | Read                                   |
+| `bank_read_all`      | read     | ✅           | Read                                   |
+| `bank_list`          | read     | ✅           | Read                                   |
+| `bank_consolidate`   | write*   | ✅           | *write: auto-detects caller. manage if agent≠caller or global consolidation |
+| **Graph**            |          |              |                                        |
+| `graph_connect`      | write    | ✅           | Configures Graph Memory connection     |
+| `graph_push`         | write    | ✅           | Pushes bank into the graph             |
+| `graph_status`       | read     | ✅           | Connection status + graph stats        |
+| `graph_disconnect`   | write    | ✅           | Removes connection config              |
+| **Backup**           |          |              |                                        |
+| `backup_create`      | write    | ✅           | Creates a snapshot                     |
+| `backup_list`        | read     | filter       | Only shows accessible backups          |
+| `backup_restore`     | admin    | ✅           | Potentially destructive                |
+| `backup_download`    | read     | ✅           | Read                                   |
+| `backup_delete`      | admin    | ✅           | Irreversible                           |
+| **Admin**            |          |              |                                        |
+| `admin_create_token` | admin    | —            | Token management                       |
+| `admin_list_tokens`  | admin    | —            | Token management                       |
+| `admin_revoke_token` | admin    | —            | Token management                       |
+| `admin_update_token` | admin    | —            | Token management                       |
+| `admin_gc_notes`     | admin    | —            | Maintenance (orphaned note GC)         |
+| **System**           |          |              |                                        |
+| `system_health`      | public   | —            | No auth required                       |
+| `system_about`       | public   | —            | No auth required                       |
+
+### Summary: Who Can Do What
+
+| Action                          | Reader | Writer | Admin |
+| ------------------------------- | :----: | :----: | :---: |
+| Read the bank                   |   ✅   |   ✅   |  ✅   |
+| Read live notes                 |   ✅   |   ✅   |  ✅   |
+| Write notes                     |   ❌   |   ✅   |  ✅   |
+| Consolidate own notes           |   ❌   |   ✅   |  ✅   |
+| Consolidate all notes           |   ❌   |   ❌   |  ✅   |
+| Create a space                  |   ❌   |   ✅   |  ✅   |
+| Delete a space                  |   ❌   |   ❌   |  ✅   |
+| Connect/push to Graph Memory    |   ❌   |   ✅   |  ✅   |
+| View Graph Memory status        |   ✅   |   ✅   |  ✅   |
+| Create a backup                 |   ❌   |   ✅   |  ✅   |
+| Restore a backup                |   ❌   |   ❌   |  ✅   |
+| Manage tokens                   |   ❌   |   ❌   |  ✅   |
+| GC orphaned notes               |   ❌   |   ❌   |  ✅   |
+
+---
+
+## 4. Security
+
+### 4.1 Check in Every Tool
+
+Standard pattern at the top of each tool:
 
 ```python
 @mcp.tool()
 async def live_note(space_id: str, category: str, content: str, ...) -> dict:
     try:
-        # 1. Vérifier l'accès à l'espace
+        # 1. Verify space access
         access_err = check_access(space_id)
         if access_err:
             return access_err
         
-        # 2. Vérifier la permission write
+        # 2. Verify write permission
         write_err = check_write_permission()
         if write_err:
             return write_err
         
-        # 3. Logique métier...
+        # 3. Business logic...
     except Exception as e:
         return {"status": "error", "message": str(e)}
 ```
 
-### 4.2 Helpers d'authentification (auth/context.py)
+### 4.2 Authentication Helpers (auth/context.py)
 
-4 fonctions basées sur `contextvars` :
-- `check_access(resource_id)` — vérifie l'accès à un espace
-- `check_write_permission()` — vérifie la permission write
-- `check_admin_permission()` — vérifie la permission admin
-- `get_current_agent_name()` — retourne le nom de l'agent (client_name du token, ou "anonymous")
+4 functions based on `contextvars`:
+- `check_access(resource_id)` — verifies access to a space
+- `check_write_permission()` — verifies write permission
+- `check_admin_permission()` — verifies admin permission
+- `get_current_agent_name()` — returns the agent name (token's client_name, or "anonymous")
 
-### 4.3 Logging d'audit
+### 4.3 Audit Logging
 
-Chaque requête HTTP est loguée sur `stderr` via `LoggingMiddleware` :
+Each HTTP request is logged to `stderr` via `LoggingMiddleware`:
 
 ```
 19:05:12 INFO  [live_mem.auth] GET /mcp → 200 (45.2ms)
 19:05:15 INFO  [live_mem.auth] POST /mcp → 200 (120.5ms)
 ```
 
-### 4.4 Recommandations
+### 4.4 Recommendations
 
-| Recommandation                                                      | Priorité           |
-| ------------------------------------------------------------------- | ------------------ |
-| Changer `ADMIN_BOOTSTRAP_KEY` en production (≥ 32 chars aléatoires) | 🔴 Critique       |
-| TLS en production (HTTPS via Let's Encrypt)                         | 🔴 Critique       |
-| Tokens agents restreints par `space_ids`                            | 🟠 Élevée         |
-| Tokens reader pour les agents en lecture seule                      | 🟡 Moyenne        |
-| Rotation périodique des tokens                                      | 🟡 Moyenne        |
-| Expiration automatique des tokens (`expires_in_days`)               | 🟢 Bonne pratique |
-| GC notes régulier (`admin_gc_notes`)                                | 🟢 Bonne pratique |
+| Recommendation                                                       | Priority          |
+| -------------------------------------------------------------------- | ----------------- |
+| Change `ADMIN_BOOTSTRAP_KEY` in production (≥ 32 random characters)  | 🔴 Critical       |
+| TLS in production (HTTPS via Let's Encrypt)                          | 🔴 Critical       |
+| Agent tokens restricted by `space_ids`                               | 🟠 High           |
+| Reader tokens for read-only agents                                   | 🟡 Medium         |
+| Periodic token rotation                                              | 🟡 Medium         |
+| Automatic token expiration (`expires_in_days`)                       | 🟢 Best practice  |
+| Regular note GC (`admin_gc_notes`)                                   | 🟢 Best practice  |
 
 ---
 
-*Document mis à jour le 25 avril 2026 — Live Memory v1.6.0*
+*Document updated April 25, 2026 — Live Memory v1.6.0*

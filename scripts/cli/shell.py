@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Shell interactif — Interface interactive avec autocomplétion.
+Interactive Shell — Interactive interface with autocompletion.
 
-Utilise prompt_toolkit pour l'autocomplétion et l'historique,
-et Rich pour l'affichage coloré.
+Uses prompt_toolkit for autocompletion and history,
+and Rich for colored display.
 
-Commandes : help, health, whoami, about, space, live, bank, token, backup, quit.
+Commands: help, health, whoami, about, space, live, bank, token, backup, quit.
 """
 
 import shlex
@@ -50,60 +50,60 @@ from .display import (
 
 
 # =============================================================================
-# Commandes disponibles (pour autocomplétion)
+# Available commands (for autocompletion)
 # =============================================================================
 
 SHELL_COMMANDS = {
-    "help": "Afficher l'aide",
-    "health": "État de santé",
-    "whoami": "Identité du token courant (nom, permissions, espaces)",
-    "about": "Informations sur le service",
-    "space create": 'Créer un espace (space create <id> -d "desc" -r <rules.md> [-o owner])',
-    "space update": 'Modifier description/owner (space update <id> -d "desc" [-o "owner"])',
-    "space update-rules": "Mettre à jour les rules (space update-rules <id> -f <rules.md>) admin",
-    "space list": "Lister les espaces",
-    "space info": "Infos d'un espace (space info <id>)",
-    "space rules": "Rules d'un espace (space rules <id>)",
-    "space summary": "Synthèse complète (space summary <id>)",
-    "space export": "Exporter en tar.gz (space export <id>)",
-    "space delete": "Supprimer un espace (space delete <id> --confirm)",
-    "live note": "Écrire une note (live note <space> <cat> <contenu>)",
-    "live read": "Lire les notes (live read <space>)",
-    "live search": "Rechercher (live search <space> <query>)",
-    "bank list": "Lister les fichiers bank (bank list <space>)",
-    "bank read": "Lire un fichier bank (bank read <space> <file>)",
-    "bank read-all": "Lire toute la bank (bank read-all <space>)",
-    "bank consolidate": "Consolider via LLM (bank consolidate <space>)",
-    "bank write": "Écrire un fichier bank (bank write <space> <file> -f <path.md>) admin",
-    "bank delete": "Supprimer un fichier bank (bank delete <space> <file>) admin",
-    "bank repair": "Réparer noms corrompus (bank repair <space> [--apply]) admin",
-    "bank compact": "Compacter fichiers surdimensionnés (bank compact <space> [--apply]) admin",
-    "token create": "Créer un token (token create <name> -p <read|read,write|read,write,manage|...admin> [--email <email>])",
-    "token update": "Modifier un token (token update <hash> [--permissions ...] [--space-ids ... | --add-spaces ... --remove-spaces ...])",
-    "token list": "Lister les tokens (token list [--name-contains x] [--has-space y] [--no-revoked])",
-    "token bulk-update": "MAJ N tokens (token bulk-update --name-contains agent --add-spaces new --confirm) issue #13",
-    "token revoke": "Révoquer un token (token revoke <hash>)",
-    "token delete": "Supprimer physiquement un token (token delete <hash>)",
-    "token purge": "Purger les tokens révoqués (token purge [--all])",
-    "graph connect": "Connecter à Graph Memory (graph connect <space> <url> <token> <memory_id> [ontology])",
-    "graph push": "Pousser la bank dans le graphe (graph push <space>)",
-    "graph status": "Statut connexion Graph Memory (graph status <space>)",
-    "graph disconnect": "Déconnecter de Graph Memory (graph disconnect <space>)",
-    "backup create": "Créer un backup (backup create <space> ou backup create --all)",
-    "backup list": "Lister les backups",
-    "backup restore": "Restaurer (backup restore <id> --confirm)",
-    "backup download": "Télécharger un backup (backup download <id>)",
-    "backup delete": "Supprimer (backup delete <id> --confirm)",
+    "help": "Show help",
+    "health": "Health status",
+    "whoami": "Current token identity (name, permissions, spaces)",
+    "about": "Service information",
+    "space create": 'Create a space (space create <id> -d "desc" -r <rules.md> [-o owner])',
+    "space update": 'Update description/owner (space update <id> -d "desc" [-o "owner"])',
+    "space update-rules": "Update rules (space update-rules <id> -f <rules.md>) admin",
+    "space list": "List spaces",
+    "space info": "Space details (space info <id>)",
+    "space rules": "Space rules (space rules <id>)",
+    "space summary": "Full summary (space summary <id>)",
+    "space export": "Export as tar.gz (space export <id>)",
+    "space delete": "Delete a space (space delete <id> --confirm)",
+    "live note": "Write a note (live note <space> <cat> <content>)",
+    "live read": "Read notes (live read <space>)",
+    "live search": "Search (live search <space> <query>)",
+    "bank list": "List bank files (bank list <space>)",
+    "bank read": "Read a bank file (bank read <space> <file>)",
+    "bank read-all": "Read entire bank (bank read-all <space>)",
+    "bank consolidate": "Consolidate via LLM (bank consolidate <space>)",
+    "bank write": "Write a bank file (bank write <space> <file> -f <path.md>) admin",
+    "bank delete": "Delete a bank file (bank delete <space> <file>) admin",
+    "bank repair": "Repair corrupted names (bank repair <space> [--apply]) admin",
+    "bank compact": "Compact oversized files (bank compact <space> [--apply]) admin",
+    "token create": "Create a token (token create <name> -p <read|read,write|read,write,manage|...admin> [--email <email>])",
+    "token update": "Update a token (token update <hash> [--permissions ...] [--space-ids ... | --add-spaces ... --remove-spaces ...])",
+    "token list": "List tokens (token list [--name-contains x] [--has-space y] [--no-revoked])",
+    "token bulk-update": "Update N tokens (token bulk-update --name-contains agent --add-spaces new --confirm) issue #13",
+    "token revoke": "Revoke a token (token revoke <hash>)",
+    "token delete": "Physically delete a token (token delete <hash>)",
+    "token purge": "Purge revoked tokens (token purge [--all])",
+    "graph connect": "Connect to Graph Memory (graph connect <space> <url> <token> <memory_id> [ontology])",
+    "graph push": "Push bank to graph (graph push <space>)",
+    "graph status": "Graph Memory connection status (graph status <space>)",
+    "graph disconnect": "Disconnect from Graph Memory (graph disconnect <space>)",
+    "backup create": "Create a backup (backup create <space> or backup create --all)",
+    "backup list": "List backups",
+    "backup restore": "Restore (backup restore <id> --confirm)",
+    "backup download": "Download a backup (backup download <id>)",
+    "backup delete": "Delete (backup delete <id> --confirm)",
     "gc": "Garbage Collector (gc [--space-id <id>] [--confirm])",
-    "quit": "Quitter",
+    "quit": "Quit",
 }
 
 
 # =============================================================================
-# Dispatcher de commandes
+# Command dispatcher
 # =============================================================================
 
-# Sous-commandes par verbe (pour help contextuel)
+# Subcommands by verb (for contextual help)
 VERB_SUBCOMMANDS = {
     "space": {
         k.split(" ", 1)[1]: v
@@ -139,11 +139,11 @@ VERB_SUBCOMMANDS = {
 
 
 async def dispatch(client: MCPClient, user_input: str, json_output: bool):
-    """Route une commande vers le bon handler."""
+    """Route a command to the appropriate handler."""
     try:
         parts = shlex.split(user_input.strip())
     except ValueError:
-        # Fallback si guillemets non fermés
+        # Fallback if unclosed quotes
         parts = user_input.strip().split()
     if not parts:
         return
@@ -151,7 +151,7 @@ async def dispatch(client: MCPClient, user_input: str, json_output: bool):
     cmd = parts[0].lower()
     args = parts[1:]
 
-    # ── Help (global ou contextuel) ──
+    # ── Help (global or contextual) ──
     if cmd == "help":
         if args and args[0] in VERB_SUBCOMMANDS:
             _show_verb_help(args[0])
@@ -172,7 +172,7 @@ async def dispatch(client: MCPClient, user_input: str, json_output: bool):
         result = await client.call_tool("system_about", {})
         (show_json if json_output else show_about_result)(result)
 
-    # ── Verbes avec sous-commandes ──
+    # ── Verbs with subcommands ──
     elif cmd == "space":
         if not args or args[0] == "help":
             _show_verb_help("space")
@@ -229,25 +229,25 @@ async def dispatch(client: MCPClient, user_input: str, json_output: bool):
         show_json(result)
 
     else:
-        show_warning(f"Commande inconnue: '{user_input}'. Tapez 'help'.")
+        show_warning(f"Unknown command: '{user_input}'. Type 'help'.")
 
 
 # =============================================================================
-# Handlers par catégorie
+# Handlers by category
 # =============================================================================
 
 
 async def _handle_space(client, args, json_out):
-    """Handler pour les commandes space."""
+    """Handler for space commands."""
     sub = args[0] if args else ""
 
     if sub == "create":
-        # Parser les options nommées (comme la CLI Click)
+        # Parse named options (like CLI Click)
         description = ""
         rules = ""
         rules_file = ""
         owner = ""
-        remaining = args[1:]  # après "create"
+        remaining = args[1:]  # after "create"
         i = 0
         positional = []
         while i < len(remaining):
@@ -268,15 +268,15 @@ async def _handle_space(client, args, json_out):
                 positional.append(flag)
                 i += 1
 
-        # Lire le fichier rules si -r/--rules-file spécifié
+        # Read rules file if -r/--rules-file specified
         if rules_file and not rules:
             try:
                 rules = Path(rules_file).read_text(encoding="utf-8")
             except Exception as e:
-                show_error(f"Impossible de lire le fichier rules : {e}")
+                show_error(f"Cannot read rules file: {e}")
                 return
 
-        # Rétrocompatibilité : forme positionnelle space create <id> <desc> <rules>
+        # Backward compat: positional form space create <id> <desc> <rules>
         if not description and not rules and len(positional) >= 3:
             space_id = positional[0]
             description = positional[1]
@@ -286,14 +286,14 @@ async def _handle_space(client, args, json_out):
 
         if not space_id:
             console.print(
-                '[yellow]Usage : space create <space_id> -d "description" -r <rules_file.md>[/yellow]'
+                '[yellow]Usage: space create <space_id> -d "description" -r <rules_file.md>[/yellow]'
             )
             console.print(
-                "[yellow]   ou : space create <space_id> <description> <rules_inline>[/yellow]"
+                "[yellow]   or: space create <space_id> <description> <rules_inline>[/yellow]"
             )
             return
         if not rules:
-            show_error('Rules requises : -r <fichier.md> ou --rules "contenu inline"')
+            show_error('Rules required: -r <file.md> or --rules "inline content"')
             return
 
         tool_args = {"space_id": space_id, "description": description, "rules": rules}
@@ -306,7 +306,7 @@ async def _handle_space(client, args, json_out):
 
     elif sub == "update" and len(args) >= 2:
         space_id = args[1]
-        # Parser les options nommées
+        # Parse named options
         description = ""
         owner = ""
         for i, a in enumerate(args):
@@ -316,7 +316,7 @@ async def _handle_space(client, args, json_out):
                 owner = args[i + 1]
         if not description and not owner:
             console.print(
-                '[yellow]Usage : space update <space_id> -d "description" [-o "owner"][/yellow]'
+                '[yellow]Usage: space update <space_id> -d "description" [-o "owner"][/yellow]'
             )
             return
         tool_args = {"space_id": space_id}
@@ -328,7 +328,7 @@ async def _handle_space(client, args, json_out):
         if result.get("status") == "ok":
             show_space_updated(result)
         else:
-            show_error(result.get("message", "Erreur"))
+            show_error(result.get("message", "Error"))
         return
 
     elif sub == "update-rules" and len(args) >= 2:
@@ -339,13 +339,13 @@ async def _handle_space(client, args, json_out):
                 rules_file = args[i + 1]
         if not rules_file:
             console.print(
-                "[yellow]Usage : space update-rules <space_id> -f <rules.md>[/yellow]"
+                "[yellow]Usage: space update-rules <space_id> -f <rules.md>[/yellow]"
             )
             return
         try:
             rules_content = Path(rules_file).read_text(encoding="utf-8")
         except Exception as e:
-            show_error(f"Impossible de lire {rules_file}: {e}")
+            show_error(f"Cannot read {rules_file}: {e}")
             return
         result = await client.call_tool(
             "space_update_rules", {"space_id": space_id, "rules": rules_content}
@@ -382,14 +382,14 @@ async def _handle_space(client, args, json_out):
         confirm = "--confirm" in args
         if not confirm:
             show_warning(
-                f"⚠️  Suppression de '{args[1]}' — ajoutez --confirm pour confirmer :"
+                f"⚠️  Deleting '{args[1]}' — add --confirm to confirm:"
             )
             show_warning(f"   space delete {args[1]} --confirm")
             return
         result = await client.call_tool(
             "space_delete", {"space_id": args[1], "confirm": True}
         )
-        show_success("Supprimé") if result.get("status") == "deleted" else show_error(
+        show_success("Deleted") if result.get("status") == "deleted" else show_error(
             result.get("message", "?")
         )
 
@@ -400,7 +400,7 @@ async def _handle_space(client, args, json_out):
 
 
 async def _handle_live(client, args, json_out):
-    """Handler pour les commandes live."""
+    """Handler for live commands."""
     sub = args[0] if args else ""
 
     if sub == "note" and len(args) >= 4:
@@ -439,7 +439,7 @@ async def _handle_live(client, args, json_out):
 
 
 async def _handle_bank(client, args, json_out):
-    """Handler pour les commandes bank."""
+    """Handler for bank commands."""
     sub = args[0] if args else ""
 
     if sub == "list" and len(args) >= 2:
@@ -467,7 +467,7 @@ async def _handle_bank(client, args, json_out):
             show_error(result.get("message", "?"))
 
     elif sub == "consolidate" and len(args) >= 2:
-        console.print("[dim]Consolidation en cours...[/dim]")
+        console.print("[dim]Consolidation in progress...[/dim]")
         result = await client.call_tool("bank_consolidate", {"space_id": args[1]})
         (show_json if json_out else show_consolidation_result)(result) if result.get(
             "status"
@@ -489,7 +489,7 @@ async def _handle_bank(client, args, json_out):
                 content_val = remaining[i + 1]
                 i += 2
             else:
-                # Contenu inline sans flag
+                # Inline content without flag
                 if not content_val:
                     content_val = " ".join(remaining[i:])
                     break
@@ -498,14 +498,14 @@ async def _handle_bank(client, args, json_out):
             try:
                 content_val = Path(content_file).read_text(encoding="utf-8")
             except Exception as e:
-                show_error(f"Impossible de lire {content_file}: {e}")
+                show_error(f"Cannot read {content_file}: {e}")
                 return
         if not content_val:
             console.print(
                 "[yellow]Usage: bank write <space> <filename> -f <path.md>[/yellow]"
             )
             console.print(
-                '[yellow]  ou : bank write <space> <filename> -c "contenu inline"[/yellow]'
+                '[yellow]  or: bank write <space> <filename> -c "inline content"[/yellow]'
             )
             return
         result = await client.call_tool(
@@ -548,10 +548,10 @@ async def _handle_bank(client, args, json_out):
     elif sub == "compact" and len(args) >= 2:
         dry_run = "--apply" not in args
         if dry_run:
-            console.print("[dim]Mode dry-run — analyse sans modification.[/dim]")
+            console.print("[dim]Dry-run mode — analysis without modifications.[/dim]")
         else:
             console.print(
-                "[dim]Compaction en cours... (peut prendre plusieurs secondes par fichier)[/dim]"
+                "[dim]Compaction in progress... (may take several seconds per file)[/dim]"
             )
         result = await client.call_tool(
             "bank_compact",
@@ -570,22 +570,22 @@ async def _handle_bank(client, args, json_out):
         )
 
 
-# Permissions valides (partagé avec le handler token)
+# Valid permissions (shared with token handler)
 _VALID_PERMS = {"read", "read,write", "read,write,manage", "read,write,manage,admin"}
 
 
 def _validate_permissions(perms: str) -> bool:
-    """Vérifie que les permissions sont valides."""
+    """Checks that permissions are valid."""
     return perms in _VALID_PERMS
 
 
 async def _handle_token(client, args, json_out):
-    """Handler pour les commandes token."""
+    """Handler for token commands."""
     sub = args[0] if args else ""
 
     if sub == "create" and len(args) >= 2:
         name = args[1]
-        # Parser les flags nommés --permissions/-p, --email/-e, --space-ids/-s
+        # Parse named flags --permissions/-p, --email/-e, --space-ids/-s
         perms = ""
         email = ""
         space_ids = ""
@@ -607,19 +607,19 @@ async def _handle_token(client, args, json_out):
                 expires = int(remaining[i + 1])
                 i += 2
             else:
-                # Rétrocompat : si pas de flag, traiter comme permissions positionnelles
+                # Backward compat: if no flag, treat as positional permissions
                 if not perms and _validate_permissions(flag):
                     perms = flag
                 i += 1
         if not perms:
             show_error(
-                "Permissions requises : --permissions/-p <read|read,write|read,write,manage|read,write,manage,admin>"
+                "Permissions required: --permissions/-p <read|read,write|read,write,manage|read,write,manage,admin>"
             )
             show_warning("Ex: token create KSE -p read,write --email kevin@example.com")
             return
         if not _validate_permissions(perms):
-            show_error(f"Permissions invalides : '{perms}'")
-            show_warning("Valeurs acceptées : read | read,write | read,write,manage | read,write,manage,admin")
+            show_error(f"Invalid permissions: '{perms}'")
+            show_warning("Accepted values: read | read,write | read,write,manage | read,write,manage,admin")
             return
         mcp_args = {"name": name, "permissions": perms}
         if email:
@@ -635,7 +635,7 @@ async def _handle_token(client, args, json_out):
 
     elif sub == "update" and len(args) >= 2:
         token_hash = args[1]
-        # Parser les flags --permissions, --space-ids, --add-spaces, --remove-spaces, --email
+        # Parse flags --permissions, --space-ids, --add-spaces, --remove-spaces, --email
         mcp_args = {"token_hash": token_hash}
         remaining = args[2:]
         i = 0
@@ -644,9 +644,9 @@ async def _handle_token(client, args, json_out):
             if flag in ("--permissions", "-p") and i + 1 < len(remaining):
                 perms = remaining[i + 1]
                 if not _validate_permissions(perms):
-                    show_error(f"Permissions invalides : '{perms}'")
+                    show_error(f"Invalid permissions: '{perms}'")
                     show_warning(
-                        "Valeurs acceptées : read | read,write | read,write,manage | read,write,manage,admin"
+                        "Accepted values: read | read,write | read,write,manage | read,write,manage,admin"
                     )
                     return
                 mcp_args["permissions"] = perms
@@ -667,23 +667,23 @@ async def _handle_token(client, args, json_out):
                 i += 1
         if len(mcp_args) <= 1:
             show_error(
-                "Rien à mettre à jour. Utilisez --permissions, --space-ids, "
-                "--add-spaces, --remove-spaces et/ou --email."
+                "Nothing to update. Use --permissions, --space-ids, "
+                "--add-spaces, --remove-spaces and/or --email."
             )
             show_warning("Ex: token update sha256:a8c5 --email user@example.com")
             show_warning("Ex: token update sha256:a8c5 -a new-space  (delta)")
             return
-        # Garde-fou client : remplacement et delta incompatibles
+        # Client-side guard: replacement and delta are incompatible
         if "space_ids" in mcp_args and (
             "space_ids_add" in mcp_args or "space_ids_remove" in mcp_args
         ):
             show_error(
-                "--space-ids (remplacement) est incompatible avec "
+                "--space-ids (replacement) is incompatible with "
                 "--add-spaces / --remove-spaces (delta)."
             )
             return
         result = await client.call_tool("admin_update_token", mcp_args)
-        show_success(result.get("message", "Token mis à jour")) if result.get(
+        show_success(result.get("message", "Token updated")) if result.get(
             "status"
         ) == "ok" else show_error(result.get("message", "?"))
 
@@ -702,7 +702,7 @@ async def _handle_token(client, args, json_out):
                 list_args["name_contains"] = remaining[i + 1]
                 i += 2
             elif flag in ("--has-space",) and i + 1 < len(remaining):
-                # Note: -s est déjà pris par --space-ids dans update; pas d'alias court ici
+                # Note: -s is already taken by --space-ids in update; no short alias here
                 list_args["has_space"] = remaining[i + 1]
                 i += 2
             elif flag == "--no-revoked":
@@ -748,7 +748,7 @@ async def _handle_token(client, args, json_out):
             elif flag in ("--permissions", "-p") and i + 1 < len(remaining):
                 perms = remaining[i + 1]
                 if not _validate_permissions(perms):
-                    show_error(f"Permissions invalides : '{perms}'")
+                    show_error(f"Invalid permissions: '{perms}'")
                     return
                 bulk_args["permissions"] = perms
                 i += 2
@@ -763,14 +763,14 @@ async def _handle_token(client, args, json_out):
                 i += 1
             else:
                 i += 1
-        # Validations côté shell (le serveur revalide aussi)
+        # Shell-side validations (server also re-validates)
         if (
             not bulk_args["names"]
             and not bulk_args["name_contains"]
             and not bulk_args["has_space"]
         ):
             show_error(
-                "Au moins un filtre requis : --names, --name-contains ou --has-space."
+                "At least one filter required: --names, --name-contains or --has-space."
             )
             return
         if not (
@@ -780,13 +780,13 @@ async def _handle_token(client, args, json_out):
             or bulk_args.get("email")
         ):
             show_error(
-                "Au moins une opération requise : --add-spaces, --remove-spaces, "
-                "--permissions ou --email."
+                "At least one operation required: --add-spaces, --remove-spaces, "
+                "--permissions or --email."
             )
             return
         if not confirm:
             show_warning(
-                "⚠️  Dry-run : ajoutez --confirm pour exécuter le bulk-update."
+                "⚠️  Dry-run: add --confirm to execute the bulk-update."
             )
             return
         result = await client.call_tool("admin_bulk_update_tokens", bulk_args)
@@ -798,13 +798,13 @@ async def _handle_token(client, args, json_out):
 
     elif sub == "revoke" and len(args) >= 2:
         result = await client.call_tool("admin_revoke_token", {"token_hash": args[1]})
-        show_success("Token révoqué") if result.get("status") == "ok" else show_error(
+        show_success("Token revoked") if result.get("status") == "ok" else show_error(
             result.get("message", "?")
         )
 
     elif sub == "delete" and len(args) >= 2:
         result = await client.call_tool("admin_delete_token", {"token_hash": args[1]})
-        show_success(result.get("message", "Token supprimé")) if result.get(
+        show_success(result.get("message", "Token deleted")) if result.get(
             "status"
         ) == "deleted" else show_error(result.get("message", "?"))
 
@@ -812,8 +812,8 @@ async def _handle_token(client, args, json_out):
         confirm = "--confirm" in args
         purge_all = "--all" in args
         if not confirm:
-            mode = "TOUS les tokens" if purge_all else "les tokens révoqués"
-            show_warning(f"⚠️  Purge de {mode} — ajoutez --confirm pour confirmer :")
+            mode = "ALL tokens" if purge_all else "revoked tokens"
+            show_warning(f"⚠️  Purge {mode} — add --confirm to confirm:")
             show_warning(f"   token purge {'--all ' if purge_all else ''}--confirm")
             return
         revoked_only = not purge_all
@@ -822,7 +822,7 @@ async def _handle_token(client, args, json_out):
         )
         if result.get("status") == "ok":
             show_success(
-                f"{result.get('deleted', 0)} token(s) supprimé(s), {result.get('remaining', 0)} restant(s)"
+                f"{result.get('deleted', 0)} token(s) deleted, {result.get('remaining', 0)} remaining"
             )
         else:
             show_error(result.get("message", "?"))
@@ -834,7 +834,7 @@ async def _handle_token(client, args, json_out):
 
 
 async def _handle_graph(client, args, json_out):
-    """Handler pour les commandes graph."""
+    """Handler for graph commands."""
     sub = args[0] if args else ""
 
     if sub == "connect" and len(args) >= 5:
@@ -854,7 +854,7 @@ async def _handle_graph(client, args, json_out):
         ) == "connected" else show_error(result.get("message", "?"))
 
     elif sub == "push" and len(args) >= 2:
-        console.print("[dim]Push en cours... (peut prendre plusieurs minutes)[/dim]")
+        console.print("[dim]Push in progress... (may take several minutes)[/dim]")
         result = await client.call_tool("graph_push", {"space_id": args[1]})
         (show_json if json_out else show_graph_push_result)(result) if result.get(
             "status"
@@ -877,14 +877,14 @@ async def _handle_graph(client, args, json_out):
 
 
 async def _handle_backup(client, args, json_out):
-    """Handler pour les commandes backup."""
+    """Handler for backup commands."""
     sub = args[0] if args else ""
 
     if sub == "create":
-        # Supporter --all pour backup de tous les espaces
+        # Support --all for backing up all spaces
         backup_all = "--all" in args
         if backup_all:
-            console.print("[dim]Backup de tous les espaces en cours...[/dim]")
+            console.print("[dim]Backing up all spaces...[/dim]")
             result = await client.call_tool("backup_create", {"space_id": ""})
             from .display import show_backup_all_result
 
@@ -898,7 +898,7 @@ async def _handle_backup(client, args, json_out):
             ) == "created" else show_error(result.get("message", "?"))
         else:
             console.print(
-                "[yellow]Usage: backup create <space_id> ou backup create --all[/yellow]"
+                "[yellow]Usage: backup create <space_id> or backup create --all[/yellow]"
             )
 
     elif sub == "list":
@@ -911,14 +911,14 @@ async def _handle_backup(client, args, json_out):
         confirm = "--confirm" in args
         if not confirm:
             show_warning(
-                f"⚠️  Restauration de '{args[1]}' — ajoutez --confirm pour confirmer :"
+                f"⚠️  Restoring '{args[1]}' — add --confirm to confirm:"
             )
             show_warning(f"   backup restore {args[1]} --confirm")
             return
         result = await client.call_tool(
             "backup_restore", {"backup_id": args[1], "confirm": True}
         )
-        show_success("Restauré") if result.get("status") == "ok" else show_error(
+        show_success("Restored") if result.get("status") == "ok" else show_error(
             result.get("message", "?")
         )
 
@@ -930,14 +930,14 @@ async def _handle_backup(client, args, json_out):
         confirm = "--confirm" in args
         if not confirm:
             show_warning(
-                f"⚠️  Suppression de '{args[1]}' — ajoutez --confirm pour confirmer :"
+                f"⚠️  Deleting '{args[1]}' — add --confirm to confirm:"
             )
             show_warning(f"   backup delete {args[1]} --confirm")
             return
         result = await client.call_tool(
             "backup_delete", {"backup_id": args[1], "confirm": True}
         )
-        show_success("Supprimé") if result.get("status") == "deleted" else show_error(
+        show_success("Deleted") if result.get("status") == "deleted" else show_error(
             result.get("message", "?")
         )
 
@@ -946,37 +946,37 @@ async def _handle_backup(client, args, json_out):
 
 
 # =============================================================================
-# Aide
+# Help
 # =============================================================================
 
 
 def _show_help():
-    """Affiche l'aide globale du shell."""
+    """Displays the global shell help."""
     from rich.table import Table
 
-    table = Table(title="🐚 Commandes Live Memory", show_header=True)
-    table.add_column("Commande", style="cyan bold", min_width=25)
+    table = Table(title="🐚 Commands Live Memory", show_header=True)
+    table.add_column("Command", style="cyan bold", min_width=25)
     table.add_column("Description")
     for cmd, desc in SHELL_COMMANDS.items():
         table.add_row(cmd, desc)
     table.add_row("", "")
-    table.add_row("[dim]--json[/dim]", "[dim]Ajouter pour la sortie JSON[/dim]")
+    table.add_row("[dim]--json[/dim]", "[dim]Append for JSON output[/dim]")
     table.add_row(
-        "[dim]help <verbe>[/dim]", "[dim]Aide d'un verbe (ex: help space)[/dim]"
+        "[dim]help <verb>[/dim]", "[dim]Help for a verb (e.g. help space)[/dim]"
     )
     console.print(table)
 
 
 def _show_verb_help(verb: str):
-    """Affiche l'aide d'un verbe spécifique (sous-commandes)."""
+    """Displays help for a specific verb (subcommands)."""
     from rich.table import Table
 
     subs = VERB_SUBCOMMANDS.get(verb, {})
     if not subs:
-        show_warning(f"Pas de sous-commandes pour '{verb}'.")
+        show_warning(f"No subcommands for '{verb}'.")
         return
-    table = Table(title=f"📖 {verb} — sous-commandes", show_header=True)
-    table.add_column("Commande", style="cyan bold", min_width=15)
+    table = Table(title=f"📖 {verb} — subcommands", show_header=True)
+    table.add_column("Command", style="cyan bold", min_width=15)
     table.add_column("Usage")
     for sub, desc in subs.items():
         table.add_row(f"{verb} {sub}", desc)
@@ -984,15 +984,15 @@ def _show_verb_help(verb: str):
 
 
 # =============================================================================
-# Boucle principale
+# Main loop
 # =============================================================================
 
 
 async def run_shell(url: str, token: str):
-    """Lance le shell interactif Live Memory."""
+    """Starts the Live Memory interactive shell."""
     client = MCPClient(url, token)
 
-    # Autocomplétion avec tous les mots-clés
+    # Autocompletion with all keywords
     words = list(SHELL_COMMANDS.keys()) + [
         "--json",
         "--confirm",
@@ -1039,7 +1039,7 @@ async def run_shell(url: str, token: str):
     console.print(
         f"\n[bold cyan]🧠 Live Memory Shell[/bold cyan] — [green]{url}[/green]"
     )
-    console.print("[dim]Tapez 'help' pour l'aide, 'quit' pour quitter.[/dim]\n")
+    console.print("[dim]Type 'help' for help, 'quit' to exit.[/dim]\n")
 
     while True:
         try:
@@ -1047,21 +1047,21 @@ async def run_shell(url: str, token: str):
             if not user_input.strip():
                 continue
 
-            # Détecter --json
+            # Detect --json
             json_output = "--json" in user_input
             clean_input = user_input.replace("--json", "").strip()
 
-            # Quitter
+            # Quit
             if clean_input.lower() in ("quit", "exit"):
-                console.print("[dim]Au revoir 👋[/dim]")
+                console.print("[dim]Goodbye 👋[/dim]")
                 break
 
             await dispatch(client, clean_input, json_output)
 
         except KeyboardInterrupt:
-            console.print("\n[dim]Ctrl+C — tapez 'quit' pour quitter[/dim]")
+            console.print("\n[dim]Ctrl+C — type 'quit' to exit[/dim]")
         except EOFError:
-            console.print("[dim]Au revoir 👋[/dim]")
+            console.print("[dim]Goodbye 👋[/dim]")
             break
         except Exception as e:
-            show_error(f"Erreur: {e}")
+            show_error(f"Error: {e}")

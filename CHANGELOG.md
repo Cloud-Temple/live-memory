@@ -1,7 +1,54 @@
 # Changelog — Live Memory
 
-Toutes les modifications notables sont documentées ici.
-Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
+All notable changes to this project are documented here.
+Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+---
+
+## [1.9.0] — 2026-05-15
+
+### Added
+- **Anti-hallucination rules in LLM consolidator** (Issue #17) — 7 new rules in the SYSTEM_PROMPT to prevent the LLM from inventing content not derived from source notes:
+  1. **Strict source attribution**: every factual claim in the bank MUST be derivable from at least one note. Empty sections stay empty or are marked "TBD".
+  2. **Domain vocabulary preservation**: project-specific terms are used verbatim from notes, never reinterpreted via LLM priors.
+  3. **Metrics gating**: numbers (LoC, test counts, percentages) only appear if explicitly sourced from a note. Sourced metrics are always carried over.
+  4. **No invented structures**: file trees are NOT generated if notes don't describe them.
+  5. **Agent/task isolation**: facts from different agents or independent tasks are NEVER merged into the same sentence.
+  6. **Replaced items removal**: when a `decision` note introduces a new plan, old plan items are removed from the backlog.
+  7. **Transitive status inference**: if Step N+1 is completed → Step N is marked as completed.
+- **Note metadata in LLM prompt** — `_build_prompt()` now includes `[agent=X, category=Y, tags=Z]` metadata for each note, extracted from S3 filenames. Enables the LLM to properly isolate notes by agent/task.
+- **Hallucination test suite** — `scripts/test_hallucination.py` with 5 scenarios and 25 assertions covering invented file structures, invented metrics, domain term reinterpretation, replaced plans, and stale statuses.
+
+### Changed
+- **Default language switched to English** — `README.md` is now in English (default for GitHub). French version moved to `README.fr.md`. Same for `FAQ.md` (EN) and `FAQ.fr.md` (FR).
+- CHANGELOG language switched to English.
+- **CLI fully translated to English** — All user-facing output (shell commands, Rich display labels, error messages, help strings, docstrings, comments) in `scripts/cli/` switched from French to English. 242+ string replacements across `shell.py`, `display.py`, and `commands.py`.
+- **`bank_consolidate` cross-agent permission lowered: admin → manage** — Consolidating another agent's notes or all notes now requires `manage` instead of `admin`. Consistent with `manage` already allowing `bank_write` (direct bank modification). Write tokens still auto-detect their own agent.
+
+### Removed
+- `scripts/translate_cli.py` — One-shot translation script, no longer needed.
+- `scripts/test_dedup_fix.py` — Deduplication tests redundant with `tests/` suite.
+
+### Files modified
+| File | Changes |
+| --- | --- |
+| `src/live_mem/core/consolidator.py` | SYSTEM_PROMPT: +7 anti-hallucination rules. `_build_prompt()`: note metadata (agent, category, tags) |
+| `src/live_mem/tools/bank.py` | `bank_consolidate`: cross-agent permission `check_admin` → `check_manage` |
+| `scripts/test_hallucination.py` | New: 5 scenarios (A-E), 25 assertions, reproducible hallucination detection |
+| `README.md` | Now English (was French). Updated to v1.9.0, 40 tools, accurate counts |
+| `README.fr.md` | New: French README (was `README.md`). Updated to v1.9.0 |
+| `FAQ.md` | Now English (was French). +3 entries: anti-hallucination, bank_compact, proxy |
+| `FAQ.fr.md` | New: French FAQ (was `FAQ.md`). +3 entries |
+| `CHANGELOG.md` | Switched to English, added v1.9.0 entry |
+| `VERSION` | 1.8.1 → 1.9.0 |
+| `src/live_mem/__init__.py` | 1.8.1 → 1.9.0 |
+| `DESIGN/live-mem/AUTH_AND_COLLABORATION.md` | Updated permission matrix: bank_consolidate cross-agent manage (was admin) |
+| `DESIGN/live-mem/MCP_TOOLS_SPEC.md` | Updated bank_consolidate spec: manage for cross-agent |
+| `scripts/cli/shell.py` | Full EN translation: SHELL_COMMANDS dict, docstrings, comments, messages (~70 replacements) |
+| `scripts/cli/display.py` | Full EN translation: Rich panel titles, labels, column headers, docstrings (~120 replacements) |
+| `scripts/cli/commands.py` | Full EN translation: Click help, docstrings, error/warning messages (~54 replacements) |
+| `scripts/cli/client.py` | EN translation (previous session) |
+| `scripts/cli/__init__.py` | EN translation (previous session) |
 
 ---
 

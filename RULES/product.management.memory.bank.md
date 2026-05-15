@@ -1,4 +1,4 @@
-# Product Management Memory Bank Rules — LIVE MEMORY v1.1.0
+# Product Management Memory Bank Rules — LIVE MEMORY v1.9.0
 
 ## Core Principle
 

@@ -1,178 +1,178 @@
-# Medical Memory Bank Rules — LIVE MEMORY v1.1.0
+# Medical Memory Bank Rules — LIVE MEMORY v1.9.0
 
-## Principe fondamental
+## Core Principle
 
-La Memory Bank Médicale est la SEULE source de vérité entre les sessions d'un agent IA dédié au suivi médical. Après chaque réinitialisation, l'agent recommence à zéro et dépend ENTIÈREMENT de ces fichiers pour comprendre le contexte de santé du patient et continuer le suivi efficacement.
+The Medical Memory Bank is the ONLY source of truth between sessions for an AI agent dedicated to medical follow-up. After every memory reset, the agent starts from zero and depends ENTIRELY on these files to understand the patient's health context and continue the follow-up effectively.
 
-**La précision et la fiabilité des données médicales sont critiques. Aucune information ne doit être perdue, déformée ou approximée.**
+**The accuracy and reliability of medical data are critical. No information may be lost, distorted, or approximated.**
 
-## Structure et hiérarchie des fichiers
+## File Structure and Hierarchy
 
-Les fichiers se construisent les uns sur les autres dans une hiérarchie claire :
+Files build on each other in a clear hierarchy:
 
 ```
-profilGeneral.md (fondation — identité et contexte du patient)
-├── histoireDiagnostic.md (pathologie et chronologie médicale)
-├── medicamentationTraitements.md (traitements en cours et historiques)
-├── specialistesSuivi.md (équipe médicale et calendrier)
-└── profilSante.md (patterns et apprentissages du suivi)
-    └── contexteSante.md (focus actuel — point d'entrée de chaque session)
-        └── progression.md (journal d'évolution et historique complet)
+patientProfile.md (foundation — patient identity and context)
+├── diagnosticHistory.md (pathology and medical timeline)
+├── medicationsAndTreatments.md (current and past treatments)
+├── specialistsAndFollowUp.md (care team and schedule)
+└── healthPatterns.md (patterns and learnings from the follow-up)
+    └── healthContext.md (current focus — entry point of every session)
+        └── progression.md (evolution journal and complete history)
 ```
 
-- `profilGeneral.md` est le document fondateur qui oriente tout le suivi
-- Les fichiers intermédiaires documentent chaque aspect du suivi
-- `contexteSante.md` synthétise le focus actuel à partir de tous les autres
-- `progression.md` trace l'évolution chronologique complète
+- `patientProfile.md` is the foundational document that guides the entire follow-up
+- Intermediate files document each aspect of the follow-up
+- `healthContext.md` synthesizes the current focus from all other files
+- `progression.md` tracks the complete chronological evolution
 
-## Fichiers obligatoires (7 fichiers)
+## Mandatory Files (7 files)
 
-### profilGeneral.md
-**Document fondateur — rarement modifié.**
-- Informations démographiques : âge, sexe, groupe sanguin, taille, poids
-- Antécédents médicaux personnels et familiaux
-- Allergies connues (médicaments, aliments, environnement)
-- Facteurs de risque identifiés
-- Mode de vie : alimentation, activité physique, tabac, alcool
-- Couverture médicale et contacts d'urgence
-- Ce fichier ne change que si des informations fondamentales sont découvertes
-- Tout nouvel agent doit lire ce fichier en premier
+### patientProfile.md
+**Foundational document — rarely modified.**
+- Demographics: age, sex, blood type, height, weight
+- Personal and family medical history
+- Known allergies (medications, food, environmental)
+- Identified risk factors
+- Lifestyle: diet, physical activity, tobacco, alcohol
+- Medical coverage and emergency contacts
+- This file only changes if fundamental information is discovered
+- Every new agent must read this file first
 
-### histoireDiagnostic.md
-**Historique complet de la pathologie.**
-- Diagnostic(s) établi(s) avec dates et médecins ayant posé le diagnostic
-- Chronologie de la découverte et de l'évolution de la maladie
-- Événements médicaux majeurs (hospitalisations, interventions, crises)
-- Résultats d'examens clés ayant conduit au diagnostic
-- Comorbidités identifiées
-- Ce fichier documente le PASSÉ médical et ne change que lors de nouvelles découvertes diagnostiques
+### diagnosticHistory.md
+**Complete pathology history.**
+- Established diagnosis(es) with dates and diagnosing physicians
+- Chronology of disease discovery and evolution
+- Major medical events (hospitalizations, surgeries, crises)
+- Key examination results that led to the diagnosis
+- Identified comorbidities
+- This file documents the medical PAST and only changes upon new diagnostic discoveries
 
-### contexteSante.md
-**Le fichier le plus dynamique — le point d'entrée de chaque session.**
-- Focus actuel du suivi : sur quoi on travaille maintenant
-- État de santé récent : symptômes, bien-être, observations
-- Résultats d'examens récents (résumé — détails dans progression.md)
-- Prochaines étapes concrètes : rendez-vous, examens à planifier
-- Préoccupations et observations actives du patient ou du médecin
-- Décisions thérapeutiques en cours de réflexion
-- IMPORTANT : ce fichier reflète l'ÉTAT ACTUEL, pas l'historique complet
-- Les éléments résolus doivent être déplacés vers progression.md
-- C'est le PREMIER fichier qu'un agent lit pour reprendre le suivi
+### healthContext.md
+**The most dynamic file — the entry point of every session.**
+- Current follow-up focus: what is being worked on right now
+- Recent health status: symptoms, well-being, observations
+- Recent examination results (summary — details in progression.md)
+- Concrete next steps: appointments, exams to schedule
+- Active concerns and observations from the patient or physician
+- Therapeutic decisions currently under consideration
+- IMPORTANT: this file reflects the CURRENT STATE, not the full history
+- Resolved items must be moved to progression.md
+- This is the FIRST file an agent reads to resume the follow-up
 
-### medicamentationTraitements.md
-**Traitements en cours et historique thérapeutique.**
-- Médicaments actuels : nom, posologie, fréquence, voie d'administration
-- Date de début de chaque traitement et médecin prescripteur
-- Historique des traitements arrêtés (avec raisons d'arrêt)
-- Effets secondaires observés (actuels et passés)
-- Efficacité observée de chaque traitement
-- Interactions médicamenteuses identifiées
-- Protocoles thérapeutiques spécifiques (chimiothérapie, immunothérapie, etc.)
+### medicationsAndTreatments.md
+**Current treatments and therapeutic history.**
+- Current medications: name, dosage, frequency, route of administration
+- Start date of each treatment and prescribing physician
+- History of discontinued treatments (with reasons for discontinuation)
+- Observed side effects (current and past)
+- Observed efficacy of each treatment
+- Identified drug interactions
+- Specific therapeutic protocols (chemotherapy, immunotherapy, etc.)
 
-### specialistesSuivi.md
-**Équipe médicale et organisation du suivi.**
-- Médecin traitant (nom, coordonnées, rôle)
-- Spécialistes impliqués (nom, spécialité, coordonnées, hôpital)
-- Fréquence des consultations par spécialiste
-- Calendrier des rendez-vous à venir
-- Examens périodiques programmés (bilans, imagerie, etc.)
-- Laboratoires et centres d'imagerie utilisés
+### specialistsAndFollowUp.md
+**Care team and follow-up organization.**
+- Primary care physician (name, contact details, role)
+- Involved specialists (name, specialty, contact details, hospital)
+- Consultation frequency per specialist
+- Upcoming appointment calendar
+- Scheduled periodic examinations (check-ups, imaging, etc.)
+- Laboratories and imaging centers used
 
-### profilSante.md
-**Journal d'apprentissage du suivi — s'enrichit au fil des sessions.**
-- Réactions personnelles aux traitements (tolérances, sensibilités)
-- Patterns spécifiques au patient (symptômes récurrents, déclencheurs)
-- Préférences et routine quotidienne impactant la santé
-- Corrélations identifiées (facteurs ↔ aggravations/améliorations)
-- Seuils d'alerte personnalisés pour les valeurs médicales critiques
-- Habitudes de vie et leur impact observé sur la santé
-- Défis connus dans le suivi (observance, accès aux soins, etc.)
-- Ce fichier capture les APPRENTISSAGES qui améliorent la qualité du suivi
+### healthPatterns.md
+**Follow-up learning journal — grows over sessions.**
+- Personal treatment reactions (tolerances, sensitivities)
+- Patient-specific patterns (recurring symptoms, triggers)
+- Preferences and daily routine impacting health
+- Identified correlations (factors ↔ worsening/improvement)
+- Personalized alert thresholds for critical medical values
+- Lifestyle habits and their observed health impact
+- Known challenges in the follow-up (adherence, access to care, etc.)
+- This file captures LEARNINGS that improve follow-up quality
 
 ### progression.md
-**Journal d'évolution — s'enrichit au fil du temps.**
-- Évolution chronologique des symptômes (par date ou par période)
-- Réponse aux traitements au fil du temps
-- Résultats d'examens détaillés (valeurs, dates, tendances)
-- Statut actuel de la santé (stable / en amélioration / en dégradation)
-- Problèmes connus et questions en suspens
-- Événements significatifs avec dates
-- Ce fichier est le SEUL qui contient l'historique chronologique complet
+**Evolution journal — grows over time.**
+- Chronological symptom evolution (by date or period)
+- Treatment response over time
+- Detailed examination results (values, dates, trends)
+- Current health status (stable / improving / declining)
+- Known problems and open questions
+- Significant events with dates
+- This file is the ONLY one that contains the complete chronological history
 
-## Fichiers recommandés (optionnels)
+## Recommended Files (optional)
 
-### visualisationDonnees.md
-**Tableaux de suivi et tendances.**
-- Tableaux de suivi des valeurs médicales clés (glycémie, tension, marqueurs, etc.)
-- Points de référence et valeurs normales pour chaque paramètre
-- Tendances identifiées dans les données (amélioration, dégradation, stabilité)
-- Corrélations observées entre différents paramètres
-- Ce fichier est essentiel pour les pathologies nécessitant un suivi biologique régulier
+### dataVisualization.md
+**Tracking tables and trends.**
+- Tracking tables for key medical values (blood sugar, blood pressure, markers, etc.)
+- Reference points and normal ranges for each parameter
+- Identified trends in the data (improvement, decline, stability)
+- Observed correlations between different parameters
+- This file is essential for conditions requiring regular biological monitoring
 
-### protocoleUrgence.md
-**Informations vitales en cas d'urgence.**
-- Contacts d'urgence hiérarchisés (famille, médecin traitant, SAMU)
-- Symptômes critiques à surveiller (signaux d'alerte spécifiques à la pathologie)
-- Actions immédiates à prendre selon les situations
-- Informations essentielles pour les services d'urgence (allergies, traitements, pathologie)
-- Procédures de secours spécifiques à la pathologie
-- Numéro de dossier hospitalier si applicable
+### emergencyProtocol.md
+**Vital information for emergencies.**
+- Prioritized emergency contacts (family, primary physician, emergency services)
+- Critical symptoms to watch for (warning signs specific to the condition)
+- Immediate actions to take depending on the situation
+- Essential information for emergency services (allergies, treatments, condition)
+- Condition-specific emergency procedures
+- Hospital case number if applicable
 
-## Catégories de notes et leur usage médical
+## Note Categories and Their Medical Usage
 
-Pendant le suivi, l'agent écrit des notes atomiques via `live_note` avec ces catégories :
+During follow-up, the agent writes atomic notes via `live_note` with these categories:
 
-- **`observation`** — Constats cliniques, résultats d'examens, symptômes rapportés par le patient
-- **`decision`** — Changements de traitement, orientations vers un spécialiste, choix thérapeutiques
-- **`progress`** — Évolution de l'état de santé, réponse à un traitement, amélioration/dégradation
-- **`issue`** — Effets secondaires, complications, symptômes préoccupants, problèmes d'observance
-- **`todo`** — Rendez-vous à prendre, examens à planifier, prescriptions à renouveler
-- **`insight`** — Patterns découverts, corrélations identifiées, apprentissages sur le profil du patient
-- **`question`** — Points à clarifier avec le médecin, choix thérapeutiques à discuter
+- **`observation`** — Clinical findings, examination results, symptoms reported by the patient
+- **`decision`** — Treatment changes, specialist referrals, therapeutic choices
+- **`progress`** — Health status evolution, treatment response, improvement/decline
+- **`issue`** — Side effects, complications, concerning symptoms, adherence problems
+- **`todo`** — Appointments to schedule, exams to plan, prescriptions to renew
+- **`insight`** — Patterns discovered, correlations identified, learnings about the patient's profile
+- **`question`** — Points to clarify with the physician, therapeutic choices to discuss
 
-## Quand mettre à jour la Memory Bank
+## When to Update the Memory Bank
 
-La bank doit être mise à jour (via consolidation) :
-1. Après réception de nouveaux résultats d'examens ou d'analyses
-2. Après une consultation médicale (résumé, décisions, prescriptions)
-3. Lors de changements significatifs de l'état de santé
-4. Après toute modification de traitement
-5. En fin de session de suivi (toujours)
-6. Quand l'utilisateur demande explicitement une mise à jour
-7. Après tout incident médical urgent
+The bank must be updated (via consolidation):
+1. After receiving new examination or test results
+2. After a medical consultation (summary, decisions, prescriptions)
+3. Upon significant changes in health status
+4. After any treatment modification
+5. At the end of every follow-up session (always)
+6. When the user explicitly requests an update
+7. After any urgent medical incident
 
-## Règle de fiabilité absolue
+## Absolute Reliability Rule
 
-**⚠️ Règle impérative pour le LLM consolidateur :**
+**⚠️ Mandatory rule for the LLM consolidator:**
 
-Lors de la consolidation de notes contenant des résultats d'analyses biologiques ou de valeurs médicales :
-1. **Double vérification** systématique de chaque paramètre transcrit
-2. **Fidélité parfaite** avec les données source — aucune approximation tolérée
-3. **Aucune perte de données** — chaque valeur doit être reportée
-4. **Unités conservées** — toujours reporter les unités de mesure
-5. **Dates exactes** — chaque résultat doit être daté
+When consolidating notes that contain biological test results or medical values:
+1. **Systematic double-checking** of every transcribed parameter
+2. **Perfect fidelity** to source data — no approximation tolerated
+3. **No data loss** — every value must be reported
+4. **Units preserved** — always report measurement units
+5. **Exact dates** — every result must be dated
 
-## Instructions pour le LLM consolidateur
+## Instructions for the LLM Consolidator
 
-### Mapping catégories de notes vers fichiers bank
+### Mapping Note Categories to Bank Files
 
-- `observation` (résultats, symptômes) → `contexteSante.md` (état récent) + `progression.md` (historique) + `visualisationDonnees.md` (valeurs chiffrées)
-- `decision` (changements thérapeutiques) → `contexteSante.md` (décisions actives) + `medicamentationTraitements.md` (si modification de traitement)
-- `progress` (évolution) → `progression.md` (journal) + `contexteSante.md` (état actuel)
-- `issue` (complications, effets secondaires) → `contexteSante.md` (si actif) + `medicamentationTraitements.md` (effets secondaires) + `progression.md` (historique)
-- `todo` (RDV, examens) → `contexteSante.md` (prochaines étapes) + `specialistesSuivi.md` (calendrier)
-- `insight` (patterns, corrélations) → `profilSante.md` (apprentissages) + `contexteSante.md` (si pertinent actuellement)
-- `question` (points à clarifier) → `contexteSante.md` (préoccupations actives)
+- `observation` (results, symptoms) → `healthContext.md` (recent status) + `progression.md` (history) + `dataVisualization.md` (numerical values)
+- `decision` (therapeutic changes) → `healthContext.md` (active decisions) + `medicationsAndTreatments.md` (if treatment modification)
+- `progress` (evolution) → `progression.md` (journal) + `healthContext.md` (current status)
+- `issue` (complications, side effects) → `healthContext.md` (if active) + `medicationsAndTreatments.md` (side effects) + `progression.md` (history)
+- `todo` (appointments, exams) → `healthContext.md` (next steps) + `specialistsAndFollowUp.md` (calendar)
+- `insight` (patterns, correlations) → `healthPatterns.md` (learnings) + `healthContext.md` (if currently relevant)
+- `question` (points to clarify) → `healthContext.md` (active concerns)
 
-### Règles de consolidation
+### Consolidation Rules
 
-1. **Ne jamais perdre d'information médicale** — toute note doit être reflétée dans le fichier approprié
-2. **contexteSante.md est le point d'entrée** — c'est le premier fichier lu au démarrage de chaque session
-3. **Précision absolue pour les valeurs** — transcrire exactement les chiffres, unités et dates sans approximation
-4. **Maintenir la chronologie dans progression.md** — grouper par date ou par période avec horodatage
-5. **profilGeneral.md est quasi-immuable** — ne le modifier que pour des découvertes fondamentales (nouvelle allergie, nouveau diagnostic majeur)
-6. **Nettoyer contexteSante.md régulièrement** — déplacer les éléments résolus vers progression.md pour garder le focus actuel léger
-7. **Enrichir, ne pas écraser** — lors d'une mise à jour, enrichir le contenu existant plutôt que le remplacer
-8. **Mettre à jour visualisationDonnees.md** — si la note contient des valeurs chiffrées, mettre à jour les tableaux de suivi correspondants
-9. **Respecter la hiérarchie** — les informations doivent être dans le fichier approprié selon la structure définie
-10. **Signaler les alertes** — si une valeur dépasse un seuil d'alerte défini dans profilSante.md, le mentionner dans contexteSante.md
+1. **Never lose medical information** — every note must be reflected in the appropriate file
+2. **healthContext.md is the entry point** — it is the first file read at the start of every session
+3. **Absolute precision for values** — transcribe numbers, units, and dates exactly, with no approximation
+4. **Maintain chronology in progression.md** — group by date or period with timestamps
+5. **patientProfile.md is quasi-immutable** — only modify for fundamental discoveries (new allergy, major new diagnosis)
+6. **Clean healthContext.md regularly** — move resolved items to progression.md to keep the current focus lightweight
+7. **Enrich, don't overwrite** — when updating, enrich existing content rather than replacing it
+8. **Update dataVisualization.md** — if a note contains numerical values, update the corresponding tracking tables
+9. **Respect the hierarchy** — information must live in the appropriate file per the defined structure
+10. **Flag alerts** — if a value exceeds an alert threshold defined in healthPatterns.md, mention it in healthContext.md

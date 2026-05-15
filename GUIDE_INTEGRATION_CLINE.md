@@ -1,106 +1,106 @@
-# 🔌 Guide d'intégration Live Memory avec Cline (VS Code / VSCodium)
+# 🔌 Live Memory Integration Guide for Cline (VS Code / VSCodium)
 
-> **Version** : 1.2.0 | **Date** : 2026-03-27
+> **Version**: 1.2.0 | **Date**: 2026-03-27
 
-Ce guide détaille pas à pas comment connecter **Cline** (l'agent IA dans VS Code ou VSCodium) à **Live Memory** pour lui donner une mémoire de travail partagée et persistante.
-
----
-
-## 📋 Table des matières
-
-- [Prérequis](#-prérequis)
-- [Étape 1 — Démarrer Live Memory](#-étape-1--démarrer-live-memory)
-- [Étape 2 — Créer un token pour Cline](#-étape-2--créer-un-token-pour-cline)
-- [Étape 3 — Configurer Cline dans VS Code / VSCodium](#-étape-3--configurer-cline-dans-vs-code--vscodium)
-- [Étape 4 — Créer un espace mémoire](#-étape-4--créer-un-espace-mémoire)
-- [Étape 5 — Donner des instructions à Cline](#-étape-5--donner-des-instructions-à-cline)
-- [Workflow recommandé](#-workflow-recommandé)
-- [Custom Instructions pour Cline](#-custom-instructions-pour-cline)
-- [Multi-agents : Cline + Claude + autres](#-multi-agents--cline--claude--autres)
-- [Dépannage](#-dépannage)
-- [Avec Claude Desktop](#-avec-claude-desktop)
+This guide walks you step by step through connecting **Cline** (the AI agent in VS Code or VSCodium) to **Live Memory** to give it a shared, persistent working memory.
 
 ---
 
-## 📦 Prérequis
+## 📋 Table of Contents
 
-| Composant                   | Version            | Vérification                        |
+- [Prerequisites](#-prerequisites)
+- [Step 1 — Start Live Memory](#-step-1--start-live-memory)
+- [Step 2 — Create a Token for Cline](#-step-2--create-a-token-for-cline)
+- [Step 3 — Configure Cline in VS Code / VSCodium](#-step-3--configure-cline-in-vs-code--vscodium)
+- [Step 4 — Create a Memory Space](#-step-4--create-a-memory-space)
+- [Step 5 — Give Cline Instructions](#-step-5--give-cline-instructions)
+- [Recommended Workflow](#-recommended-workflow)
+- [Custom Instructions for Cline](#-custom-instructions-for-cline)
+- [Multi-agent: Cline + Claude + Others](#-multi-agent--cline--claude--others)
+- [Troubleshooting](#-troubleshooting)
+- [With Claude Desktop](#-with-claude-desktop)
+
+---
+
+## 📦 Prerequisites
+
+| Component                   | Version            | Verification                        |
 | --------------------------- | ------------------ | ----------------------------------- |
 | **Docker**                  | ≥ 24.0             | `docker --version`                  |
 | **Docker Compose**          | v2                 | `docker compose version`            |
-| **VS Code** ou **VSCodium** | Récent             | —                                   |
-| **Extension Cline**         | Récente            | Installée depuis le marketplace     |
-| **Live Memory**             | Déployé et running | `curl http://localhost:8080/health` |
+| **VS Code** or **VSCodium** | Recent             | —                                   |
+| **Cline Extension**         | Recent             | Installed from the marketplace      |
+| **Live Memory**             | Deployed & running | `curl http://localhost:8080/health`  |
 
 ---
 
-## 🚀 Étape 1 — Démarrer Live Memory
+## 🚀 Step 1 — Start Live Memory
 
-Si Live Memory n'est pas encore démarré :
+If Live Memory is not running yet:
 
 ```bash
-cd /chemin/vers/live-memory
+cd /path/to/live-memory
 cp .env.example .env
-# Éditer .env avec vos credentials S3, LLMaaS, et ADMIN_BOOTSTRAP_KEY
+# Edit .env with your S3, LLMaaS credentials, and ADMIN_BOOTSTRAP_KEY
 docker compose build
 docker compose up -d
 ```
 
-**Vérifier** :
+**Verify**:
 
 ```bash
-# Doit retourner {"status": "ok", ...}
+# Should return {"status": "ok", ...}
 curl -s http://localhost:8080/health | jq .
 ```
 
 ---
 
-## 🔑 Étape 2 — Créer un token pour Cline
+## 🔑 Step 2 — Create a Token for Cline
 
-Cline a besoin d'un **Bearer Token** avec les permissions `read,write` pour lire et écrire dans la mémoire.
+Cline needs a **Bearer Token** with `read,write` permissions to read from and write to the memory.
 
-### Option A — Via la CLI
+### Option A — Via the CLI
 
 ```bash
-cd /chemin/vers/live-memory
-export MCP_TOKEN=<votre_ADMIN_BOOTSTRAP_KEY>
+cd /path/to/live-memory
+export MCP_TOKEN=<your_ADMIN_BOOTSTRAP_KEY>
 
-# Créer un token "write" pour Cline
+# Create a "write" token for Cline
 python scripts/mcp_cli.py token create cline-agent read,write
 ```
 
-La CLI affichera quelque chose comme :
+The CLI will display something like:
 
 ```
-Token créé avec succès !
-  Nom    : cline-agent
+Token created successfully!
+  Name   : cline-agent
   Token  : lm_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0u1V2
   Perms  : read, write
 
-⚠️  Ce token ne sera PLUS JAMAIS affiché. Copiez-le maintenant !
+⚠️  This token will NEVER be displayed again. Copy it now!
 ```
 
-> **⚠️ IMPORTANT** : Copiez ce token immédiatement ! Il ne sera plus jamais affiché (seul le hash SHA-256 est stocké).
+> **⚠️ IMPORTANT**: Copy this token immediately! It will never be shown again (only the SHA-256 hash is stored).
 
-### Option B — Via la bootstrap key (temporaire)
+### Option B — Via the bootstrap key (temporary)
 
-Pour un test rapide, vous pouvez utiliser directement la `ADMIN_BOOTSTRAP_KEY` définie dans votre `.env`. Mais **en production**, créez toujours un token dédié avec les permissions minimales.
+For a quick test, you can use the `ADMIN_BOOTSTRAP_KEY` defined in your `.env` directly. But **in production**, always create a dedicated token with minimal permissions.
 
 ---
 
-## ⚙️ Étape 3 — Configurer Cline dans VS Code / VSCodium
+## ⚙️ Step 3 — Configure Cline in VS Code / VSCodium
 
-### 3.1 Ouvrir les paramètres MCP de Cline
+### 3.1 Open Cline's MCP Settings
 
-1. Ouvrez VS Code / VSCodium
-2. Ouvrez le panneau Cline (icône Cline dans la barre latérale)
-3. Cliquez sur l'icône **⚙️ Settings** (roue crantée) en haut du panneau Cline
-4. Cherchez **"MCP Servers"** ou cliquez sur l'onglet **MCP** 
-5. Cliquez sur **"Edit MCP Settings"** (ou le bouton pour éditer le JSON)
+1. Open VS Code / VSCodium
+2. Open the Cline panel (Cline icon in the sidebar)
+3. Click the **⚙️ Settings** icon (gear) at the top of the Cline panel
+4. Look for **"MCP Servers"** or click the **MCP** tab
+5. Click **"Edit MCP Settings"** (or the button to edit the JSON)
 
-### 3.2 Ajouter Live Memory comme serveur MCP
+### 3.2 Add Live Memory as an MCP Server
 
-Dans le fichier `cline_mcp_settings.json` qui s'ouvre, ajoutez la configuration suivante :
+In the `cline_mcp_settings.json` file that opens, add the following configuration:
 
 ```json
 {
@@ -108,7 +108,7 @@ Dans le fichier `cline_mcp_settings.json` qui s'ouvre, ajoutez la configuration 
     "live-memory": {
       "url": "http://localhost:8080/mcp",
       "headers": {
-        "Authorization": "Bearer lm_VOTRE_TOKEN_ICI"
+        "Authorization": "Bearer lm_YOUR_TOKEN_HERE"
       },
       "timeout": 600
     }
@@ -116,38 +116,38 @@ Dans le fichier `cline_mcp_settings.json` qui s'ouvre, ajoutez la configuration 
 }
 ```
 
-> **Remplacez** `lm_VOTRE_TOKEN_ICI` par le token obtenu à l'étape 2.
-> **⚠️ Le paramètre `timeout` est critique** : La consolidation LLM peut prendre plus de 60 secondes (le timeout par défaut de Cline). Il est indispensable de l'augmenter à 600 secondes, en conformité avec votre configuration `.env`.
+> **Replace** `lm_YOUR_TOKEN_HERE` with the token obtained in Step 2.
+> **⚠️ The `timeout` parameter is critical**: LLM consolidation can take more than 60 seconds (Cline's default timeout). It is essential to increase it to 600 seconds, in accordance with your `.env` configuration.
 
-### 3.3 Où se trouve le fichier de config ?
+### 3.3 Where is the Config File?
 
-| OS                 | Emplacement typique                                                                                                 |
+| OS                 | Typical Location                                                                                                    |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | **macOS**          | `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`     |
 | **Linux**          | `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`                         |
 | **VSCodium macOS** | `~/Library/Application Support/VSCodium/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` |
 | **VSCodium Linux** | `~/.config/VSCodium/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`                     |
 
-### 3.4 Vérifier la connexion
+### 3.4 Verify the Connection
 
-Après avoir sauvegardé le fichier de config :
+After saving the config file:
 
-1. **Redémarrez Cline** (ou rechargez VS Code avec `Ctrl+Shift+P` → "Developer: Reload Window")
-2. Dans le panneau Cline, cliquez sur l'onglet **MCP** 
-3. Vous devriez voir **"live-memory"** avec un indicateur vert ✅
-4. Cliquez dessus pour voir les **38 outils** disponibles
+1. **Restart Cline** (or reload VS Code with `Ctrl+Shift+P` → "Developer: Reload Window")
+2. In the Cline panel, click the **MCP** tab
+3. You should see **"live-memory"** with a green ✅ indicator
+4. Click on it to see the **38 available tools**
 
-### 3.5 Serveur distant (production)
+### 3.5 Remote Server (production)
 
-Si Live Memory est déployé sur un serveur avec HTTPS :
+If Live Memory is deployed on a server with HTTPS:
 
 ```json
 {
   "mcpServers": {
     "live-memory": {
-      "url": "https://live-mem.votre-domaine.com/mcp",
+      "url": "https://live-mem.your-domain.com/mcp",
       "headers": {
-        "Authorization": "Bearer lm_VOTRE_TOKEN_ICI"
+        "Authorization": "Bearer lm_YOUR_TOKEN_HERE"
       },
       "timeout": 600
     }
@@ -157,309 +157,311 @@ Si Live Memory est déployé sur un serveur avec HTTPS :
 
 ---
 
-## 📁 Étape 4 — Créer un espace mémoire
+## 📁 Step 4 — Create a Memory Space
 
-Avant que Cline puisse écrire des notes, il faut un **espace mémoire** avec des **rules** qui définissent la structure de la Memory Bank.
+Before Cline can write notes, you need a **memory space** with **rules** that define the Memory Bank structure.
 
-### Via la CLI
+### Via the CLI
 
 ```bash
-python scripts/mcp_cli.py space create mon-projet \
+python scripts/mcp_cli.py space create my-project \
   --rules-file ./rules/standard.md \
-  -d "Mon projet de développement"
+  -d "My development project"
 ```
 
-### Via Cline directement
+### Via Cline Directly
 
-Vous pouvez aussi demander à Cline de créer l'espace. Dites-lui simplement :
+You can also ask Cline to create the space. Simply tell it:
 
-> *"Utilise l'outil `space_create` pour créer un espace 'mon-projet' avec des rules standard de type Memory Bank (projectbrief, activeContext, progress, techContext, systemPatterns, productContext)."*
+> *"Use the `space_create` tool to create a space 'my-project' with standard Memory Bank rules (projectbrief, activeContext, progress, techContext, systemPatterns, productContext)."*
 
-Cline utilisera l'outil MCP `space_create` pour le faire.
+Cline will use the `space_create` MCP tool to do it.
 
-### Exemple de rules standard
+### Standard Rules Example
 
 ```markdown
 # Memory Bank Rules
 
-## Fichiers à maintenir
+## Files to Maintain
 
 ### projectbrief.md
-Vision, objectifs, périmètre du projet.
+Vision, objectives, project scope.
 
 ### activeContext.md  
-Focus actuel, travail en cours, décisions récentes, prochaines étapes.
+Current focus, work in progress, recent decisions, next steps.
 
 ### progress.md
-Ce qui fonctionne, ce qui reste à faire, problèmes connus.
+What works, what remains to build, known issues.
 
 ### techContext.md
-Technologies utilisées, configuration, contraintes techniques.
+Technologies used, configuration, technical constraints.
 
 ### systemPatterns.md
-Architecture, patterns, décisions techniques, composants.
+Architecture, patterns, technical decisions, components.
 
 ### productContext.md
-Pourquoi ce projet existe, problèmes résolus, expérience utilisateur.
+Why this project exists, problems solved, user experience.
 ```
 
 ---
 
-## 📝 Étape 5 — Donner des instructions à Cline
+## 📝 Step 5 — Give Cline Instructions
 
-Pour que Cline utilise automatiquement Live Memory, ajoutez des **Custom Instructions** dans ses paramètres.
+For Cline to automatically use Live Memory, add **Custom Instructions** to its settings.
 
-### 5.1 Où configurer les Custom Instructions
+### 5.1 Where to Configure Custom Instructions
 
-Dans Cline : **Settings** → **Custom Instructions** (ou dans le fichier `.clinerules` de votre projet).
+In Cline: **Settings** → **Custom Instructions**, or better yet, place a `WORKSPACE_CLINE_RULES.md` file at the root of your project (Cline automatically loads it as workspace-level instructions).
 
-### 5.2 Instructions recommandées (template `{SPACE}`)
+The repository ships a ready-to-use template: [`WORKSPACE_CLINE_RULES.md`](WORKSPACE_CLINE_RULES.md). Simply copy it to your project root and customize the `SPACE` value.
 
-Copiez le contenu ci-dessous dans les **Custom Instructions** de votre agent (ou dans un fichier `.clinerules` à la racine de votre projet). Ce template utilise le placeholder `{SPACE}` — il suffit de configurer **une seule valeur** :
+### 5.2 Recommended Instructions (template with `{SPACE}`)
+
+Copy the content below into your agent's **Custom Instructions** (or into a `.clinerules` file at the root of your project). This template uses the `{SPACE}` placeholder — you only need to set **one value**:
 
 
 ```markdown
 # Cline's Memory Bank — Live Memory MCP
 
-Ma mémoire se réinitialise complètement entre les sessions. Je dépends ENTIÈREMENT de la Memory Bank pour comprendre le projet et continuer efficacement.
+My memory resets completely between sessions. I depend ENTIRELY on the Memory Bank to understand the project and continue effectively.
 
-## 🔌 Configuration (à modifier par projet)
+## 🔌 Configuration (customize per project)
 
-Ma mémoire persistante est gérée par le serveur MCP **Live Memory** (`my-live-mem`).
+My persistent memory is managed by the **Live Memory** MCP server (`my-live-mem`).
 
-> **⚙️ La seule valeur à personnaliser :**
+> **⚙️ The only value to customize:**
 >
-> - **SPACE** = `mon-projet`       ← Remplacez par votre space_id
+> - **SPACE** = `my-project`       ← Replace with your space_id
 >
-> Toutes les instructions ci-dessous utilisent `{SPACE}` — je le substitue automatiquement par la valeur ci-dessus.
-> Le nom de l'agent est **auto-détecté** depuis le token d'authentification (pas besoin de le configurer).
+> All instructions below use `{SPACE}` — I automatically substitute it with the value above.
+> The agent name is **auto-detected** from the authentication token (no configuration needed).
 
-## 📖 Au démarrage de CHAQUE tâche (OBLIGATOIRE)
+## 📖 At the Start of EVERY Task (MANDATORY)
 
-1. Appeler `space_rules("{SPACE}")` pour lire les rules (structure de la bank)
-2. Appeler `bank_read_all("{SPACE}")` pour charger TOUT le contexte consolidé
-3. Appeler `live_read(space_id="{SPACE}")` pour lire les **notes non consolidées**
-4. Lire attentivement le contenu avant de commencer
-5. Identifier le focus actuel dans `activeContext.md`
+1. Call `space_rules("{SPACE}")` to read the rules (bank structure)
+2. Call `bank_read_all("{SPACE}")` to load ALL consolidated context
+3. Call `live_read(space_id="{SPACE}")` to read **unconsolidated notes**
+4. Read the content carefully before starting
+5. Identify the current focus in `activeContext.md`
 
-> ⚠️ Ne JAMAIS commencer à travailler sans avoir lu la bank.
+> ⚠️ NEVER start working without reading the bank first.
 >
-> 💡 **Pourquoi lire les notes live ?** Entre deux sessions, des notes ont pu être écrites (par moi ou par d'autres agents) sans avoir été consolidées dans la bank. Ces notes contiennent du contexte récent qui n'apparaît pas encore dans les fichiers bank. Les ignorer = risquer de refaire du travail déjà fait ou de rater des décisions récentes.
+> 💡 **Why read live notes?** Between sessions, notes may have been written (by me or other agents) without being consolidated into the bank. These notes contain recent context that does not yet appear in bank files. Ignoring them = risking redoing work already done or missing recent decisions.
 
-## 📝 Pendant le travail
+## 📝 During Work
 
-Écrire des notes fréquentes et atomiques avec `live_note` :
+Write frequent, atomic notes with `live_note`:
 
-live_note(space_id="{SPACE}", category="<catégorie>", content="...")
+live_note(space_id="{SPACE}", category="<category>", content="...")
 
-Le paramètre `agent` est **auto-détecté** depuis le token — inutile de le passer.
+The `agent` parameter is **auto-detected** from the token — no need to pass it.
 
-**Catégories** :
-- `observation` — Constats factuels, résultats de commandes
-- `decision` — Choix techniques et leur justification
-- `progress` — Avancement, ce qui est terminé
-- `issue` — Problèmes rencontrés, bugs
-- `todo` — Tâches identifiées à faire
-- `insight` — Apprentissages, patterns découverts
-- `question` — Points à clarifier, décisions en suspens
+**Categories**:
+- `observation` — Factual findings, command outputs
+- `decision` — Technical choices and their justification
+- `progress` — Advancement, what is completed
+- `issue` — Problems encountered, bugs
+- `todo` — Identified tasks to do
+- `insight` — Learnings, patterns discovered
+- `question` — Points to clarify, pending decisions
 
-## 🧠 En fin de session (ou après un bloc de travail significatif)
+## 🧠 At Session End (or after a significant block of work)
 
 bank_consolidate(space_id="{SPACE}")
 
-Le LLM consolidera **mes propres notes** (auto-détection de l'agent depuis le token) en mettant à jour les fichiers de la bank selon les rules du space.
+The LLM will consolidate **my own notes** (agent auto-detected from the token) by updating the bank files according to the space's rules.
 
-> ℹ️ Seul un admin peut consolider les notes de tous les agents (`agent=""`).
+> ℹ️ Only a manage+ user can consolidate all agents' notes (`agent=""`).
 
-## ⚠️ Règles impératives
+## ⚠️ Mandatory Rules
 
-1. **Ne JAMAIS écrire directement dans la bank** — seule la consolidation LLM le fait
-2. **Toujours passer `space_id="{SPACE}"`** dans tous les appels
-3. **Écrire des notes atomiques après chaque étape importante** — 1 note = 1 fait, 1 décision, ou 1 tâche
-4. **Consolider en fin de session** — ne jamais quitter sans consolider mais toujours après avoir validé avec l'utilisateur
-5. **Lire la bank au démarrage** — ne jamais travailler sans contexte
+1. **NEVER write directly to the bank** — only the LLM consolidation does that
+2. **Always pass `space_id="{SPACE}"`** in every call
+3. **Write atomic notes after each significant step** — 1 note = 1 fact, 1 decision, or 1 task
+4. **Consolidate at session end** — never leave without consolidating, but always after validating with the user
+5. **Read the bank at startup** — never work without context
 
-## 🔄 Quand demander une mise à jour
+## 🔄 When to Request an Update
 
-Si l'utilisateur demande **"update memory bank"** ou **"met à jour la memory bank"** :
-1. Écrire des notes `live_note` résumant l'état actuel du travail
-2. Appeler `bank_consolidate(space_id="{SPACE}")`
-3. Vérifier le résultat avec `bank_read_all("{SPACE}")`
+If the user asks **"update memory bank"**:
+1. Write `live_note` notes summarizing the current state of work
+2. Call `bank_consolidate(space_id="{SPACE}")`
+3. Verify the result with `bank_read_all("{SPACE}")`
 
-## 📊 Commandes utiles
+## 📊 Useful Commands
 
-| Action                          | Commande                                                                  |
+| Action                          | Command                                                                   |
 | ------------------------------- | ------------------------------------------------------------------------- |
-| Lire tout le contexte           | `bank_read_all("{SPACE}")`                                                |
-| Lire les rules                  | `space_rules("{SPACE}")`                                                  |
-| Écrire une note                 | `live_note(space_id="{SPACE}", category="...", content="...")`            |
-| Consolider                      | `bank_consolidate(space_id="{SPACE}")`                                    |
-| Voir les notes récentes         | `live_read(space_id="{SPACE}")`                                           |
-| Voir les notes d'un autre agent | `live_read(space_id="{SPACE}", agent="autre-agent")`                      |
-| Info sur l'espace               | `space_info("{SPACE}")`                                                   |
+| Read all context                | `bank_read_all("{SPACE}")`                                                |
+| Read the rules                  | `space_rules("{SPACE}")`                                                  |
+| Write a note                    | `live_note(space_id="{SPACE}", category="...", content="...")`            |
+| Consolidate                     | `bank_consolidate(space_id="{SPACE}")`                                    |
+| View recent notes               | `live_read(space_id="{SPACE}")`                                           |
+| View another agent's notes      | `live_read(space_id="{SPACE}", agent="other-agent")`                      |
+| Space info                      | `space_info("{SPACE}")`                                                   |
 ```
 
-> 💡 **Pour un nouveau projet** : copiez ce fichier, changez la ligne `SPACE`, c'est tout !
+> 💡 **For a new project**: copy this file, change the `SPACE` line, and you're done!
 
 ---
 
-## 🔄 Workflow recommandé
+## 🔄 Recommended Workflow
 
-### Workflow type d'une session de développement
+### Typical Development Session Workflow
 
 ```
 ┌────────────────────────────────────────────────┐
-│  1. DÉMARRAGE                                  │
-│     space_rules("mon-projet")                  │
-│     bank_read_all("mon-projet")                │
-│     live_read("mon-projet")                    │
-│     → Cline lit rules + bank + notes live      │
+│  1. STARTUP                                    │
+│     space_rules("my-project")                  │
+│     bank_read_all("my-project")                │
+│     live_read("my-project")                    │
+│     → Cline reads rules + bank + live notes    │
 ├────────────────────────────────────────────────┤
-│  2. TRAVAIL (boucle)                           │
-│     • Cline code, analyse, répond              │
+│  2. WORK (loop)                                │
+│     • Cline codes, analyzes, responds          │
 │     • live_note("observation", "Build OK")     │
-│     • live_note("decision", "On part sur X")   │
-│     • live_note("todo", "Tests à écrire")      │
-│     • live_note("progress", "Auth terminée")   │
+│     • live_note("decision", "Going with X")    │
+│     • live_note("todo", "Tests to write")      │
+│     • live_note("progress", "Auth completed")  │
 ├────────────────────────────────────────────────┤
-│  3. FIN DE SESSION                             │
-│     bank_consolidate("mon-projet")             │
-│     → LLM synthétise les notes en bank         │
-│     → Notes live supprimées après succès       │
+│  3. SESSION END                                │
+│     bank_consolidate("my-project")             │
+│     → LLM synthesizes notes into bank          │
+│     → Live notes deleted after success         │
 └────────────────────────────────────────────────┘
 ```
 
-### Fréquence de consolidation
+### Consolidation Frequency
 
-| Situation                   | Recommandation                       |
-| --------------------------- | ------------------------------------ |
-| Session courte (< 10 notes) | Consolider en fin de session         |
-| Session longue (> 20 notes) | Consolider toutes les 15-20 notes    |
-| Changement de contexte      | Consolider avant de changer de sujet |
-| Fin de journée              | Toujours consolider                  |
+| Situation                    | Recommendation                           |
+| ---------------------------- | ---------------------------------------- |
+| Short session (< 10 notes)   | Consolidate at session end               |
+| Long session (> 20 notes)    | Consolidate every 15-20 notes            |
+| Context switch                | Consolidate before changing topics       |
+| End of day                    | Always consolidate                       |
 
-### Visualiser en temps réel
+### Real-time Visualization
 
-Pendant que Cline travaille, ouvrez l'interface web pour suivre en direct :
+While Cline works, open the web interface to follow along live:
 
 ```
 http://localhost:8080/live
 ```
 
-Vous verrez les notes apparaître en temps réel dans la **Live Timeline** et la **Bank** se mettre à jour après chaque consolidation.
+You'll see notes appear in real time in the **Live Timeline** and the **Bank** update after each consolidation.
 
 ---
 
-## 📋 Custom Instructions pour Cline
+## 📋 Custom Instructions for Cline
 
-### Version template (recommandée)
+### Template Version (recommended)
 
-Copiez le contenu du fichier [`.clinerules/standard.memory.bank.md`](.clinerules/standard.memory.bank.md) dans vos Custom Instructions ou dans un fichier `.clinerules` à la racine de votre projet.
+Copy [`WORKSPACE_CLINE_RULES.md`](WORKSPACE_CLINE_RULES.md) to the root of your project. Cline automatically loads this file as workspace-level instructions.
 
-Modifiez ensuite **uniquement la valeur de `{SPACE}`** pour l'adapter à votre projet. Le nom de l'agent est auto-détecté.
+Then modify **only the `SPACE` value** to match your project. The agent name is auto-detected.
 
-### Version minimaliste (copier-coller dans Custom Instructions)
+### Minimalist Version (copy-paste into Custom Instructions)
 
-Si vous voulez une version ultra-courte, ajoutez ceci dans les Custom Instructions globales :
+If you want an ultra-short version, add this to the global Custom Instructions:
 
 ```
-Tu as accès à Live Memory (serveur MCP).
-- Au démarrage: space_rules("{SPACE}"), bank_read_all("{SPACE}"), live_read("{SPACE}")
-- Pendant le travail: live_note(space_id="{SPACE}", category="...", content="...")
-- En fin de session: bank_consolidate(space_id="{SPACE}")
-Où {SPACE} = "mon-projet". L'agent est auto-détecté depuis le token.
+You have access to Live Memory (MCP server).
+- At startup: space_rules("{SPACE}"), bank_read_all("{SPACE}"), live_read("{SPACE}")
+- During work: live_note(space_id="{SPACE}", category="...", content="...")
+- At session end: bank_consolidate(space_id="{SPACE}")
+Where {SPACE} = "my-project". The agent is auto-detected from the token.
 ```
 
 ---
 
-## 👥 Multi-agents : Cline + Claude + autres
+## 👥 Multi-agent: Cline + Claude + Others
 
-Live Memory permet à **plusieurs agents** de collaborer sur le même espace mémoire.
+Live Memory enables **multiple agents** to collaborate on the same memory space.
 
-### Scénario : Cline (dev) + Claude (review)
+### Scenario: Cline (dev) + Claude (review)
 
-Pour que deux agents collaborent, il suffit de leur créer **deux tokens différents** :
+For two agents to collaborate, simply create **two different tokens** for them:
 
-1. Créer le token pour Cline (`admin_create_token name="cline-dev"`)
-2. Créer le token pour Claude (`admin_create_token name="claude-review"`)
-3. Configurer chaque agent avec son propre token
+1. Create the token for Cline (`admin_create_token name="cline-dev"`)
+2. Create the token for Claude (`admin_create_token name="claude-review"`)
+3. Configure each agent with its own token
 
-L'identité de l'agent est **automatiquement déduite de son token** à chaque fois qu'il appelle `live_note` ou `bank_consolidate`. Ils n'ont pas besoin de le préciser.
+The agent identity is **automatically inferred from its token** every time it calls `live_note` or `bank_consolidate`. They don't need to specify it.
 
-### Communication entre agents
+### Inter-agent Communication
 
-Les agents ne se parlent pas directement. Ils communiquent **via l'espace partagé** :
-
-```
-Cline  → live_note(category="question", content="Faut-il supporter le CSV ?")
-Claude → live_read(category="question")  ← voit la question de Cline
-Claude → live_note(category="decision", content="Non, JSON uniquement")
-Cline  → live_read(category="decision")  ← voit la réponse de Claude
-```
-
-### Consolidation par agent
-
-Chaque agent consolide **ses propres notes** sans interférer avec celles des autres :
+Agents don't talk to each other directly. They communicate **via the shared space**:
 
 ```
-Cline  → bank_consolidate(space_id="mon-projet")  # Ne consolide QUE les notes de cline-dev
-Claude → bank_consolidate(space_id="mon-projet")  # Ne consolide QUE les notes de claude-review
+Cline  → live_note(category="question", content="Should we support CSV?")
+Claude → live_read(category="question")  ← sees Cline's question
+Claude → live_note(category="decision", content="No, JSON only")
+Cline  → live_read(category="decision")  ← sees Claude's answer
 ```
 
-Si un agent a les droits **admin**, il peut consolider les notes de tout le monde en appelant `bank_consolidate` (qui par défaut traite tout le monde pour un admin).
+### Per-agent Consolidation
+
+Each agent consolidates **their own notes** without interfering with others:
+
+```
+Cline  → bank_consolidate(space_id="my-project")  # Only consolidates cline-dev's notes
+Claude → bank_consolidate(space_id="my-project")  # Only consolidates claude-review's notes
+```
+
+If an agent has **admin** permissions, it can consolidate everyone's notes by calling `bank_consolidate` (which by default processes all agents for an admin).
 
 ---
 
-## 🔍 Dépannage
+## 🔍 Troubleshooting
 
-### Cline ne voit pas les outils Live Memory
+### Cline Doesn't See Live Memory Tools
 
-1. Vérifiez que le serveur est démarré : `curl http://localhost:8080/health`
-2. Vérifiez la syntaxe JSON dans `cline_mcp_settings.json` (pas de virgule trailing)
-3. Rechargez VS Code (`Ctrl+Shift+P` → "Developer: Reload Window")
-4. Dans l'onglet MCP de Cline, vérifiez si `live-memory` apparaît en rouge (erreur de connexion)
+1. Verify the server is running: `curl http://localhost:8080/health`
+2. Check JSON syntax in `cline_mcp_settings.json` (no trailing comma)
+3. Reload VS Code (`Ctrl+Shift+P` → "Developer: Reload Window")
+4. In Cline's MCP tab, check if `live-memory` shows in red (connection error)
 
-### Erreur "401 Unauthorized"
+### "401 Unauthorized" Error
 
-- Le token est incorrect ou révoqué
-- Vérifiez que le header est bien `"Authorization": "Bearer lm_..."` (avec le préfixe `lm_`)
-- La bootstrap key fonctionne pour les tests mais créez un vrai token pour l'usage courant
+- The token is incorrect or revoked
+- Verify the header is `"Authorization": "Bearer lm_..."` (with the `lm_` prefix)
+- The bootstrap key works for testing, but create a proper token for regular use
 
-### Erreur "Accès refusé à l'espace"
+### "Access Denied to Space" Error
 
-Le token est restreint à certains espaces (`space_ids`). Soit :
-- Créez un token sans restriction d'espace (paramètre `space_ids` vide)
-- Soit ajoutez l'espace au token : `admin_update_token(token_hash, space_ids="mon-projet", action="add")`
+The token is restricted to certain spaces (`space_ids`). Either:
+- Create a token without space restriction (empty `space_ids` parameter)
+- Or add the space to the token: `admin_update_token(token_hash, space_ids="my-project", action="add")`
 
-### Cline n'utilise pas Live Memory spontanément
+### Cline Doesn't Use Live Memory Spontaneously
 
-Ajoutez des **Custom Instructions** explicites (voir [Étape 5](#-étape-5--donner-des-instructions-à-cline)). Sans instructions, Cline ne sait pas qu'il doit utiliser ces outils.
+Add explicit **Custom Instructions** (see [Step 5](#-step-5--give-cline-instructions)). Without instructions, Cline doesn't know it should use these tools.
 
-### Erreur de timeout / La consolidation échoue après 60 secondes
+### Timeout Error / Consolidation Fails After 60 Seconds
 
-Par défaut, Cline et Claude Desktop interrompent les requêtes MCP après 60 secondes, ce qui est souvent insuffisant pour une consolidation (le LLM peut prendre plusieurs minutes).
+By default, Cline and Claude Desktop interrupt MCP requests after 60 seconds, which is often insufficient for a consolidation (the LLM can take several minutes).
 
-1. Vérifiez que vous avez bien ajouté `"timeout": 600` dans la configuration MCP de votre agent, en conformité avec le timeout serveur configuré dans votre fichier `.env`.
-2. Vous pouvez suivre l'avancement réel côté serveur dans les logs :
+1. Verify you've added `"timeout": 600` in your agent's MCP configuration, matching the server timeout in your `.env` file.
+2. You can follow real-time progress server-side in the logs:
 
 ```bash
 docker compose logs -f live-mem-service --tail 20
 ```
 
-### Le MCP ne se connecte pas derrière un VPN
+### MCP Doesn't Connect Behind a VPN
 
-Si Live Memory est sur un serveur distant, vérifiez :
-- Que le port 443 (HTTPS) ou 8080 (HTTP) est accessible
-- Que l'URL dans la config Cline est correcte (avec `/mcp` à la fin)
-- Testez manuellement : `curl -H "Authorization: Bearer lm_..." https://votre-serveur/mcp`
+If Live Memory is on a remote server, verify:
+- That port 443 (HTTPS) or 8080 (HTTP) is accessible
+- That the URL in the Cline config is correct (with `/mcp` at the end)
+- Test manually: `curl -H "Authorization: Bearer lm_..." https://your-server/mcp`
 
 ---
 
-## 🖥️ Avec Claude Desktop
+## 🖥️ With Claude Desktop
 
-La configuration est similaire. Éditez le fichier `claude_desktop_config.json` :
+The configuration is similar. Edit the `claude_desktop_config.json` file:
 
-| OS          | Emplacement                                                       |
+| OS          | Location                                                          |
 | ----------- | ----------------------------------------------------------------- |
 | **macOS**   | `~/Library/Application Support/Claude/claude_desktop_config.json` |
 | **Windows** | `%APPDATA%\Claude\claude_desktop_config.json`                     |
@@ -471,7 +473,7 @@ La configuration est similaire. Éditez le fichier `claude_desktop_config.json` 
     "live-memory": {
       "url": "http://localhost:8080/mcp",
       "headers": {
-        "Authorization": "Bearer lm_VOTRE_TOKEN_ICI"
+        "Authorization": "Bearer lm_YOUR_TOKEN_HERE"
       },
       "timeout": 600
     }
@@ -479,23 +481,23 @@ La configuration est similaire. Éditez le fichier `claude_desktop_config.json` 
 }
 ```
 
-> **⚠️ N'oubliez pas le paramètre `timeout`** pour autoriser les temps de traitement longs lors de la consolidation.
+> **⚠️ Don't forget the `timeout` parameter** to allow for long processing times during consolidation.
 
-Redémarrez Claude Desktop après la modification. Les 38 outils Live Memory apparaîtront dans la liste des outils disponibles.
-
----
-
-## 📊 Récapitulatif
-
-| Étape     | Action                                        | Temps      |
-| --------- | --------------------------------------------- | ---------- |
-| 1         | Démarrer Live Memory (`docker compose up -d`) | 1 min      |
-| 2         | Créer un token (`mcp_cli.py token create`)    | 30 sec     |
-| 3         | Configurer Cline (`cline_mcp_settings.json`)  | 2 min      |
-| 4         | Créer un espace (`space_create`)              | 30 sec     |
-| 5         | Ajouter les Custom Instructions               | 2 min      |
-| **Total** | **Prêt à utiliser**                           | **~6 min** |
+Restart Claude Desktop after the modification. The 38 Live Memory tools will appear in the available tools list.
 
 ---
 
-*Guide d'intégration Live Memory v1.2.0 — [Documentation complète](README.md)*
+## 📊 Summary
+
+| Step      | Action                                         | Time       |
+| --------- | ---------------------------------------------- | ---------- |
+| 1         | Start Live Memory (`docker compose up -d`)     | 1 min      |
+| 2         | Create a token (`mcp_cli.py token create`)     | 30 sec     |
+| 3         | Configure Cline (`cline_mcp_settings.json`)    | 2 min      |
+| 4         | Create a space (`space_create`)                | 30 sec     |
+| 5         | Add Custom Instructions                        | 2 min      |
+| **Total** | **Ready to use**                               | **~6 min** |
+
+---
+
+*Live Memory Integration Guide v1.2.0 — [Full Documentation](README.md)*

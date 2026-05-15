@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-Client MCP Streamable HTTP pour communiquer avec le serveur MCP.
+MCP Streamable HTTP client for communicating with the MCP server.
 
-Ce client utilise le SDK MCP officiel (mcp>=1.8.0) avec le transport
-Streamable HTTP. Il gère :
-- La connexion Streamable HTTP (endpoint unique /mcp)
-- Le handshake MCP (initialize + notifications/initialized) via le SDK
-- L'appel d'outils avec notifications de progression
-- La gestion des erreurs et timeouts
+This client uses the official MCP SDK (mcp>=1.8.0) with Streamable HTTP
+transport. It handles:
+- Streamable HTTP connection (single /mcp endpoint)
+- MCP handshake (initialize + notifications/initialized) via the SDK
+- Tool calls with progress notifications
+- Error handling and timeouts
 
-Migration SSE → Streamable HTTP (issue #1) :
-- Import : mcp.client.sse → mcp.client.streamable_http
-- Fonction : sse_client → streamablehttp_client
-- URL : /sse → /mcp
-- Context manager : (read, write) → (read, write, _)
+Migration SSE → Streamable HTTP (issue #1):
+- Import: mcp.client.sse → mcp.client.streamable_http
+- Function: sse_client → streamablehttp_client
+- URL: /sse → /mcp
+- Context manager: (read, write) → (read, write, _)
 """
 
 import json
@@ -29,12 +29,12 @@ logger = logging.getLogger("live_mem.cli")
 
 class MCPClient:
     """
-    Client MCP via Streamable HTTP (SDK officiel).
+    MCP client via Streamable HTTP (official SDK).
 
-    Utilise le SDK MCP pour gérer le protocole complet :
-    - Transport Streamable HTTP (POST/GET /mcp)
-    - Handshake automatique (initialize + notifications/initialized)
-    - Appel d'outils avec parsing des résultats
+    Uses the MCP SDK to handle the full protocol:
+    - Streamable HTTP transport (POST/GET /mcp)
+    - Automatic handshake (initialize + notifications/initialized)
+    - Tool calls with result parsing
     """
 
     def __init__(
@@ -47,11 +47,11 @@ class MCPClient:
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.timeout = timeout
-        self.call_delay = call_delay  # Délai entre appels (secondes)
+        self.call_delay = call_delay  # Delay between calls (seconds)
 
     @property
     def headers(self) -> dict:
-        """Headers HTTP avec auth."""
+        """HTTP headers with auth."""
         h = {}
         if self.token:
             h["Authorization"] = f"Bearer {self.token}"
@@ -64,25 +64,25 @@ class MCPClient:
         on_progress: Optional[Callable] = None,
     ) -> dict:
         """
-        Appelle un outil MCP via Streamable HTTP.
+        Calls an MCP tool via Streamable HTTP.
 
-        Le SDK MCP gère automatiquement :
-        1. Connexion Streamable HTTP vers /mcp
-        2. Handshake initialize + notifications/initialized
-        3. Appel tools/call
-        4. Parsing de la réponse
+        The MCP SDK automatically handles:
+        1. Streamable HTTP connection to /mcp
+        2. initialize + notifications/initialized handshake
+        3. tools/call invocation
+        4. Response parsing
 
         Args:
-            tool_name: Nom de l'outil (ex: "system_health")
-            arguments: Paramètres de l'outil
-            on_progress: Callback optionnel pour les notifications
+            tool_name: Tool name (e.g.: "system_health")
+            arguments: Tool parameters
+            on_progress: Optional callback for progress notifications
 
         Returns:
-            Le résultat de l'outil (dict)
+            The tool result (dict)
         """
         mcp_url = f"{self.base_url}/mcp"
 
-        # Délai entre appels pour éviter les TaskGroup errors (sessions trop rapides)
+        # Delay between calls to avoid TaskGroup errors (sessions too fast)
         if self.call_delay > 0:
             await asyncio.sleep(self.call_delay)
 
@@ -94,13 +94,13 @@ class MCPClient:
                 sse_read_timeout=self.timeout,
             ) as (read, write, _):
                 async with ClientSession(read, write) as session:
-                    # Le SDK gère le handshake initialize automatiquement
+                    # The SDK handles the initialize handshake automatically
                     await session.initialize()
 
-                    # Appeler l'outil
+                    # Call the tool
                     result = await session.call_tool(tool_name, arguments)
 
-                    # Extraire le résultat texte
+                    # Extract text result
                     if result.content and len(result.content) > 0:
                         text = result.content[0].text
                         try:
@@ -119,15 +119,15 @@ class MCPClient:
                 cause = cause.exceptions[0]
             return {
                 "status": "error",
-                "message": f"Erreur MCP : {cause}",
+                "message": f"MCP error: {cause}",
             }
 
     async def list_tools(self) -> list:
         """
-        Liste les outils MCP disponibles sur le serveur.
+        Lists available MCP tools on the server.
 
         Returns:
-            Liste des outils avec nom et description
+            List of tools with name and description
         """
         result = await self.call_tool("system_about", {})
         return result.get("tools", [])

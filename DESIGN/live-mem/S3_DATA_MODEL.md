@@ -1,30 +1,30 @@
-# Modèle de Données S3 — Live Memory
+# S3 Data Model — Live Memory
 
-> **Version** : 1.6.0 | **Date** : 2026-04-25 | **Auteur** : Cloud Temple
-
----
-
-## 1. Principes
-
-- **S3 est la seule source de vérité** : pas de base de données, tout est fichier
-- **Un bucket unique** pour tout le service (`S3_BUCKET_NAME`)
-- **Un préfixe par espace** : `{space_id}/`
-- **Système de fichiers** : `_system/` pour les données transversales (tokens, etc.)
-- **Backups** : `_backups/` pour les snapshots
+> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
 
 ---
 
-## 2. Arborescence S3 complète
+## 1. Principles
+
+- **S3 is the single source of truth**: no database, everything is a file
+- **One bucket** for the entire service (`S3_BUCKET_NAME`)
+- **One prefix per space**: `{space_id}/`
+- **System files**: `_system/` for cross-cutting data (tokens, etc.)
+- **Backups**: `_backups/` for snapshots
+
+---
+
+## 2. Complete S3 Tree Structure
 
 ```
 {bucket}/
 │
-├── _system/                              # Données transversales
-│   └── tokens.json                       # Registre des tokens d'authentification
+├── _system/                              # Cross-cutting data
+│   └── tokens.json                       # Authentication token registry
 │
-├── _backups/                             # Snapshots des espaces
+├── _backups/                             # Space snapshots
 │   └── {space_id}/
-│       └── {timestamp}/                  # Ex: 2026-02-20T18-00-00
+│       └── {timestamp}/                  # e.g.: 2026-02-20T18-00-00
 │           ├── _meta.json
 │           ├── _rules.md
 │           ├── _synthesis.md
@@ -36,26 +36,26 @@
 │               ├── note_001.md
 │               └── ...
 │
-├── {space_id}/                           # Un espace mémoire
-│   ├── _meta.json                        # Métadonnées de l'espace
-│   ├── _rules.md                         # Rules immuables (structure bank)
-│   ├── _synthesis.md                     # Synthèse résiduelle (dernière consolidation)
+├── {space_id}/                           # A memory space
+│   ├── _meta.json                        # Space metadata
+│   ├── _rules.md                         # Immutable rules (bank structure)
+│   ├── _synthesis.md                     # Residual synthesis (last consolidation)
 │   │
-│   ├── live/                             # Notes en temps réel
-│   │   ├── .keep                         # Sentinelle (pour que le "dossier" existe)
+│   ├── live/                             # Real-time notes
+│   │   ├── .keep                         # Sentinel (so the "folder" exists)
 │   │   ├── 20260220T140000_cline_observation_a1b2c3d4.md
 │   │   ├── 20260220T140130_claude_decision_e5f6a7b8.md
 │   │   ├── 20260220T141500_cline_todo_c9d0e1f2.md
 │   │   └── ...
 │   │
-│   └── bank/                             # Memory Bank consolidée
-│       ├── .keep                         # Sentinelle
-│       ├── projectbrief.md               # ← Créés et maintenus
-│       ├── activeContext.md              # ← par le LLM
-│       ├── progress.md                   # ← selon les rules
-│       └── ...                           # ← (noms dynamiques)
+│   └── bank/                             # Consolidated Memory Bank
+│       ├── .keep                         # Sentinel
+│       ├── projectbrief.md               # ← Created and maintained
+│       ├── activeContext.md              # ← by the LLM
+│       ├── progress.md                   # ← according to the rules
+│       └── ...                           # ← (dynamic names)
 │
-└── {autre_space_id}/                     # Autre espace (même structure)
+└── {other_space_id}/                     # Another space (same structure)
     ├── _meta.json
     ├── _rules.md
     └── ...
@@ -63,11 +63,11 @@
 
 ---
 
-## 3. Fichiers système
+## 3. System Files
 
 ### 3.1 `_system/tokens.json`
 
-Registre de tous les tokens d'authentification.
+Registry of all authentication tokens.
 
 ```json
 {
@@ -87,7 +87,7 @@ Registre de tous les tokens d'authentification.
       "hash": "sha256:f7e8d9c0b1a2...",
       "name": "agent-cline",
       "permissions": ["read", "write"],
-      "space_ids": ["projet-alpha", "projet-beta"],
+      "space_ids": ["project-alpha", "project-beta"],
       "created_at": "2026-02-20T14:05:00Z",
       "expires_at": "2027-02-20T14:05:00Z",
       "last_used_at": "2026-02-20T18:00:00Z",
@@ -97,20 +97,20 @@ Registre de tous les tokens d'authentification.
 }
 ```
 
-**Concurrence** : Protégé par un `asyncio.Lock` dédié (`LockManager.tokens`).
+**Concurrency**: Protected by a dedicated `asyncio.Lock` (`LockManager.tokens`).
 
 ---
 
-## 4. Fichiers d'un espace
+## 4. Space Files
 
 ### 4.1 `{space_id}/_meta.json`
 
-Métadonnées de l'espace. Créé par `space_create`, mis à jour par `bank_consolidate` et `graph_push`.
+Space metadata. Created by `space_create`, updated by `bank_consolidate` and `graph_push`.
 
 ```json
 {
-  "space_id": "projet-alpha",
-  "description": "Projet de refonte API v3",
+  "space_id": "project-alpha",
+  "description": "API v3 refactoring project",
   "owner": "cline-dev",
   "created_at": "2026-02-20T14:00:00Z",
   "last_consolidation": "2026-02-20T16:00:00Z",
@@ -119,7 +119,7 @@ Métadonnées de l'espace. Créé par `space_create`, mis à jour par `bank_cons
   "graph_memory": {
     "url": "https://graph-mem.mcp.cloud-temple.app/mcp",
     "token": "gm_xxx...",
-    "memory_id": "projet-alpha-mem",
+    "memory_id": "project-alpha-mem",
     "ontology": "general",
     "last_push": "2026-03-01T14:00:00Z",
     "push_count": 3,
@@ -129,21 +129,21 @@ Métadonnées de l'espace. Créé par `space_create`, mis à jour par `bank_cons
 }
 ```
 
-**Champs ajoutés en v0.3.0** : `graph_memory` (objet optionnel) contenant la configuration de connexion vers Graph Memory et les métriques de push.
+**Fields added in v0.3.0**: `graph_memory` (optional object) containing the Graph Memory connection config and push metrics.
 
 ---
 
 ### 4.2 `{space_id}/_rules.md`
 
-Les rules définissent la **structure souhaitée** de la memory bank. Elles sont **immuables** après création de l'espace.
+The rules define the **desired structure** of the memory bank. They are **immutable** after space creation.
 
-> **Point clé** : Le MCP ne sait pas quels fichiers bank existent ni n'existeront. C'est le LLM qui lit les rules et crée/maintient les fichiers correspondants.
+> **Key point**: The MCP does not know which bank files exist or will exist. It is the LLM that reads the rules and creates/maintains the corresponding files.
 
 ---
 
 ### 4.3 `{space_id}/_synthesis.md`
 
-Synthèse résiduelle produite par la dernière consolidation. Sert de **pont de contexte** entre deux consolidations.
+Residual synthesis produced by the last consolidation. Serves as a **context bridge** between two consolidations.
 
 ```markdown
 ---
@@ -151,30 +151,30 @@ consolidated_at: "2026-02-20T16:00:00Z"
 notes_processed: 42
 ---
 
-## Synthèse de la consolidation #3
+## Consolidation #3 Synthesis
 
-### Faits principaux
-- Le module d'authentification a été implémenté et testé
-- Décision : utiliser S3 comme unique backend
+### Key Facts
+- The authentication module has been implemented and tested
+- Decision: use S3 as the sole backend
 
-### Points d'attention
-- Le timeout LLM de 60s est trop court
+### Points of Attention
+- The 60s LLM timeout is too short
 ```
 
-Ce fichier est **écrasé** à chaque consolidation.
+This file is **overwritten** at each consolidation.
 
 ---
 
-### 4.4 Notes live : `{space_id}/live/{filename}.md`
+### 4.4 Live Notes: `{space_id}/live/{filename}.md`
 
-Chaque note est un fichier Markdown avec front-matter YAML.
+Each note is a Markdown file with YAML front-matter.
 
-**Convention de nommage** :
+**Naming convention**:
 ```
 {YYYYMMDD}T{HHMMSS}_{agent}_{category}_{uuid8}.md
 ```
 
-**Format du contenu** :
+**Content format**:
 
 ```markdown
 ---
@@ -182,74 +182,74 @@ timestamp: "2026-02-20T14:00:00Z"
 agent: "cline-dev"
 category: "observation"
 tags: ["auth", "bearer", "test"]
-space_id: "projet-alpha"
+space_id: "project-alpha"
 ---
 
-Le module d'authentification Bearer token fonctionne correctement.
+The Bearer token authentication module works correctly.
 ```
 
 ---
 
-### 4.5 Fichiers bank : `{space_id}/bank/{filename}.md`
+### 4.5 Bank Files: `{space_id}/bank/{filename}.md`
 
-Les fichiers bank sont des Markdown purs, **sans front-matter**. Leur contenu est intégralement géré par le LLM lors de la consolidation.
+Bank files are pure Markdown, **without front-matter**. Their content is entirely managed by the LLM during consolidation.
 
-Les noms de fichiers sont **décidés par le LLM** en se basant sur les rules.
+Filenames are **decided by the LLM** based on the rules.
 
 ---
 
-## 5. Opérations S3 par outil MCP
+## 5. S3 Operations per MCP Tool
 
-| Outil | Opérations S3 | Pattern |
+| Tool | S3 Operations | Pattern |
 |---|---|---|
 | `space_create` | PUT `_meta.json`, PUT `_rules.md`, PUT `live/.keep`, PUT `bank/.keep` | 4 PUTs |
-| `space_list` | LIST `*/` (préfixes top-level), GET `*/_meta.json` | N GETs |
+| `space_list` | LIST `*/` (top-level prefixes), GET `*/_meta.json` | N GETs |
 | `space_info` | GET `_meta.json`, LIST `live/*`, LIST `bank/*` | 1 GET + 2 LISTs |
 | `space_rules` | GET `_rules.md` | 1 GET |
 | `space_summary` | GET `_meta.json`, GET `_rules.md`, GET `bank/*` | N GETs |
-| `space_export` | LIST + GET de tous les fichiers | N GETs |
-| `space_delete` | LIST + DELETE de tous les fichiers | N DELETEs |
+| `space_export` | LIST + GET all files | N GETs |
+| `space_delete` | LIST + DELETE all files | N DELETEs |
 | `live_note` | PUT `live/{filename}` | 1 PUT |
-| `live_read` | LIST `live/*`, GET fichiers sélectionnés | 1 LIST + N GETs |
-| `live_search` | LIST `live/*`, GET tous, filtre texte | 1 LIST + N GETs |
+| `live_read` | LIST `live/*`, GET selected files | 1 LIST + N GETs |
+| `live_search` | LIST `live/*`, GET all, text filter | 1 LIST + N GETs |
 | `bank_read` | GET `bank/{filename}` | 1 GET |
-| `bank_read_all` | LIST `bank/*`, GET tous | 1 LIST + N GETs |
+| `bank_read_all` | LIST `bank/*`, GET all | 1 LIST + N GETs |
 | `bank_list` | LIST `bank/*` | 1 LIST |
-| `bank_consolidate` | GET rules + GET live/* + GET bank/* + PUT bank/* + DELETE live/* + PUT _synthesis | Beaucoup |
-| `graph_connect` | GET+PUT `_meta.json` (ajout config graph_memory) | 1 GET + 1 PUT |
+| `bank_consolidate` | GET rules + GET live/* + GET bank/* + PUT bank/* + DELETE live/* + PUT _synthesis | Many |
+| `graph_connect` | GET+PUT `_meta.json` (add graph_memory config) | 1 GET + 1 PUT |
 | `graph_push` | LIST `bank/*`, GET `bank/*`, GET+PUT `_meta.json` | N GETs + 1 PUT |
 | `graph_status` | GET `_meta.json` | 1 GET |
-| `graph_disconnect` | GET+PUT `_meta.json` (retrait config graph_memory) | 1 GET + 1 PUT |
-| `backup_create` | LIST + GET tout → PUT dans `_backups/` | N GETs + N PUTs |
-| `backup_restore` | GET depuis `_backups/` → PUT dans `{space_id}/` | N GETs + N PUTs |
-| `admin_gc_notes` | LIST `*/live/*`, GET notes anciennes, DELETE/consolidate | Variable |
+| `graph_disconnect` | GET+PUT `_meta.json` (remove graph_memory config) | 1 GET + 1 PUT |
+| `backup_create` | LIST + GET everything → PUT into `_backups/` | N GETs + N PUTs |
+| `backup_restore` | GET from `_backups/` → PUT into `{space_id}/` | N GETs + N PUTs |
+| `admin_gc_notes` | LIST `*/live/*`, GET old notes, DELETE/consolidate | Variable |
 
 ---
 
-## 6. Considérations S3
+## 6. S3 Considerations
 
-### 6.1 Dell ECS — Configuration hybride
+### 6.1 Dell ECS — Hybrid Configuration
 
-SigV2 pour PUT/GET/DELETE, SigV4 pour HEAD/LIST. Voir `CLOUD_TEMPLE_SERVICES.md`.
+SigV2 for PUT/GET/DELETE, SigV4 for HEAD/LIST. See `CLOUD_TEMPLE_SERVICES.md`.
 
-### 6.2 Limites
+### 6.2 Limits
 
-| Paramètre | Valeur | Impact |
+| Parameter | Value | Impact |
 |---|---|---|
-| Taille max objet | 5 GB | Pas de souci (les notes font quelques KB) |
-| Nombre max objets | Illimité | OK |
-| Latence GET | ~20-50ms | OK pour des lectures individuelles |
-| Latence LIST | ~50-100ms | Peut être lent si >1000 notes live |
-| Coût LIST | 1 requête par 1000 objets | Penser à la pagination |
+| Max object size | 5 GB | No concern (notes are a few KB) |
+| Max object count | Unlimited | OK |
+| GET latency | ~20-50ms | OK for individual reads |
+| LIST latency | ~50-100ms | Can be slow if >1000 live notes |
+| LIST cost | 1 request per 1000 objects | Consider pagination |
 
 ### 6.3 Pagination
 
-Pour les espaces avec beaucoup de notes (>1000), le `StorageService` gère la pagination automatiquement via `list_objects_v2` avec `ContinuationToken`.
+For spaces with many notes (>1000), the `StorageService` handles pagination automatically via `list_objects_v2` with `ContinuationToken`.
 
-### 6.4 Cohérence
+### 6.4 Consistency
 
-S3 offre une **cohérence forte** (strong consistency) pour les PUT et DELETE suivis de GET. Pas besoin de délai d'attente après écriture.
+S3 provides **strong consistency** for PUT and DELETE followed by GET. No waiting delay needed after writes.
 
 ---
 
-*Document mis à jour le 25 avril 2026 — Live Memory v1.6.0*
+*Document updated April 25, 2026 — Live Memory v1.6.0*
