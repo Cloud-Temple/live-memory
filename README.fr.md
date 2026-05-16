@@ -439,6 +439,28 @@ http://localhost:8080/live
 
 Les endpoints `/api/*` nécessitent un Bearer Token. La page `/live` et les fichiers `/static/*` sont publics.
 
+### Console d'administration (`/admin`)
+
+Une **console d'administration** complète est disponible à `/admin`, exposant les 40 outils MCP via une interface web :
+
+```
+http://localhost:8080/admin
+```
+
+| Section | Fonctionnalités |
+| --- | --- |
+| **📊 Dashboard** | Santé (clic → détail services), nombre de spaces, tokens actifs, version/uptime, barre d'identité |
+| **📂 Spaces** | CRUD, modales info/rules, lien explorer, suppression avec confirmation |
+| **🔑 Tokens** | Création/modification/révocation/suppression, chips visuels avec calcul delta |
+| **🔍 Explorer** | Notes live + fichiers bank côte-à-côte pour chaque espace |
+| **💾 Backups** | Création/restauration/suppression, "Backup All", colonnes dynamiques |
+| **🌉 Graph Bridge** | Vérification statut, push, déconnexion par espace |
+| **🧹 Maintenance** | Consolidation, compaction, réparation, GC, purge — sélecteur unique, liste compacte |
+
+- **Auth** : nécessite un token valide (même auth que `/live`), session via cookie HttpOnly
+- **CSP-safe** : zéro handler inline, tout via `data-action` + event delegation
+- **Upload Rules** : sélecteur de fichier (`.md`) ou collage direct depuis la modale Rules
+
 ---
 
 ## 🔌 Intégration MCP
