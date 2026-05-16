@@ -507,14 +507,43 @@ class StaticFilesMiddleware:
         already set by AuthMiddleware (cookie HttpOnly).
 
         Each tool enforces its own permissions internally.
+
+        Security (ADM-* fixes from audit 2026-05-16):
+        - ADM-06: Requires write permission minimum
+        - ADM-05: Request body limited to api_tool_max_body_bytes
+        - ADM-08: Audit log includes tool name and argument keys
+        - ADM-02: Exception messages use safe_error() (no leakage)
         """
         try:
+            # ADM-06 fix: require write permission minimum for admin console.
+            # Read-only tokens can use /live for viewing. The admin console
+            # is for management — individual tools enforce stricter permissions.
+            from ..auth.context import check_write_permission
+            perm_err = check_write_permission()
+            if perm_err:
+                await self._send_json(send, perm_err, 403)
+                return
+
+            # ADM-05 fix: limit request body size to prevent memory exhaustion.
+            from ..config import get_settings as _adm_gs
+            max_body = _adm_gs().api_tool_max_body_bytes
+
             body_chunks: list[bytes] = []
+            total_len = 0
             more_body = True
             while more_body:
                 message = await receive()
                 if message["type"] == "http.request":
-                    body_chunks.append(message.get("body", b""))
+                    chunk = message.get("body", b"")
+                    total_len += len(chunk)
+                    if total_len > max_body:
+                        await self._send_json(
+                            send,
+                            {"status": "error", "message": "Request body too large"},
+                            413,
+                        )
+                        return
+                    body_chunks.append(chunk)
                     more_body = message.get("more_body", False)
                 else:
                     break
@@ -537,15 +566,35 @@ class StaticFilesMiddleware:
                 )
                 return
 
+            # ADM-08 fix: audit log with tool name before execution.
+            # Only argument keys are logged (not values, which may be sensitive).
+            token_info = current_token_info.get()
+            audit_logger.info(
+                json.dumps(
+                    {
+                        "event": "admin_tool_call",
+                        "request_id": current_request_id.get(),
+                        "tool": tool_name,
+                        "arguments_keys": list(arguments.keys()),
+                        "client": token_info.get("client_name", "?")
+                        if token_info
+                        else "?",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
             from ..tools import call_tool_direct
 
             result = await call_tool_direct(tool_name, arguments)
             await self._send_json(send, result)
         except Exception as e:
+            # ADM-02 fix: use safe_error() to prevent exception message leakage.
+            # The full exception is logged server-side, but the client only
+            # sees a generic message (unless MCP_SERVER_DEBUG=true).
             logger.exception("/api/tool error")
-            await self._send_json(
-                send, {"status": "error", "message": str(e)}, 500
-            )
+            from ..auth.context import safe_error
+            await self._send_json(send, safe_error(e, "/api/tool"), 500)
 
     async def _api_login(self, scope, receive, send):
         """
@@ -940,15 +989,41 @@ class StaticFilesMiddleware:
         with open(filepath, "rb") as f:
             body = f.read()
 
+        headers = [
+            (b"content-type", content_type.encode()),
+            (b"content-length", str(len(body)).encode()),
+            (b"cache-control", b"no-cache"),
+        ]
+
+        # ADM-03 fix: defense-in-depth security headers on HTML pages.
+        # These duplicate what the WAF Caddy sets, but protect against
+        # direct access on port 8002 (dev, debug, misconfigured deploy).
+        if "text/html" in content_type:
+            headers.extend(
+                [
+                    (
+                        b"content-security-policy",
+                        b"default-src 'self'; script-src 'self'; "
+                        b"style-src 'self' 'unsafe-inline'; "
+                        b"img-src 'self' data:; connect-src 'self'; "
+                        b"frame-ancestors 'none'; object-src 'none'; "
+                        b"base-uri 'self'",
+                    ),
+                    (b"x-frame-options", b"DENY"),
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                    (
+                        b"permissions-policy",
+                        b"camera=(), microphone=(), geolocation=(), payment=()",
+                    ),
+                ]
+            )
+
         await send(
             {
                 "type": "http.response.start",
                 "status": 200,
-                "headers": [
-                    (b"content-type", content_type.encode()),
-                    (b"content-length", str(len(body)).encode()),
-                    (b"cache-control", b"no-cache"),
-                ],
+                "headers": headers,
             }
         )
         await send({"type": "http.response.body", "body": body})

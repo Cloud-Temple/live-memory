@@ -144,6 +144,9 @@ class Settings(BaseSettings):
     # ─── Response limits ──────────────────────────────────────
     response_max_bytes: int = 512 * 1024  # Max response body size (512 KB)
 
+    # ─── Admin console /api/tool (ADM-05 fix) ─────────────
+    api_tool_max_body_bytes: int = 1_048_576  # Max request body for /api/tool (1 MB)
+
     # extra="ignore" permet d'avoir des variables dans .env (SITE_ADDRESS, WAF_PORT)
     # qui ne sont pas déclarées dans Settings (utilisées par Docker/Caddy uniquement)
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}

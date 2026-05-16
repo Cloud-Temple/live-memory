@@ -5,6 +5,56 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.2] — 2026-05-16 (Admin Console Security Hardening)
+
+**🔒 Security Audit & Remediation** — 10 findings identified, 7 fixed, 3 risk-accepted.
+Full report: `DESIGN/live-mem/AUDIT_ADMIN_CONSOLE_2026-05-16.md`.
+
+### Fixed
+
+- **ADM-01 🔴 CRITICAL — XSS via attribute injection**: `esc()` in `admin-app.js`
+  now escapes `"` → `&quot;` and `'` → `&#x27;`, preventing token names or
+  descriptions from breaking out of HTML attributes.
+- **ADM-02 🟠 HIGH — Exception message leakage**: `/api/tool` now uses
+  `safe_error()` instead of bare `str(e)`, preventing exposure of internal
+  file paths, S3 endpoints, and stack traces to the client.
+- **ADM-03 🟠 HIGH — No CSP without WAF**: `_serve_file()` now adds
+  `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options`,
+  `Referrer-Policy`, and `Permissions-Policy` headers on all HTML responses
+  (defense-in-depth, protects direct port 8002 access).
+- **ADM-05 🟡 MEDIUM — No body size limit**: `/api/tool` now enforces
+  `API_TOOL_MAX_BODY_BYTES` (default 1 MB, configurable). Returns `413`
+  if exceeded, preventing memory exhaustion without WAF.
+- **ADM-06 🟡 MEDIUM — No permission gate**: `/api/tool` now requires
+  `write` permission minimum. Read-only tokens get `403 Forbidden`.
+  ⚠️ **Breaking change** for read-only tokens using the admin console
+  (use `/live` for read-only viewing instead).
+- **ADM-08 🟡 MEDIUM — Incomplete audit trail**: `/api/tool` now emits a
+  dedicated `admin_tool_call` audit entry with tool name, argument keys,
+  and client identity before execution.
+- **ADM-09 🔵 LOW — Internal API regression**: Added regression tests for
+  `call_tool_direct()` covering unknown tools and uninitialized state.
+
+### Added
+
+- **`tests/test_admin_console_security.py`** — 13 non-complaisant tests
+  (7 classes) covering all fixed findings. Convention: each test tries to
+  *break* the fix, not validate the happy path.
+- **`API_TOOL_MAX_BODY_BYTES`** setting in `config.py` (default 1 MB).
+- **`DESIGN/live-mem/AUDIT_ADMIN_CONSOLE_2026-05-16.md`** — Full audit report
+  with findings, remediations, risk acceptances, and test coverage matrix.
+
+### Risk Accepted (Not Fixed)
+
+- **ADM-04 🟠 HIGH** — Raw token in cookie (HttpOnly+SameSite=Strict sufficient
+  for internal tool; server-side session store deferred to backlog).
+- **ADM-07 🟡 MEDIUM** — Admin console HTML publicly visible (Swagger UI on `/`
+  already exposes same information; login form requires public access).
+- **ADM-10 🔵 LOW** — No CSRF token mechanism (SameSite=Strict + JSON
+  Content-Type per OWASP guidelines for internal APIs).
+
+---
+
 ## [2.0.1] — 2026-05-16 (Admin Console `/admin`)
 
 **⚙️ Admin Console** — Full web administration interface for all 40 MCP tools,
