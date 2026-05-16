@@ -13,7 +13,15 @@ Usage dans server.py :
     register_all_tools(mcp)
 """
 
+import json as _json
+import logging
+
 from mcp.server.fastmcp import FastMCP
+
+_log = logging.getLogger("live_mem.tool_proxy")
+
+# Reference to the FastMCP instance, set during register_all_tools()
+_mcp_ref: FastMCP | None = None
 
 
 def register_all_tools(mcp: FastMCP) -> int:
@@ -26,6 +34,8 @@ def register_all_tools(mcp: FastMCP) -> int:
     Returns:
         Nombre total d'outils enregistrés
     """
+    global _mcp_ref
+
     # Importer et enregistrer chaque catégorie
     from .system import register as register_system
     from .space import register as register_space
@@ -44,4 +54,56 @@ def register_all_tools(mcp: FastMCP) -> int:
     count += register_backup(mcp)
     count += register_admin(mcp)
 
+    # Store reference for the /api/tool proxy
+    _mcp_ref = mcp
+
     return count
+
+
+async def call_tool_direct(name: str, arguments: dict) -> dict:
+    """
+    Call an MCP tool directly, bypassing the MCP protocol layer.
+
+    Used by the /api/tool REST endpoint to let the admin web UI
+    invoke any MCP tool. Auth context (current_token_info) is
+    already set by AuthMiddleware before this is called.
+
+    Args:
+        name: Tool name (e.g. "space_list")
+        arguments: Tool arguments dict
+
+    Returns:
+        Tool result as a dict
+    """
+    if _mcp_ref is None:
+        return {"status": "error", "message": "Server not initialized"}
+
+    tool_mgr = _mcp_ref._tool_manager
+    tools_dict = getattr(tool_mgr, "_tools", {})
+
+    if name not in tools_dict:
+        return {"status": "error", "message": f"Unknown tool: {name}"}
+
+    tool_obj = tools_dict[name]
+
+    # Find the callable function on the internal tool object
+    fn = None
+    for attr in ("fn", "func", "handler", "_fn", "run", "callback"):
+        fn = getattr(tool_obj, attr, None)
+        if fn and callable(fn):
+            break
+
+    if fn is None:
+        _log.error(
+            "Tool %s: no callable found. attrs=%s",
+            name,
+            [a for a in dir(tool_obj) if not a.startswith("__")],
+        )
+        return {"status": "error", "message": f"Tool {name}: internal error"}
+
+    try:
+        result = await fn(**arguments)
+        return result if isinstance(result, dict) else {"status": "ok", "data": result}
+    except Exception as e:
+        _log.exception("Tool %s failed", name)
+        return {"status": "error", "message": str(e)}

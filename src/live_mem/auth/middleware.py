@@ -91,6 +91,8 @@ class AuthMiddleware:
         "/favicon.ico",
         "/live",
         "/live/",
+        "/admin",
+        "/admin/",
         "/api/login",
         "/api/logout",
     }
@@ -332,6 +334,11 @@ class StaticFilesMiddleware:
             await self._serve_file(send, "live.html", "text/html; charset=utf-8")
             return
 
+        # Admin console
+        if path in ("/admin", "/admin/"):
+            await self._serve_file(send, "admin.html", "text/html; charset=utf-8")
+            return
+
         # Fichiers statiques (CSS, JS, images)
         if path.startswith("/static/"):
             rel_path = path[len("/static/") :]
@@ -339,6 +346,11 @@ class StaticFilesMiddleware:
                 ct = self._guess_content_type(rel_path)
                 await self._serve_file(send, rel_path, ct)
                 return
+
+        # API REST — Tool proxy (admin console)
+        if path == "/api/tool" and method == "POST":
+            await self._api_tool_call(receive, send)
+            return
 
         # API REST — Login (LM2-04 fix : émet un cookie HttpOnly)
         if path == "/api/login" and method == "POST":
@@ -485,6 +497,55 @@ class StaticFilesMiddleware:
         await send({"type": "http.response.body", "body": body})
 
     # ─────────────────── API Handlers ───────────────────
+
+    async def _api_tool_call(self, receive, send):
+        """
+        POST /api/tool — proxies tool calls from the admin web UI.
+
+        Accepts ``{"tool": "tool_name", "arguments": {...}}`` and calls
+        the MCP tool directly via the tool registry. Auth context is
+        already set by AuthMiddleware (cookie HttpOnly).
+
+        Each tool enforces its own permissions internally.
+        """
+        try:
+            body_chunks: list[bytes] = []
+            more_body = True
+            while more_body:
+                message = await receive()
+                if message["type"] == "http.request":
+                    body_chunks.append(message.get("body", b""))
+                    more_body = message.get("more_body", False)
+                else:
+                    break
+            raw_body = b"".join(body_chunks)
+
+            try:
+                payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                await self._send_json(
+                    send, {"status": "error", "message": "Invalid JSON body"}, 400
+                )
+                return
+
+            tool_name = (payload.get("tool") or "").strip()
+            arguments = payload.get("arguments", {})
+
+            if not tool_name:
+                await self._send_json(
+                    send, {"status": "error", "message": "Missing 'tool' field"}, 400
+                )
+                return
+
+            from ..tools import call_tool_direct
+
+            result = await call_tool_direct(tool_name, arguments)
+            await self._send_json(send, result)
+        except Exception as e:
+            logger.exception("/api/tool error")
+            await self._send_json(
+                send, {"status": "error", "message": str(e)}, 500
+            )
 
     async def _api_login(self, scope, receive, send):
         """

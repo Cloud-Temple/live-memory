@@ -5,6 +5,46 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.1] — 2026-05-16 (Admin Console `/admin`)
+
+**⚙️ Admin Console** — Full web administration interface for all 40 MCP tools,
+with Dashboard improvements and maintenance UX overhaul.
+
+### Added
+
+- **Admin Console (`/admin`)** — New web interface exposing all 40 MCP tools via
+  an internal proxy (`call_tool_direct()`). Backend: `POST /api/tool` route with
+  auth middleware. Frontend: 4 files (`admin.html`, `admin.css`, `admin-api.js`,
+  `admin-app.js`), dark theme, 7 sidebar categories (Dashboard, Spaces, Tokens,
+  Explorer, Backups, Graph Bridge, Maintenance), dynamic typed forms, pretty
+  modal results, CSP-compliant (event delegation via `data-action`).
+- **Dashboard identity bar** — Compact 1-line bar showing current client name,
+  auth type badge, and permission badges. Non-redundant with stat cards.
+- **Health drill-down** — Health card is now clickable, opening a pretty modal
+  with detailed service status (S3/LLM latency, model, bucket).
+- **Upload Rules** — "📤 Upload New Rules" button in the Rules modal for each
+  space. Supports file picker (`.md`) via FileReader or direct paste in textarea.
+  Calls `space_update_rules` via the admin proxy.
+- **Backup enrichments** — `backup_list` enriched with `files_count`,
+  `total_size`, `description` from `_meta.json`. Dynamic columns in table.
+  "Backup All" button for global snapshots.
+- **Space chips** — Visual checkbox grid for token space management, with delta
+  auto-calculation (add/remove).
+
+### Changed
+
+- **System section removed from sidebar** — Health/About/WhoAmI info merged
+  into Dashboard (System was 8th category, now 7). No more redundant data.
+- **Maintenance refactored** — Replaced 5 independent cards (with 4 duplicate
+  space selectors) by a compact action list: 1 shared space selector in header,
+  each tool = 1 row with icon + description + inline options + action button.
+  Separated by accent dividers between bank ops / GC / token purge.
+- **Pretty modals** — `renderPretty()` for `space_info`, `space_rules`,
+  `space_summary`, and maintenance results. Structured key/value tables instead
+  of raw JSON dumps.
+
+---
+
 ## [2.0.0] — 2026-05-15 (Web UI improvements, branch `v2.0.0`)
 
 **🖥️ Web UI improvements & E2E hardening** — CSP compliance, dynamic space

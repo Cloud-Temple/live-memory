@@ -76,6 +76,17 @@ class BackupService:
             await storage.copy_object(source_key, dest_key)
             total_size += obj["Size"]
 
+        # Store backup description in the copied _meta.json (best-effort)
+        if description:
+            try:
+                meta_key = f"{backup_prefix}_meta.json"
+                meta = await storage.get_json(meta_key)
+                if meta:
+                    meta["backup_description"] = description
+                    await storage.put_json(meta_key, meta)
+            except Exception:
+                pass  # non-blocking
+
         return {
             "status": "created",
             "backup_id": backup_id,
@@ -185,19 +196,13 @@ class BackupService:
         prefix = f"_backups/{space_id}/" if space_id else "_backups/"
         prefixes = await storage.list_prefixes(prefix, delimiter="/")
 
-        backups = []
+        raw_entries = []
         if space_id:
             # Lister les timestamps pour cet espace
             for p in prefixes:
                 parts = p.rstrip("/").split("/")
                 ts = parts[-1] if len(parts) >= 3 else "?"
-                backups.append(
-                    {
-                        "backup_id": f"{space_id}/{ts}",
-                        "space_id": space_id,
-                        "timestamp": ts,
-                    }
-                )
+                raw_entries.append((space_id, ts, p))
         else:
             # Lister les espaces qui ont des backups
             space_prefixes = await storage.list_prefixes("_backups/", delimiter="/")
@@ -206,13 +211,31 @@ class BackupService:
                 ts_prefixes = await storage.list_prefixes(sp, delimiter="/")
                 for tp in ts_prefixes:
                     ts = tp.rstrip("/").split("/")[-1]
-                    backups.append(
-                        {
-                            "backup_id": f"{sid}/{ts}",
-                            "space_id": sid,
-                            "timestamp": ts,
-                        }
-                    )
+                    raw_entries.append((sid, ts, tp))
+
+        # Enrich each backup with metadata from _meta.json (best-effort)
+        backups = []
+        for sid, ts, bprefix in raw_entries:
+            entry = {
+                "backup_id": f"{sid}/{ts}",
+                "space_id": sid,
+                "timestamp": ts,
+            }
+            # Try to read _meta.json to get description, files count, size
+            try:
+                meta_key = f"{bprefix}_meta.json"
+                meta = await storage.get_json(meta_key)
+                if meta:
+                    if meta.get("backup_description"):
+                        entry["description"] = meta["backup_description"]
+                    # Count files in the backup prefix
+                    objs = await storage.list_objects(bprefix)
+                    entry["files_count"] = len(objs)
+                    entry["total_size"] = sum(o.get("Size", 0) for o in objs)
+            except Exception:
+                pass  # best-effort enrichment
+
+            backups.append(entry)
 
         return {"status": "ok", "backups": backups, "total": len(backups)}
 

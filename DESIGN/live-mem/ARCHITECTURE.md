@@ -310,6 +310,17 @@ Live Memory exposes a **SPA web interface** on `/live`:
 - **CSP-safe**: no inline event handlers (`addEventListener` only), `script-src 'self'`
 - **5 REST API endpoints** (`/api/*`) + `/health` (public) to feed the interface
 
+### Admin Console (`/admin`)
+
+Live Memory also exposes an **administration console** on `/admin` covering all 40 MCP tools:
+
+- **Architecture**: internal proxy via `_mcp_ref.call_tool_direct()` bypassing the Streamable HTTP protocol. The ASGI auth middleware injects the token context before each call, so security is inherited from the MCP layer.
+- **Backend**: `POST /api/tool` route in `auth/middleware.py`, protected (401 without session). Routes `/admin` and `/static/css/admin.css`, `/static/js/admin-*.js` served by StaticFilesMiddleware.
+- **Frontend**: 4 files (`admin.html`, `admin.css`, `admin-api.js`, `admin-app.js`), vanilla JS, dark theme matching `/live`.
+- **7 sidebar sections**: Dashboard (4 stat cards + identity bar + clickable Health → modal), Spaces (CRUD table), Tokens (create/update/revoke with visual space chips), Explorer (live notes + bank side-by-side), Backups (dynamic columns, "Backup All"), Graph Bridge, Maintenance (compact action list with shared space selector).
+- **CSP-safe**: zero inline `onclick`, all via `data-action` attributes + global event delegation.
+- **Upload Rules**: file picker (`.md`) or paste directly, calls `space_update_rules` via proxy.
+
 ---
 
 ## 7. Architecture Comparison
