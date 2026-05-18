@@ -5,6 +5,37 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.0] — 2026-05-18
+
+### Added
+
+- **`S3_SIGNATURE_MODE` setting** — New configurable S3 signature strategy
+  (PR #19 by @b1pb1p). Two modes:
+  - `dual` (default, unchanged behavior): SigV2 for PUT/GET/DELETE/COPY,
+    SigV4 for HEAD/LIST. Required for Dell ECS Cloud Temple.
+  - `sigv4`: SigV4 for all operations. Required for MinIO (no SigV2 support),
+    AWS S3 (SigV2 deprecated since 2018), and any modern S3-compatible provider.
+  Strictly retrocompatible — default `dual` preserves byte-identical boto3
+  client configuration. Internal refactor: `_client_v2`/`_client_v4` renamed
+  to `_client_data`/`_client_meta` for clarity. 4 new tests in
+  `TestS3SignatureMode`.
+- **Claude Code integration guide** (FR/EN) — `CLAUDE_CODE_INTEGRATION.md`
+  and `.fr.md` (PR #18 by @b1pb1p). Covers CLI method, JSON config, tool
+  whitelisting, `CLAUDE.md` template, multi-agent workflows, troubleshooting,
+  and Claude Desktop configuration.
+- **Codex integration guide** (FR/EN) — `CODEX_INTEGRATION.md` and `.fr.md`.
+  Covers `.codex/config.toml` configuration, `AGENTS.md` instructions, and
+  the 3-step workflow (startup/work/consolidate).
+
+### Fixed
+
+- **1Password / LastPass pollution on `/admin` and `/live`** — Password managers
+  injected icons and popups into form fields, cluttering the UI. All 17 `<input>`
+  elements now carry `data-1p-ignore` (1Password) and `data-lpignore="true"`
+  (LastPass) attributes across `admin.html`, `admin-app.js`, and `live.html`.
+
+---
+
 ## [2.0.2] — 2026-05-16 (Admin Console Security Hardening)
 
 **🔒 Security Audit & Remediation** — 10 findings identified, 7 fixed, 3 risk-accepted.

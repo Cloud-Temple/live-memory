@@ -196,9 +196,9 @@ async function renderSpaces(){
 
 function showCreateSpace(){
     showModal('➕ Create Space',`
-        <div class="form-group"><label class="form-label">Space ID <span class="req">*</span></label><input class="form-input" id="m_space_id" placeholder="my-project"></div>
-        <div class="form-group"><label class="form-label">Description <span class="req">*</span></label><input class="form-input" id="m_desc"></div>
-        <div class="form-group"><label class="form-label">Owner</label><input class="form-input" id="m_owner"></div>
+        <div class="form-group"><label class="form-label">Space ID <span class="req">*</span></label><input class="form-input" data-1p-ignore id="m_space_id" placeholder="my-project"></div>
+        <div class="form-group"><label class="form-label">Description <span class="req">*</span></label><input class="form-input" data-1p-ignore id="m_desc"></div>
+        <div class="form-group"><label class="form-label">Owner</label><input class="form-input" data-1p-ignore id="m_owner"></div>
         <div class="form-group"><label class="form-label">Rules (Markdown)</label><textarea class="form-input" id="m_rules" rows="6" placeholder="Leave empty for default rules"></textarea></div>
     `,'Create Space',async()=>{
         const sid=gv('m_space_id'),desc=gv('m_desc');if(!sid||!desc)return false;
@@ -237,11 +237,11 @@ async function renderTokens(){
 
 function showCreateToken(){
     showModal('➕ Create Token',`
-        <div class="form-group"><label class="form-label">Name <span class="req">*</span></label><input class="form-input" id="m_name" placeholder="agent-cline"></div>
+        <div class="form-group"><label class="form-label">Name <span class="req">*</span></label><input class="form-input" data-1p-ignore id="m_name" placeholder="agent-cline"></div>
         <div class="form-group"><label class="form-label">Permissions <span class="req">*</span></label><select class="form-input" id="m_perms"><option value="read">read</option><option value="read,write" selected>read,write</option><option value="read,write,manage">read,write,manage</option><option value="read,write,manage,admin">read,write,manage,admin</option></select></div>
-        <div class="form-group"><label class="form-label">Space IDs</label><input class="form-input" id="m_sids" placeholder="CSV, or * for all current spaces"></div>
-        <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="m_email"></div>
-        <div class="form-group"><label class="form-label">Expires in (days)</label><input class="form-input" type="number" id="m_exp" value="0" placeholder="0 = never"></div>
+        <div class="form-group"><label class="form-label">Space IDs</label><input class="form-input" data-1p-ignore id="m_sids" placeholder="CSV, or * for all current spaces"></div>
+        <div class="form-group"><label class="form-label">Email</label><input class="form-input" data-1p-ignore id="m_email"></div>
+        <div class="form-group"><label class="form-label">Expires in (days)</label><input class="form-input" data-1p-ignore type="number" id="m_exp" value="0" placeholder="0 = never"></div>
     `,'Create Token',async()=>{
         const name=gv('m_name'),perms=gv('m_perms');if(!name)return false;
         const args={name,permissions:perms,space_ids:gv('m_sids'),email:gv('m_email')};
@@ -270,13 +270,13 @@ function showUpdateToken(hash,name){
     const spacesHTML = allSpaces.length ? allSpaces.map(sid => {
         const checked = currentSpaces.has(sid) ? 'checked' : '';
         const id = `m_sp_${sid.replace(/[^a-zA-Z0-9]/g,'_')}`;
-        return `<label class="space-chip ${checked?'active':''}" data-space="${esc(sid)}"><input type="checkbox" ${checked} id="${id}" data-sid="${esc(sid)}" class="space-cb"> ${esc(sid)}</label>`;
+        return `<label class="space-chip ${checked?'active':''}" data-space="${esc(sid)}"><input type="checkbox" data-1p-ignore ${checked} id="${id}" data-sid="${esc(sid)}" class="space-cb"> ${esc(sid)}</label>`;
     }).join('') : '<span class="text-muted">No spaces available</span>';
 
     showModal(`✏️ Update: ${name}`,`
         <div class="form-group"><label class="form-label">Permissions</label><select class="form-input" id="m_perms"><option value="">— no change —</option><option value="read">read</option><option value="read,write">read,write</option><option value="read,write,manage">read,write,manage</option><option value="read,write,manage,admin">read,write,manage,admin</option></select></div>
         <div class="form-group"><label class="form-label">Spaces access</label><div class="form-hint">Toggle to add/remove. Green = has access.</div><div class="space-chips" id="m_spaces">${spacesHTML}</div></div>
-        <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="m_email"></div>
+        <div class="form-group"><label class="form-label">Email</label><input class="form-input" data-1p-ignore id="m_email"></div>
     `,'Update Token',async()=>{
         const args={token_hash:hash};
         const p=gv('m_perms');if(p)args.permissions=p;
@@ -417,21 +417,21 @@ async function renderMaintenance(){
             </div>
             <div class="maint-row">
                 <div class="maint-info"><span class="maint-icon">📦</span><div><strong>Compact</strong><span class="text-muted">Shrink oversized bank files via LLM</span></div></div>
-                <div class="maint-actions"><div class="form-check"><input type="checkbox" id="mp_dry" checked><label for="mp_dry">Dry run</label></div><button class="btn-action" data-action="maint-compact">▶ Run</button></div>
+                <div class="maint-actions"><div class="form-check"><input type="checkbox" data-1p-ignore id="mp_dry" checked><label for="mp_dry">Dry run</label></div><button class="btn-action" data-action="maint-compact">▶ Run</button></div>
             </div>
             <div class="maint-row">
                 <div class="maint-info"><span class="maint-icon">🔧</span><div><strong>Repair</strong><span class="text-muted">Fix Unicode, duplicates, broken paths</span></div></div>
-                <div class="maint-actions"><div class="form-check"><input type="checkbox" id="mr_dry" checked><label for="mr_dry">Dry run</label></div><button class="btn-action" data-action="maint-repair">▶ Run</button></div>
+                <div class="maint-actions"><div class="form-check"><input type="checkbox" data-1p-ignore id="mr_dry" checked><label for="mr_dry">Dry run</label></div><button class="btn-action" data-action="maint-repair">▶ Run</button></div>
             </div>
             <div class="maint-sep"></div>
             <div class="maint-row">
                 <div class="maint-info"><span class="maint-icon">🗑️</span><div><strong>Garbage Collector</strong><span class="text-muted">Clean orphaned notes older than</span></div></div>
-                <div class="maint-actions"><input class="form-input" type="number" id="mg_days" value="7" style="width:60px;text-align:center;padding:.3rem"> <span class="text-muted" style="font-size:.7rem">days</span> <div class="form-check"><input type="checkbox" id="mg_confirm"><label for="mg_confirm">Execute</label></div><button class="btn-action orange" data-action="maint-gc">▶ Run</button></div>
+                <div class="maint-actions"><input class="form-input" data-1p-ignore type="number" id="mg_days" value="7" style="width:60px;text-align:center;padding:.3rem"> <span class="text-muted" style="font-size:.7rem">days</span> <div class="form-check"><input type="checkbox" data-1p-ignore id="mg_confirm"><label for="mg_confirm">Execute</label></div><button class="btn-action orange" data-action="maint-gc">▶ Run</button></div>
             </div>
             <div class="maint-sep"></div>
             <div class="maint-row">
                 <div class="maint-info"><span class="maint-icon">🧹</span><div><strong>Purge Tokens</strong><span class="text-muted">Delete revoked tokens from registry</span></div></div>
-                <div class="maint-actions"><div class="form-check"><input type="checkbox" id="mt_all"><label for="mt_all">ALL</label></div><button class="btn-action red" data-action="maint-purge">▶ Purge</button></div>
+                <div class="maint-actions"><div class="form-check"><input type="checkbox" data-1p-ignore id="mt_all"><label for="mt_all">ALL</label></div><button class="btn-action red" data-action="maint-purge">▶ Purge</button></div>
             </div>
         </div>
     </div>`;
@@ -449,7 +449,7 @@ function showUploadRules(spaceId){
     showModal('📤 Upload Rules — ' + spaceId,`
         <div class="form-group">
             <label class="form-label">Select a Markdown file (.md)</label>
-            <input type="file" class="form-input" id="m_rules_file" accept=".md,.txt,.markdown" style="padding:.4rem">
+            <input type="file" data-1p-ignore class="form-input" id="m_rules_file" accept=".md,.txt,.markdown" style="padding:.4rem">
         </div>
         <div class="form-group">
             <label class="form-label">Or paste rules content directly</label>
