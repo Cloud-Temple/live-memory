@@ -21,6 +21,7 @@ def _make_settings(**overrides):
         "s3_secret_access_key": "",
         "s3_bucket_name": "live-mem",
         "s3_region_name": "fr1",
+        "s3_signature_mode": "dual",
         "llmaas_api_url": "",
         "llmaas_api_key": "",
         "llmaas_model": "test-model",
@@ -88,6 +89,24 @@ class TestS3Validation:
             s3_secret_access_key="",
         )
         assert s.s3_endpoint_url == ""
+
+
+class TestS3SignatureMode:
+    def test_dual_is_default(self):
+        s = _make_settings()
+        assert s.s3_signature_mode == "dual"
+
+    def test_sigv4_accepted(self):
+        s = _make_settings(s3_signature_mode="sigv4")
+        assert s.s3_signature_mode == "sigv4"
+
+    def test_invalid_mode_rejected(self):
+        with pytest.raises(ValueError, match="S3_SIGNATURE_MODE"):
+            _make_settings(s3_signature_mode="sigv2")
+
+    def test_empty_mode_rejected(self):
+        with pytest.raises(ValueError, match="S3_SIGNATURE_MODE"):
+            _make_settings(s3_signature_mode="")
 
 
 class TestLLMValidation:

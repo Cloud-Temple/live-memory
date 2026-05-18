@@ -2,14 +2,20 @@
 """
 Service S3 — Couche d'abstraction stockage pour Live Memory.
 
-Gère la communication avec le S3 Cloud Temple (Dell ECS) en utilisant
-une configuration HYBRIDE obligatoire :
-  - SigV2 (signature legacy) pour PUT/GET/DELETE (données)
-  - SigV4 (signature moderne) pour HEAD/LIST (métadonnées)
+Live Memory supporte deux modes de signature S3, contrôlés par la variable
+``S3_SIGNATURE_MODE`` :
 
-Voir CLOUD_TEMPLE_SERVICES.md pour les détails techniques.
+- ``dual`` (défaut) — Configuration HYBRIDE pour S3 Cloud Temple (Dell ECS) :
+    * SigV2 (signature legacy) pour PUT/GET/DELETE/COPY (données)
+    * SigV4 (signature moderne) pour HEAD/LIST (métadonnées)
+  Voir CLOUD_TEMPLE_SERVICES.md pour les détails techniques.
 
-Toutes les opérations sont wrappées dans run_in_executor car boto3
+- ``sigv4`` — SigV4 pour toutes les opérations. Compatible avec :
+    * MinIO (SigV2 non supporté depuis toujours)
+    * AWS S3 (SigV2 déprécié depuis 2018)
+    * Tout provider S3-compatible moderne
+
+Toutes les opérations sont wrappées dans ``run_in_executor`` car boto3
 est synchrone — on ne veut pas bloquer l'event loop asyncio.
 
 Usage :
@@ -40,12 +46,18 @@ logger = logging.getLogger("live_mem.storage")
 
 class StorageService:
     """
-    Service S3 avec dual client SigV2/SigV4 pour Dell ECS Cloud Temple.
+    Service S3 supportant deux modes de signature : ``dual`` (Dell ECS
+    Cloud Temple, SigV2+SigV4) et ``sigv4`` (MinIO / AWS / autres).
+
+    En mode ``sigv4``, ``_client_data`` et ``_client_meta`` pointent
+    vers le même client SigV4. En mode ``dual``, ce sont deux clients
+    distincts (SigV2 pour les données, SigV4 pour les métadonnées).
 
     Attributes:
         bucket: Nom du bucket S3
-        _client_v2: Client boto3 en signature V2 (PUT/GET/DELETE)
-        _client_v4: Client boto3 en signature V4 (HEAD/LIST)
+        signature_mode: 'dual' ou 'sigv4'
+        _client_data: Client boto3 pour PUT/GET/DELETE/COPY
+        _client_meta: Client boto3 pour HEAD/LIST
     """
 
     def __init__(self):
@@ -53,6 +65,7 @@ class StorageService:
 
         self.bucket = settings.s3_bucket_name
         self._endpoint = settings.s3_endpoint_url
+        self.signature_mode = settings.s3_signature_mode
 
         # LM2-15 fix : configuration optionnelle du chiffrement at-rest S3.
         # Appliqué à chaque put_object via _sse_kwargs(). None par défaut
@@ -76,38 +89,21 @@ class StorageService:
             {"http": proxy_url, "https": proxy_url} if proxy_url else None
         )
 
-        # ── Client SigV2 — pour PUT/GET/DELETE (données) ──────
-        # Dell ECS exige SigV2 pour les opérations de données,
-        # sinon on obtient XAmzContentSHA256Mismatch.
-        config_v2 = Config(
-            region_name=settings.s3_region_name,
-            signature_version="s3",  # SigV2 legacy
-            s3={"addressing_style": "path"},  # Path-style obligatoire CT
-            retries={"max_attempts": 3, "mode": "adaptive"},
-            **({"proxies": _proxies} if _proxies else {}),
-        )
-        self._client_v2 = boto3.client(
-            "s3",
-            endpoint_url=settings.s3_endpoint_url,
-            aws_access_key_id=settings.s3_access_key_id,
-            aws_secret_access_key=settings.s3_secret_access_key,
-            config=config_v2,
-        )
-
-        # ── Client SigV4 — pour HEAD/LIST (métadonnées) ──────
-        # Dell ECS exige SigV4 pour HEAD bucket et LIST objects,
-        # sinon on obtient 403 Forbidden ou SignatureDoesNotMatch.
+        # ── Client SigV4 — toujours instancié ─────────────────
+        # Utilisé pour HEAD/LIST en mode "dual", et pour TOUT en mode "sigv4".
+        # payload_signing_enabled=False : optimisation réseau (pas de
+        # hash du body), supporté par Dell ECS, MinIO et AWS S3.
         config_v4 = Config(
             region_name=settings.s3_region_name,
             signature_version="s3v4",
             s3={
-                "addressing_style": "path",  # Path-style obligatoire CT
-                "payload_signing_enabled": False,  # Optimisation Dell ECS
+                "addressing_style": "path",
+                "payload_signing_enabled": False,
             },
             retries={"max_attempts": 3, "mode": "adaptive"},
             **({"proxies": _proxies} if _proxies else {}),
         )
-        self._client_v4 = boto3.client(
+        client_v4 = boto3.client(
             "s3",
             endpoint_url=settings.s3_endpoint_url,
             aws_access_key_id=settings.s3_access_key_id,
@@ -115,10 +111,35 @@ class StorageService:
             config=config_v4,
         )
 
+        if self.signature_mode == "dual":
+            # ── Client SigV2 — pour PUT/GET/DELETE/COPY (données) ─
+            # Dell ECS exige SigV2 pour les opérations de données,
+            # sinon on obtient XAmzContentSHA256Mismatch.
+            config_v2 = Config(
+                region_name=settings.s3_region_name,
+                signature_version="s3",  # SigV2 legacy
+                s3={"addressing_style": "path"},  # Path-style obligatoire CT
+                retries={"max_attempts": 3, "mode": "adaptive"},
+                **({"proxies": _proxies} if _proxies else {}),
+            )
+            self._client_data = boto3.client(
+                "s3",
+                endpoint_url=settings.s3_endpoint_url,
+                aws_access_key_id=settings.s3_access_key_id,
+                aws_secret_access_key=settings.s3_secret_access_key,
+                config=config_v2,
+            )
+            self._client_meta = client_v4
+        else:
+            # Mode "sigv4" — un seul client pour toutes les opérations.
+            self._client_data = client_v4
+            self._client_meta = client_v4
+
         logger.info(
-            "StorageService initialisé — bucket=%s endpoint=%s",
+            "StorageService initialisé — bucket=%s endpoint=%s signature_mode=%s",
             self.bucket,
             self._endpoint,
+            self.signature_mode,
         )
         if proxy_url:
             logger.info("StorageService: S3 requests via proxy %s", proxy_url)
@@ -133,7 +154,7 @@ class StorageService:
         return await loop.run_in_executor(None, partial(func, *args, **kwargs))
 
     # ─────────────────────────────────────────────────────────────
-    # PUT — Écriture (SigV2)
+    # PUT — Écriture (data client)
     # ─────────────────────────────────────────────────────────────
 
     def _sse_kwargs(self) -> dict:
@@ -163,7 +184,7 @@ class StorageService:
             content_type: Type MIME (défaut: text/plain)
         """
         await self._run(
-            self._client_v2.put_object,
+            self._client_data.put_object,
             Bucket=self.bucket,
             Key=key,
             Body=content.encode("utf-8"),
@@ -183,7 +204,7 @@ class StorageService:
         await self.put(key, content, content_type="application/json")
 
     # ─────────────────────────────────────────────────────────────
-    # GET — Lecture (SigV2)
+    # GET — Lecture (data client)
     # ─────────────────────────────────────────────────────────────
 
     async def get(self, key: str) -> Optional[str]:
@@ -198,7 +219,7 @@ class StorageService:
         """
         try:
             response = await self._run(
-                self._client_v2.get_object,
+                self._client_data.get_object,
                 Bucket=self.bucket,
                 Key=key,
             )
@@ -226,7 +247,7 @@ class StorageService:
         return json.loads(content)
 
     # ─────────────────────────────────────────────────────────────
-    # DELETE — Suppression (SigV2)
+    # DELETE — Suppression (data client)
     # ─────────────────────────────────────────────────────────────
 
     async def delete(self, key: str) -> None:
@@ -237,7 +258,7 @@ class StorageService:
             key: Clé S3
         """
         await self._run(
-            self._client_v2.delete_object,
+            self._client_data.delete_object,
             Bucket=self.bucket,
             Key=key,
         )
@@ -247,7 +268,8 @@ class StorageService:
         Supprime plusieurs objets un par un.
 
         Note : Dell ECS ne supporte pas delete_objects (batch) avec SigV2.
-        On utilise des suppressions individuelles qui fonctionnent.
+        On utilise des suppressions individuelles qui fonctionnent sur
+        tous les providers (Dell ECS, MinIO, AWS).
 
         Args:
             keys: Liste des clés S3 à supprimer
@@ -270,7 +292,7 @@ class StorageService:
         return deleted
 
     # ─────────────────────────────────────────────────────────────
-    # LIST — Listage (SigV4)
+    # LIST — Listage (meta client)
     # ─────────────────────────────────────────────────────────────
 
     async def list_objects(self, prefix: str, max_keys: int = 0) -> list[dict]:
@@ -297,7 +319,7 @@ class StorageService:
                 params["ContinuationToken"] = continuation_token
 
             response = await self._run(
-                self._client_v4.list_objects_v2,
+                self._client_meta.list_objects_v2,
                 **params,
             )
 
@@ -349,7 +371,7 @@ class StorageService:
                 params["ContinuationToken"] = continuation_token
 
             response = await self._run(
-                self._client_v4.list_objects_v2,
+                self._client_meta.list_objects_v2,
                 **params,
             )
 
@@ -364,7 +386,7 @@ class StorageService:
         return all_prefixes
 
     # ─────────────────────────────────────────────────────────────
-    # HEAD — Existence (SigV4)
+    # HEAD — Existence (meta client)
     # ─────────────────────────────────────────────────────────────
 
     async def exists(self, key: str) -> bool:
@@ -379,7 +401,7 @@ class StorageService:
         """
         try:
             await self._run(
-                self._client_v4.head_object,
+                self._client_meta.head_object,
                 Bucket=self.bucket,
                 Key=key,
             )
@@ -441,7 +463,7 @@ class StorageService:
         """
         copy_source = {"Bucket": self.bucket, "Key": source_key}
         await self._run(
-            self._client_v2.copy_object,
+            self._client_data.copy_object,
             CopySource=copy_source,
             Bucket=self.bucket,
             Key=dest_key,
@@ -456,7 +478,7 @@ class StorageService:
         """
         Teste la connexion au bucket S3.
 
-        Utilise HEAD bucket (SigV4) pour vérifier l'accès.
+        Utilise HEAD bucket (meta client) pour vérifier l'accès.
 
         Returns:
             {"status": "ok", "bucket": "...", "latency_ms": ...} ou erreur
@@ -466,7 +488,7 @@ class StorageService:
         t0 = time.monotonic()
         try:
             await self._run(
-                self._client_v4.head_bucket,
+                self._client_meta.head_bucket,
                 Bucket=self.bucket,
             )
             latency = round((time.monotonic() - t0) * 1000, 1)

@@ -39,14 +39,20 @@ class Settings(BaseSettings):
     # ⚠️ Changer impérativement en production !
     admin_bootstrap_key: str = "change_me_in_production"
 
-    # ─── S3 Cloud Temple (Dell ECS) ────────────────────────────
-    # Configuration HYBRIDE obligatoire : SigV2 pour PUT/GET/DELETE,
-    # SigV4 pour HEAD/LIST. Voir CLOUD_TEMPLE_SERVICES.md.
+    # ─── S3 — Stockage objets ─────────────────────────────────
+    # Live Memory supporte deux modes de signature S3 :
+    #   - "dual" (défaut) : SigV2 pour PUT/GET/DELETE/COPY, SigV4 pour
+    #     HEAD/LIST. Requis pour Dell ECS Cloud Temple — voir
+    #     CLOUD_TEMPLE_SERVICES.md.
+    #   - "sigv4" : SigV4 pour toutes les opérations. Recommandé pour
+    #     MinIO, AWS S3, et tout provider S3-compatible moderne (SigV2
+    #     est déprécié AWS depuis 2018 et non supporté par MinIO).
     s3_endpoint_url: str = ""
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_bucket_name: str = "live-mem"
     s3_region_name: str = "fr1"
+    s3_signature_mode: str = "dual"
 
     # ─── LLMaaS Cloud Temple ──────────────────────────────────
     # API OpenAI-compatible. L'URL INCLUT déjà /v1 — ne pas l'ajouter.
@@ -193,6 +199,14 @@ class Settings(BaseSettings):
                     "S3_BUCKET_NAME='%s' may not be a valid S3 bucket name",
                     self.s3_bucket_name,
                 )
+
+        # S3 signature mode
+        if self.s3_signature_mode not in ("dual", "sigv4"):
+            errors.append(
+                f"S3_SIGNATURE_MODE='{self.s3_signature_mode}' invalid — "
+                "must be 'dual' (Dell ECS Cloud Temple) or 'sigv4' "
+                "(MinIO / AWS S3 / other S3-compatible providers)"
+            )
 
         # LLM: API key without URL or vice versa
         if bool(self.llmaas_api_url) != bool(self.llmaas_api_key):
