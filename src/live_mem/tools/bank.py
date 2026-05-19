@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Outils MCP — Catégorie Bank (9 outils).
+Outils MCP — Catégorie Bank (10 outils).
 
 Memory Bank consolidée : lire, lister, consolider via LLM, compacter,
 réparer, écrire et supprimer manuellement.
@@ -11,6 +11,7 @@ Permissions :
     - bank_list        🔑 (read)    — Liste les fichiers bank (sans contenu)
     - bank_consolidate ✏️ (write)   — Déclenche la consolidation LLM
     - bank_consolidation_status 🔑 (read) — Consulte un job de consolidation
+    - bank_consolidation_queues 🔑 (read) — Résume les lanes de consolidation
     - bank_compact     🔧 (manage)  — Compacte les fichiers bank surdimensionnés via LLM
     - bank_repair      🔧 (manage)  — Répare les noms de fichiers corrompus par le LLM
     - bank_write       🔧 (manage)  — Écrit/remplace un fichier bank directement
@@ -72,13 +73,13 @@ def _validate_bank_filename(filename: str) -> dict | None:
 
 def register(mcp: FastMCP) -> int:
     """
-    Enregistre les 9 outils bank sur l'instance MCP.
+    Enregistre les 10 outils bank sur l'instance MCP.
 
     Args:
         mcp: Instance FastMCP
 
     Returns:
-        Nombre d'outils enregistrés (9)
+        Nombre d'outils enregistrés (10)
     """
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -425,6 +426,111 @@ def register(mcp: FastMCP) -> int:
                 return access_err
 
             return result
+        except Exception as e:
+            from ..auth.context import safe_error
+
+            return safe_error(e, "bank")
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def bank_consolidation_queues(
+        space_ids: Annotated[
+            str,
+            Field(
+                default="",
+                description=(
+                    "CSV optionnel des spaces à inspecter. Vide = tous les "
+                    "spaces accessibles au token courant."
+                ),
+            ),
+        ] = "",
+    ) -> dict:
+        """
+        Résume les lanes de consolidation par space.
+
+        Modèle métier exposé :
+        - une seule consolidation running par space ;
+        - une queue FIFO indépendante par space ;
+        - plusieurs spaces peuvent consolider en parallèle ;
+        - scope `all_agents` pour manage/admin, scope `agent` pour un agent.
+
+        Args:
+            space_ids: CSV optionnel pour éviter un listing S3 si l'UI connaît
+                déjà les spaces accessibles.
+
+        Returns:
+            Synthèse des lanes et totaux d'activité.
+        """
+        from ..auth.context import _get_effective_token_info, check_access
+        from ..config import get_settings
+        from ..core.consolidation_queue import get_consolidation_queue
+        from ..core.space import get_space_service
+
+        try:
+            token_info = _get_effective_token_info()
+            if token_info is None:
+                return {"status": "error", "message": "Authentification requise"}
+
+            requested_ids = [
+                sid.strip() for sid in space_ids.split(",") if sid.strip()
+            ]
+            denied_spaces = []
+
+            if requested_ids:
+                visible_ids = []
+                for sid in requested_ids:
+                    access_err = check_access(sid)
+                    if access_err:
+                        denied_spaces.append(
+                            {"space_id": sid, "message": access_err.get("message")}
+                        )
+                        continue
+                    visible_ids.append(sid)
+            else:
+                permissions = token_info.get("permissions", [])
+                allowed = token_info.get("allowed_resources", [])
+                if "admin" in permissions:
+                    allowed_ids = None
+                elif not allowed:
+                    allowed_ids = []
+                else:
+                    allowed_ids = allowed
+                spaces_result = await get_space_service().list_spaces(
+                    allowed_space_ids=allowed_ids
+                )
+                if spaces_result.get("status") != "ok":
+                    return spaces_result
+                visible_ids = [s["space_id"] for s in spaces_result.get("spaces", [])]
+
+            queue = get_consolidation_queue()
+            lanes = [await queue.get_space_summary(sid) for sid in visible_ids]
+            running = sum(1 for lane in lanes if lane.get("running_job"))
+            queued = sum(lane.get("queued_count", 0) for lane in lanes)
+            failed_recent = sum(
+                1
+                for lane in lanes
+                for job in lane.get("latest_jobs", [])
+                if job.get("status") == "failed"
+            )
+            active = sum(
+                1
+                for lane in lanes
+                if lane.get("running_job") or lane.get("queued_count", 0) > 0
+            )
+
+            return {
+                "status": "ok",
+                "lanes": lanes,
+                "total_spaces": len(lanes),
+                "active_spaces": active,
+                "running_spaces": running,
+                "queued_jobs": queued,
+                "failed_recent": failed_recent,
+                "parallelism_model": "one_worker_per_space",
+                "service_config": {
+                    "batch_size": get_settings().consolidation_batch_size,
+                },
+                "denied_spaces": denied_spaces,
+            }
         except Exception as e:
             from ..auth.context import safe_error
 
@@ -905,4 +1011,4 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    return 9  # Nombre d'outils enregistrés
+    return 10  # Nombre d'outils enregistrés

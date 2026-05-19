@@ -23,8 +23,9 @@ import re
 import json
 import time
 import logging
+import inspect
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 import httpx
 from openai import AsyncOpenAI
@@ -456,7 +457,11 @@ class ConsolidatorService:
 
 
     async def consolidate(
-        self, space_id: str, agent: str = "", enforce_cooldown: bool = True
+        self,
+        space_id: str,
+        agent: str = "",
+        enforce_cooldown: bool = True,
+        progress_callback: Callable[[dict], Awaitable[None] | None] | None = None,
     ) -> dict:
         """
         Pipeline complet de consolidation pour un espace, par lots.
@@ -478,6 +483,8 @@ class ConsolidatorService:
             enforce_cooldown: Si False, contourne le cooldown LM2-18.
                 Utilisé par la file FIFO issue #20 pour éviter qu'un job
                 légitime échoue juste après le job précédent.
+            progress_callback: Callback best-effort appelé à chaque changement
+                de progression batch pour alimenter l'observabilité async.
 
         Returns:
             Métriques de consolidation ou erreur
@@ -485,6 +492,16 @@ class ConsolidatorService:
         t0 = time.monotonic()
         storage = get_storage()
         agent_label = agent or "(all)"
+
+        async def emit_progress(payload: dict) -> None:
+            if progress_callback is None:
+                return
+            try:
+                maybe_awaitable = progress_callback(payload)
+                if inspect.isawaitable(maybe_awaitable):
+                    await maybe_awaitable
+            except Exception as e:
+                logger.warning("Consolidation progress callback failed — %s", e)
 
         # LM2-18 fix : cooldown anti-spam avant TOUTE collecte/appel LLM.
         # On enregistre le timestamp d'enregistrement EN PREMIER (avant
@@ -527,6 +544,17 @@ class ConsolidatorService:
 
         # Pas de notes → rien à faire
         if not all_notes:
+            await emit_progress(
+                {
+                    "phase": "done",
+                    "batch_size": self._batch_size,
+                    "notes_total": 0,
+                    "notes_done": 0,
+                    "batches_total": 0,
+                    "batches_done": 0,
+                    "current_batch": 0,
+                }
+            )
             return {
                 "status": "ok",
                 "notes_processed": 0,
@@ -587,6 +615,17 @@ class ConsolidatorService:
             batch_count,
             batch_size,
         )
+        await emit_progress(
+            {
+                "phase": "planned",
+                "batch_size": batch_size,
+                "notes_total": len(all_notes),
+                "notes_done": 0,
+                "batches_total": batch_count,
+                "batches_done": 0,
+                "current_batch": 0,
+            }
+        )
 
         # ── Étape 3 : Traiter chaque lot ──────────────────
         for batch_idx, (batch_notes, batch_keys) in enumerate(batches, 1):
@@ -595,6 +634,18 @@ class ConsolidatorService:
                 batch_idx,
                 batch_count,
                 len(batch_notes),
+            )
+            await emit_progress(
+                {
+                    "phase": "batch_running",
+                    "batch_size": batch_size,
+                    "notes_total": len(all_notes),
+                    "notes_done": total_notes,
+                    "batches_total": batch_count,
+                    "batches_done": batches_completed,
+                    "current_batch": batch_idx,
+                    "current_batch_notes": len(batch_notes),
+                }
             )
 
             # Relire la bank et la synthèse pour les lots suivants
@@ -666,6 +717,18 @@ class ConsolidatorService:
             total_prompt_tokens += write_result.get("llm_prompt_tokens", 0)
             total_completion_tokens += write_result.get("llm_completion_tokens", 0)
             last_synthesis_size = write_result.get("synthesis_size", 0)
+            await emit_progress(
+                {
+                    "phase": "batch_done",
+                    "batch_size": batch_size,
+                    "notes_total": len(all_notes),
+                    "notes_done": total_notes,
+                    "batches_total": batch_count,
+                    "batches_done": batches_completed,
+                    "current_batch": batch_idx,
+                    "current_batch_notes": len(batch_notes),
+                }
+            )
 
             logger.info(
                 "Batch %d/%d done — %d notes, %d created, %d updated, %d tokens",
@@ -782,6 +845,17 @@ class ConsolidatorService:
             "batch_size": batch_size,
             "duration_seconds": duration,
         }
+        await emit_progress(
+            {
+                "phase": "done",
+                "batch_size": batch_size,
+                "notes_total": len(all_notes),
+                "notes_done": total_notes,
+                "batches_total": batch_count,
+                "batches_done": batches_completed,
+                "current_batch": batches_completed,
+            }
+        )
 
         # Issue #17 — Validation metrics (opt-in)
         if self._validation_enabled:

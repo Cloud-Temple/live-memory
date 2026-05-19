@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from ..config import get_settings
 from .consolidator import get_consolidator
 from .locks import get_lock_manager
 
@@ -47,6 +48,7 @@ class ConsolidationJob:
     result: dict[str, Any] | None = None
     error: str | None = None
     guarantee: str = QUEUE_GUARANTEE
+    progress: dict[str, Any] = field(default_factory=dict)
 
 
 class ConsolidationQueueService:
@@ -80,6 +82,15 @@ class ConsolidationQueueService:
                 space_id=space_id,
                 agent=agent,
                 requested_by=requested_by,
+                progress={
+                    "phase": "queued",
+                    "batch_size": get_settings().consolidation_batch_size,
+                    "notes_total": None,
+                    "notes_done": 0,
+                    "batches_total": None,
+                    "batches_done": 0,
+                    "current_batch": 0,
+                },
             )
             self._jobs[job_id] = job
 
@@ -109,18 +120,34 @@ class ConsolidationQueueService:
             active_id = self._active_jobs.get(space_id)
             active = self._jobs.get(active_id) if active_id else None
             queued_ids = list(self._queues.get(space_id, ()))
+            queued_jobs = [self._job_payload(self._jobs[job_id]) for job_id in queued_ids]
             latest = [
                 self._job_payload(job)
                 for job in reversed(self._jobs.values())
                 if job.space_id == space_id
             ][:10]
+            if active:
+                lane_state = "running"
+            elif queued_ids:
+                lane_state = "queued"
+            elif latest and latest[0].get("status") == "failed":
+                lane_state = "failed"
+            else:
+                lane_state = "idle"
 
             return {
+                "space_id": space_id,
+                "lane_state": lane_state,
+                "parallelism_model": "one_worker_per_space",
                 "guarantee": QUEUE_GUARANTEE,
                 "running_job": self._job_payload(active) if active else None,
                 "queued_count": len(queued_ids),
                 "queued_job_ids": queued_ids,
+                "queued_jobs": queued_jobs,
                 "latest_jobs": latest,
+                "service_config": {
+                    "batch_size": get_settings().consolidation_batch_size,
+                },
             }
 
     def _find_pending_job(self, space_id: str, agent: str) -> str | None:
@@ -150,14 +177,39 @@ class ConsolidationQueueService:
                 job = self._jobs[active_id]
 
             try:
+                async def progress_callback(progress: dict) -> None:
+                    await self._update_progress(job.job_id, progress)
+
                 async with get_lock_manager().consolidation(space_id):
                     result = await get_consolidator().consolidate(
                         space_id,
                         agent=job.agent,
                         enforce_cooldown=False,
+                        progress_callback=progress_callback,
                     )
                 async with self._state_lock:
                     job.result = result
+                    job.progress.update(
+                        {
+                            "phase": "done",
+                            "batch_size": result.get(
+                                "batch_size", job.progress.get("batch_size")
+                            ),
+                            "notes_total": result.get(
+                                "notes_processed", job.progress.get("notes_total")
+                            ),
+                            "notes_done": result.get(
+                                "notes_processed", job.progress.get("notes_done")
+                            ),
+                            "batches_total": result.get(
+                                "batches_total", job.progress.get("batches_total")
+                            ),
+                            "batches_done": result.get(
+                                "batches_completed",
+                                job.progress.get("batches_done"),
+                            ),
+                        }
+                    )
                     job.finished_at = _now()
                     job.status = "succeeded" if result.get("status") == "ok" else "failed"
                     if job.status == "failed":
@@ -171,6 +223,13 @@ class ConsolidationQueueService:
                     job.result = {"status": "error", "message": str(e)}
                     job.finished_at = _now()
                     self._finish_active_locked(space_id, job.job_id)
+
+    async def _update_progress(self, job_id: str, progress: dict[str, Any]) -> None:
+        async with self._state_lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return
+            job.progress.update(progress)
 
     def _pop_next_job_locked(self, space_id: str) -> str | None:
         queue = self._queues.get(space_id)
@@ -209,6 +268,8 @@ class ConsolidationQueueService:
             "job_id": job.job_id,
             "space_id": job.space_id,
             "agent": job.agent,
+            "scope": "agent" if job.agent else "all_agents",
+            "scope_label": f"Agent: {job.agent}" if job.agent else "All agents",
             "requested_by": job.requested_by,
             "queue_position": self._queue_position_locked(job),
             "guarantee": job.guarantee,
@@ -216,6 +277,7 @@ class ConsolidationQueueService:
             "queued_at": job.queued_at,
             "started_at": job.started_at,
             "finished_at": job.finished_at,
+            "progress": dict(job.progress),
         }
         if job.status == "running":
             payload["message"] = (
