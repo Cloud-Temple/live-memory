@@ -322,6 +322,12 @@ class SpaceService:
         # Vérifier l'existence de la synthèse
         synthesis_exists = await storage.exists(f"{space_id}/_synthesis.md")
 
+        from .consolidation_queue import get_consolidation_queue
+
+        consolidation_queue = await get_consolidation_queue().get_space_summary(
+            space_id
+        )
+
         return {
             "status": "ok",
             "space_id": space_id,
@@ -339,6 +345,7 @@ class SpaceService:
             },
             "last_consolidation": meta.get("last_consolidation"),
             "consolidation_count": meta.get("consolidation_count", 0),
+            "consolidation_queue": consolidation_queue,
             "synthesis_exists": synthesis_exists,
         }
 

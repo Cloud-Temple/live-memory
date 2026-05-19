@@ -306,14 +306,16 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `live_read`   | `space_id`, `limit?`, `category?`, `agent?` | Reads live notes (optional filters)                                                                                         |
 | `live_search` | `space_id`, `query`, `limit?`               | Full-text search in notes                                                                                                   |
 
-### Bank (7 tools)
+### Bank (9 tools)
 
 | Tool               | Parameters                        | Description                                                                                             |
 | ------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `bank_read`        | `space_id`, `filename`            | Reads a bank file (supports subfolders: `personaProfiles/buyer.md`)                                     |
 | `bank_read_all`    | `space_id`                        | Reads entire bank in one request (🚀 agent startup)                                                    |
 | `bank_list`        | `space_id`                        | Lists bank files with relative paths (without content)                                                  |
-| `bank_consolidate` | `space_id`, `agent?`              | 🧠 Consolidates notes via LLM. Empty `agent` = all notes (admin). `agent=name` = notes from this agent |
+| `bank_consolidate` | `space_id`, `agent?`              | 🧠 Enqueues LLM consolidation. Empty `agent` = all notes (admin). `agent=name` = notes from this agent |
+| `bank_consolidation_status` | `job_id`              | Tracks an in-memory consolidation job returned by `bank_consolidate` |
+| `bank_compact`     | `space_id`, `dry_run?`            | 🔧 Compacts oversized bank files via LLM. `dry_run=True` by default (admin)                            |
 | `bank_repair`      | `space_id`, `dry_run?`            | 🔧 Repairs corrupted filenames (Unicode, parasitic prefixes). `dry_run=True` by default (admin)        |
 | `bank_write`       | `space_id`, `filename`, `content` | ✏️ Writes/replaces a bank file directly — bypasses LLM consolidation (admin)                          |
 | `bank_delete`      | `space_id`, `filename`            | 🗑️ Deletes a bank file + its Unicode duplicates (admin, irreversible)                                |
@@ -699,7 +701,7 @@ docker compose logs waf --tail 20
 
 - Check LLMaaS credentials in `.env`
 - Default timeout is 600s — increase `CONSOLIDATION_TIMEOUT` if needed
-- Only one `bank_consolidate` at a time per space (asyncio lock)
+- `bank_consolidate` is queued FIFO per space; only one job mutates a space's bank at a time (asyncio lock)
 
 ---
 

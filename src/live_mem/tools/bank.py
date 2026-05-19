@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Outils MCP — Catégorie Bank (8 outils).
+Outils MCP — Catégorie Bank (9 outils).
 
 Memory Bank consolidée : lire, lister, consolider via LLM, compacter,
 réparer, écrire et supprimer manuellement.
@@ -10,13 +10,15 @@ Permissions :
     - bank_read_all    🔑 (read)    — Lit toute la bank (démarrage agent)
     - bank_list        🔑 (read)    — Liste les fichiers bank (sans contenu)
     - bank_consolidate ✏️ (write)   — Déclenche la consolidation LLM
+    - bank_consolidation_status 🔑 (read) — Consulte un job de consolidation
     - bank_compact     🔧 (manage)  — Compacte les fichiers bank surdimensionnés via LLM
     - bank_repair      🔧 (manage)  — Répare les noms de fichiers corrompus par le LLM
     - bank_write       🔧 (manage)  — Écrit/remplace un fichier bank directement
     - bank_delete      🔧 (manage)  — Supprime un fichier bank
 
 La consolidation est l'opération qui transforme les notes live en
-fichiers bank structurés. Un seul consolidate à la fois par espace
+fichiers bank structurés. `bank_consolidate` place un job dans une file
+FIFO en mémoire par espace. Un seul job à la fois mute la bank d'un espace
 (protégé par asyncio.Lock).
 
 Voir CONSOLIDATION_LLM.md pour le pipeline détaillé.
@@ -70,13 +72,13 @@ def _validate_bank_filename(filename: str) -> dict | None:
 
 def register(mcp: FastMCP) -> int:
     """
-    Enregistre les 8 outils bank sur l'instance MCP.
+    Enregistre les 9 outils bank sur l'instance MCP.
 
     Args:
         mcp: Instance FastMCP
 
     Returns:
-        Nombre d'outils enregistrés (8)
+        Nombre d'outils enregistrés (9)
     """
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -298,11 +300,12 @@ def register(mcp: FastMCP) -> int:
         ] = "",
     ) -> dict:
         """
-        Déclenche la consolidation : le LLM lit les notes live et produit
-        les fichiers bank mis à jour selon les rules.
+        Enfile une consolidation asynchrone : le LLM lira les notes live
+        au moment de l'exécution du job et produira les fichiers bank mis
+        à jour selon les rules.
 
-        ⚠️ Un seul consolidate peut s'exécuter à la fois par espace.
-        Si une consolidation est déjà en cours, retourne "conflict".
+        ⚠️ La file PR 1 est en mémoire et mono-processus :
+        garantie `in_memory_best_effort`, non durable au redémarrage.
 
         Le pipeline :
         1. Lit les rules, synthèse, notes live, bank actuelle
@@ -314,23 +317,21 @@ def register(mcp: FastMCP) -> int:
         Args:
             space_id: Identifiant de l'espace à consolider
             agent: Nom de l'agent dont consolider les notes.
-                   Vide + admin = consolide TOUTES les notes.
+                   Vide + manage/admin = consolide TOUTES les notes.
                    Vide + write = auto-détecte le caller (ses propres notes).
                    Si l'agent correspond au token → write suffit.
-                   Si l'agent est différent → admin requis.
+                   Si l'agent est différent → manage requis.
 
         Returns:
-            Métriques de consolidation (notes traitées, fichiers MAJ, tokens)
+            Accusé de réception du job (running/queued + job_id)
         """
         from ..auth.context import (
             check_access,
             check_write_permission,
             check_manage_permission,
-            check_admin_permission,
             get_current_agent_name,
         )
-        from ..core.locks import get_lock_manager
-        from ..core.consolidator import get_consolidator
+        from ..core.consolidation_queue import get_consolidation_queue
 
         try:
             # Vérifier accès à l'espace
@@ -381,23 +382,49 @@ def register(mcp: FastMCP) -> int:
                 if not agent:
                     agent = caller
 
-            # Vérifier le lock de consolidation
-            lock = get_lock_manager().consolidation(space_id)
-            if lock.locked():
-                return {
-                    "status": "conflict",
-                    "message": (
-                        f"Consolidation déjà en cours pour '{space_id}'. "
-                        "Réessayez dans quelques minutes."
-                    ),
-                }
-
-            # Exécuter la consolidation sous lock
-            # agent="" → consolide TOUTES les notes (pas de filtre)
+            # Enfile le job. Le worker de fond utilise l'agent effectif
+            # capturé ici, sans dépendre du contexte d'auth MCP.
+            # agent="" → consolide TOUTES les notes (manage/admin uniquement)
             # agent="mon-agent" → consolide uniquement les notes de cet agent
-            async with lock:
-                return await get_consolidator().consolidate(space_id, agent=agent)
+            return await get_consolidation_queue().enqueue(
+                space_id=space_id,
+                agent=agent,
+                requested_by=caller,
+            )
 
+        except Exception as e:
+            from ..auth.context import safe_error
+
+            return safe_error(e, "bank")
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def bank_consolidation_status(
+        job_id: Annotated[
+            str, Field(description="Identifiant du job de consolidation")
+        ],
+    ) -> dict:
+        """
+        Consulte le statut d'un job de consolidation en mémoire.
+
+        Args:
+            job_id: Identifiant retourné par bank_consolidate
+
+        Returns:
+            Statut du job et résultat/erreur si terminé.
+        """
+        from ..auth.context import check_access
+        from ..core.consolidation_queue import get_consolidation_queue
+
+        try:
+            result = await get_consolidation_queue().get_job(job_id)
+            if result.get("status") == "not_found":
+                return result
+
+            access_err = check_access(result["space_id"])
+            if access_err:
+                return access_err
+
+            return result
         except Exception as e:
             from ..auth.context import safe_error
 
@@ -878,4 +905,4 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    return 8  # Nombre d'outils enregistrés
+    return 9  # Nombre d'outils enregistrés

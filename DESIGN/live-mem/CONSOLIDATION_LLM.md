@@ -59,15 +59,17 @@ _synthesis.md (previous)
 
 ## 2. The `agent` Parameter (v0.2.0+)
 
-The `agent` parameter of `bank_consolidate` controls note filtering:
+The `agent` parameter of `bank_consolidate` controls note filtering. Since issue #20, `bank_consolidate` enqueues a background job and returns immediately; notes are collected at job execution time, not at enqueue time.
 
 | Value | Behavior | Permission |
 |-------|----------|------------|
-| `agent=""` (empty) | Consolidates **ALL** notes | Admin required |
+| `agent=""` (empty) | Consolidates **ALL** notes | Manage/admin required |
 | `agent="cline-dev"` (= caller) | Consolidates only this agent's notes | Write sufficient |
-| `agent="other"` (≠ caller) | Consolidates another agent's notes | Admin required |
+| `agent="other"` (≠ caller) | Consolidates another agent's notes | Manage/admin required |
 
 Filtering is based on the filename: `{ts}_{agent}_{cat}_{uuid}.md` — the system looks for `_{agent}_` in the filename.
+
+Queued jobs run FIFO per `space_id` under the existing per-space lock. The PR 1 queue is in-memory (`in_memory_best_effort`) and is not durable across server restarts.
 
 ---
 

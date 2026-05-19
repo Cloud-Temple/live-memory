@@ -455,7 +455,9 @@ class ConsolidatorService:
         self._validation_max_examples = settings.consolidation_validation_max_examples
 
 
-    async def consolidate(self, space_id: str, agent: str = "") -> dict:
+    async def consolidate(
+        self, space_id: str, agent: str = "", enforce_cooldown: bool = True
+    ) -> dict:
         """
         Pipeline complet de consolidation pour un espace, par lots.
 
@@ -473,6 +475,9 @@ class ConsolidatorService:
         Args:
             space_id: Identifiant de l'espace à consolider
             agent: Nom de l'agent appelant (filtre les notes à consolider)
+            enforce_cooldown: Si False, contourne le cooldown LM2-18.
+                Utilisé par la file FIFO issue #20 pour éviter qu'un job
+                légitime échoue juste après le job précédent.
 
         Returns:
             Métriques de consolidation ou erreur
@@ -486,7 +491,7 @@ class ConsolidatorService:
         # même la lecture S3) pour fail-fast en cas de spam. Si la conso
         # échoue ensuite, le compteur reste — c'est volontaire pour
         # éviter le retry intempestif suite à un échec transitoire.
-        if self._cooldown_seconds > 0:
+        if enforce_cooldown and self._cooldown_seconds > 0:
             last_started = _last_consolidation_started.get(space_id)
             if last_started is not None:
                 elapsed = time.monotonic() - last_started
