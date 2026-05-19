@@ -531,6 +531,84 @@ def show_bank_compact_result(result: dict):
         )
 
 
+def show_consolidation_job(result: dict):
+    """Displays a consolidation job status."""
+    status = result.get("status", "?")
+    color = {
+        "running": "cyan",
+        "queued": "yellow",
+        "succeeded": "green",
+        "failed": "red",
+    }.get(status, "white")
+    progress = result.get("progress", {})
+
+    lines = [
+        f"[bold]Job ID     :[/bold] [cyan]{result.get('job_id', '?')}[/cyan]",
+        f"[bold]Space      :[/bold] {result.get('space_id', '?')}",
+        f"[bold]Status     :[/bold] [{color}]{status}[/{color}]",
+        f"[bold]Agent      :[/bold] {result.get('agent', '*')}",
+        f"[bold]Requested  :[/bold] {result.get('requested_by', '?')}",
+        f"[bold]Position   :[/bold] {result.get('queue_position', '?')}",
+    ]
+    if progress:
+        phase = progress.get("phase", "?")
+        lines.append(f"[bold]Phase      :[/bold] {phase}")
+        if progress.get("notes_total") is not None:
+            lines.append(
+                f"[bold]Notes      :[/bold] {progress.get('notes_done', 0)}/{progress.get('notes_total', '?')}"
+            )
+        if progress.get("batches_total") is not None:
+            lines.append(
+                f"[bold]Batches    :[/bold] {progress.get('batches_done', 0)}/{progress.get('batches_total', '?')}"
+            )
+    if result.get("error"):
+        lines.append(f"[bold]Error      :[/bold] [red]{result['error']}[/red]")
+
+    console.print(
+        Panel.fit(
+            "\n".join(lines),
+            title=f"🔄 Consolidation Job — {status}",
+            border_style=color,
+        )
+    )
+
+
+def show_consolidation_queues(result: dict):
+    """Displays consolidation queue lanes per space."""
+    spaces = result.get("spaces", [])
+    totals = result.get("totals", {})
+
+    summary = (
+        f"[bold]Spaces     :[/bold] {totals.get('spaces_total', len(spaces))}\n"
+        f"[bold]Running    :[/bold] {totals.get('running', 0)}\n"
+        f"[bold]Queued     :[/bold] {totals.get('queued', 0)}\n"
+        f"[bold]Guarantee  :[/bold] {result.get('guarantee', '?')}"
+    )
+    console.print(
+        Panel.fit(summary, title="🔄 Consolidation Lanes", border_style="cyan")
+    )
+
+    if spaces:
+        table = Table(show_header=True)
+        table.add_column("Space", style="cyan bold")
+        table.add_column("Lane", justify="center")
+        table.add_column("Running", justify="center")
+        table.add_column("Queued", justify="right")
+
+        for s in spaces:
+            lane = s.get("lane_state", "idle")
+            lane_color = {"running": "cyan", "queued": "yellow", "idle": "dim", "failed": "red"}.get(lane, "white")
+            running = s.get("running_job")
+            running_str = running.get("job_id", "—")[:16] if running else "—"
+            table.add_row(
+                s.get("space_id", "?"),
+                f"[{lane_color}]{lane}[/{lane_color}]",
+                running_str,
+                str(s.get("queued_count", 0)),
+            )
+        console.print(table)
+
+
 # =============================================================================
 # Admin tokens
 # =============================================================================

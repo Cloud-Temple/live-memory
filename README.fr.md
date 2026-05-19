@@ -441,7 +441,7 @@ Les endpoints `/api/*` nécessitent un Bearer Token. La page `/live` et les fich
 
 ### Console d'administration (`/admin`)
 
-Une **console d'administration** complète est disponible à `/admin`, exposant les 40 outils MCP via une interface web :
+Une **console d'administration** complète est disponible à `/admin`, exposant les 42 outils MCP via une interface web :
 
 ```
 http://localhost:8080/admin
@@ -644,7 +644,7 @@ Voir [scripts/README.md](scripts/README.md) pour le détail complet.
 
 ```
 live-memory/
-├── src/live_mem/              # Code source (40 outils MCP + interface web)
+├── src/live_mem/              # Code source (42 outils MCP + interface web)
 │   ├── server.py              # Serveur FastMCP + middlewares
 │   ├── config.py              # Configuration pydantic-settings
 │   ├── auth/                  # Authentification

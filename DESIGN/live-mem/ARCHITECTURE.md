@@ -72,7 +72,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 │              Live Memory MCP Server (:8002)                │
 │                                                            │
 │  ┌─────────────────┐  ┌──────────────────┐                 │
-│  │  39 MCP Tools   │  │  LLM Service     │                 │
+│  │  42 MCP Tools   │  │  LLM Service     │                 │
 │  │  (7 categories) │  │  (consolidator)  │                 │
 │  └────────┬────────┘  └────────┬─────────┘                 │
 │           │                    │                           │
@@ -118,7 +118,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 | Component                | Role                                       | Technology                               |
 | ------------------------ | ------------------------------------------ | ---------------------------------------- |
 | **WAF**                  | Secure reverse proxy                       | Caddy + Coraza OWASP CRS + Rate Limiting |
-| **MCP Server**           | Python MCP server (40 tools, 7 categories) | FastMCP + Uvicorn (ASGI)                 |
+| **MCP Server**           | Python MCP server (42 tools, 7 categories) | FastMCP + Uvicorn (ASGI)                 |
 | **Storage Service**      | S3 abstraction (read/write/listing)        | boto3 hybrid SigV2/V4                    |
 | **Consolidator Service** | LLM synthesis of notes → bank              | AsyncOpenAI (qwen3.5:27b)                |
 | **Graph Bridge**         | Bridge to Graph Memory (long-term memory)  | MCP SDK (streamablehttp_client)          |
@@ -312,7 +312,7 @@ Live Memory exposes a **SPA web interface** on `/live`:
 
 ### Admin Console (`/admin`)
 
-Live Memory also exposes an **administration console** on `/admin` covering all 40 MCP tools:
+Live Memory also exposes an **administration console** on `/admin` covering all 42 MCP tools:
 
 - **Architecture**: internal proxy via `_mcp_ref.call_tool_direct()` bypassing the Streamable HTTP protocol. The ASGI auth middleware injects the token context before each call, so security is inherited from the MCP layer.
 - **Backend**: `POST /api/tool` route in `auth/middleware.py`, protected (401 without session). Routes `/admin` and `/static/css/admin.css`, `/static/js/admin-*.js` served by StaticFilesMiddleware.

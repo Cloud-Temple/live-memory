@@ -564,9 +564,34 @@ async def _handle_bank(client, args, json_out):
             "status"
         ) == "ok" else show_error(result.get("message", "?"))
 
+    elif sub == "consolidation-status" and len(args) >= 2:
+        result = await client.call_tool(
+            "bank_consolidation_status", {"job_id": args[1]}
+        )
+        if json_out:
+            show_json(result)
+        elif result.get("status") == "not_found":
+            show_error(result.get("message", "Job not found"))
+        else:
+            from .display import show_consolidation_job
+            show_consolidation_job(result)
+
+    elif sub == "consolidation-queues":
+        space_ids_arg = args[1] if len(args) >= 2 else ""
+        result = await client.call_tool(
+            "bank_consolidation_queues", {"space_ids": space_ids_arg}
+        )
+        if json_out:
+            show_json(result)
+        elif result.get("status") == "ok":
+            from .display import show_consolidation_queues
+            show_consolidation_queues(result)
+        else:
+            show_error(result.get("message", "?"))
+
     else:
         show_warning(
-            "Usage: bank [list|read|read-all|consolidate|compact|write|delete|repair] ..."
+            "Usage: bank [list|read|read-all|consolidate|consolidation-status|consolidation-queues|compact|write|delete|repair] ..."
         )
 
 

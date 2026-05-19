@@ -5,6 +5,54 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.2.0] — 2026-05-19
+
+### Added
+
+- **Async consolidation queue** (PR #21 by @b1pb1p, issue #20) — `bank_consolidate`
+  is now asynchronous: it enqueues a background job and returns immediately with a
+  `job_id` and `queue_position`. Jobs are processed FIFO per space with one background
+  worker per active space. Same-space requests are serialized instead of rejected with
+  `conflict`. Duplicate pending jobs for the same agent/space are coalesced.
+  - New `ConsolidationQueueService` singleton (`core/consolidation_queue.py`, 327 lines):
+    FIFO queue, coalescing, worker per space, progress callbacks.
+  - New `progress_callback` and `enforce_cooldown` parameters on `ConsolidatorService.consolidate()`.
+  - `space_info` now includes `consolidation_queue` summary.
+  - Queue durability is `in_memory_best_effort`: jobs are not persisted across process restart.
+- **`bank_consolidation_status`** (42nd MCP tool) — Tracks an in-memory consolidation
+  job returned by `bank_consolidate`. Returns `queued`, `running`, `succeeded`, `failed`,
+  or `not_found`. Read permission required on the job's space.
+- **`bank_consolidation_queues`** (42nd MCP tool) — Read-only view of consolidation
+  lanes per space: lane state, running job, queued jobs, latest history, batch config.
+  Accepts optional CSV `space_ids` filter. Exposed via `/admin` UI.
+- **Admin console — Consolidation Lanes UI** — Dashboard and Explorer in `/admin` now
+  display per-space consolidation lanes with lane state badges, running job progress
+  (notes/batches), queue depth, and Consolidate buttons (all notes / my notes).
+  Screenshots: `DESIGN/live-mem/assets/admin-consolidation-lanes-*.png`.
+- **CLI support** — New Click commands `bank consolidation-status <job_id>` and
+  `bank consolidation-queues [space_ids]`. Shell subcommands `bank consolidation-status`
+  and `bank consolidation-queues`. Rich display functions `show_consolidation_job` and
+  `show_consolidation_queues`.
+- **12 tests** (`tests/test_consolidation_queue.py`) — Covers enqueue, coalescing,
+  FIFO ordering, worker lifecycle, progress callbacks, trim history.
+
+### Changed
+
+- **Bank tool count**: 8 → 10 tools (+ `bank_consolidation_status`, `bank_consolidation_queues`).
+  Total MCP tools: 40 → **42** (7 categories).
+- **`bank_consolidate` behavior**: returns `{"status": "running"|"queued"}` with `job_id`
+  instead of blocking until completion. Existing agents/scripts relying on synchronous
+  completion should poll `bank_consolidation_status(job_id)` or inspect `space_info`.
+- **FAQ.md**: "conflict" → "queued" language updated.
+- **DESIGN docs updated**: `CONCURRENCY.md`, `CONSOLIDATION_LLM.md`, `MCP_TOOLS_SPEC.md`
+  reflect the async queue model.
+
+### Tests
+
+- Global suite: **384 passed + 1 xfailed** (+ 12 new queue tests). No regression.
+
+---
+
 ## [2.1.0] — 2026-05-18
 
 ### Added

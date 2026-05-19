@@ -450,12 +450,46 @@ def bank_list_cmd(ctx, space_id, jflag):
 @click.option("--json", "-j", "jflag", is_flag=True)
 @click.pass_context
 def bank_consolidate_cmd(ctx, space_id, jflag):
-    """🧠 Consolidate notes via LLM."""
+    """🧠 Enqueue LLM consolidation (async, returns job_id)."""
     _run_tool(
         ctx,
         "bank_consolidate",
         {"space_id": space_id},
         show_consolidation_result,
+        jflag,
+    )
+
+
+@bank_grp.command("consolidation-status")
+@click.argument("job_id")
+@click.option("--json", "-j", "jflag", is_flag=True)
+@click.pass_context
+def bank_consolidation_status_cmd(ctx, job_id, jflag):
+    """🔄 Track an in-memory consolidation job."""
+    from .display import show_consolidation_job
+
+    _run_tool(
+        ctx,
+        "bank_consolidation_status",
+        {"job_id": job_id},
+        show_consolidation_job,
+        jflag,
+    )
+
+
+@bank_grp.command("consolidation-queues")
+@click.argument("space_ids", default="")
+@click.option("--json", "-j", "jflag", is_flag=True)
+@click.pass_context
+def bank_consolidation_queues_cmd(ctx, space_ids, jflag):
+    """🔄 Show consolidation lanes per space."""
+    from .display import show_consolidation_queues
+
+    _run_tool(
+        ctx,
+        "bank_consolidation_queues",
+        {"space_ids": space_ids},
+        show_consolidation_queues,
         jflag,
     )
 

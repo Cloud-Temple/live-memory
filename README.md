@@ -122,7 +122,7 @@ Specifically, agents can:
                        │
           ┌────────────┴───────────────────┐
           │   Live Memory MCP (:8002)      │
-          │   40 tools • Auth Bearer       │
+          │   42 tools • Auth Bearer       │
           │   LLM Consolidation            │
           └──────┬──────────┬──────┬───────┘
                  │          │      │
@@ -274,7 +274,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 ## 🔧 MCP Tools
 
-40 tools exposed via the MCP protocol (Streamable HTTP), divided into 7 categories.
+42 tools exposed via the MCP protocol (Streamable HTTP), divided into 7 categories.
 
 ### System (3 tools)
 
@@ -444,7 +444,7 @@ http://localhost:8080/live
 
 ### Admin Console (`/admin`)
 
-A full **administration console** is available at `/admin`, exposing all 40 MCP tools through a web interface:
+A full **administration console** is available at `/admin`, exposing all 42 MCP tools through a web interface:
 
 ```
 http://localhost:8080/admin
@@ -638,7 +638,7 @@ python scripts/test_recette.py --suite isolation -v --step --no-cleanup
 
 ```
 live-memory/
-├── src/live_mem/              # Source code (40 MCP tools + web interface)
+├── src/live_mem/              # Source code (42 MCP tools + web interface)
 │   ├── server.py              # FastMCP server + middlewares
 │   ├── config.py              # pydantic-settings configuration
 │   ├── auth/                  # Authentication
