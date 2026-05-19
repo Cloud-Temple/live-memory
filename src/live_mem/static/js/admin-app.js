@@ -15,6 +15,7 @@ async function loadSpaces() { try{const r=await callTool('space_list',{});cache.
 async function loadTokens() { try{const r=await callTool('admin_list_tokens',{include_revoked:true});cache.tokens=r.tokens||[];}catch{cache.tokens=[];} return cache.tokens; }
 async function loadBackups(sid='') { try{const r=await callTool('backup_list',{space_id:sid});cache.backups=r.backups||[];}catch{cache.backups=[];} return cache.backups; }
 async function loadBankFiles(sid) { if(!sid)return[]; try{const r=await callTool('bank_list',{space_id:sid});cache.bankFiles[sid]=r.files||[];}catch{cache.bankFiles[sid]=[];} return cache.bankFiles[sid]; }
+async function loadConsolidationQueues(spaceIds=[]) { try{return await callTool('bank_consolidation_queues',{space_ids:spaceIds.join(',')});}catch{return {status:'error',lanes:[]};} }
 
 const CATS = {
     dashboard:{icon:'📊',label:'Dashboard'}, spaces:{icon:'📂',label:'Spaces'}, tokens:{icon:'🔑',label:'Tokens'},
@@ -22,6 +23,8 @@ const CATS = {
     maintenance:{icon:'🧹',label:'Maintenance'},
 };
 let activeCat = 'dashboard';
+let _dashHealth = {};
+let _currentIdentity = {};
 
 // ═══════════════ LOGIN ═══════════════
 function showLogin(msg=''){document.getElementById('loginOverlay').classList.remove('hidden');document.getElementById('loginError').textContent=msg?`❌ ${msg}`:'';document.getElementById('loginToken').focus();}
@@ -106,6 +109,9 @@ document.addEventListener('click', e => {
 
     // Dashboard health drill-down
     if (a === 'dash-health') { showHealthModal(); return; }
+    if (a === 'refresh-lanes') { activeCat==='dashboard'?renderDashboard():refreshExplorerLane(d.space); return; }
+    if (a === 'queue-status') { runAndShow('bank_consolidation_status',{job_id:d.job}); return; }
+    if (a === 'consolidate-lane') { consolidateLane(d.space,d.scope||'all'); return; }
 
     // Upload rules
     if (a === 'upload-rules') { showUploadRules(d.space); return; }
@@ -113,17 +119,17 @@ document.addEventListener('click', e => {
 
 // ═══════════════ DASHBOARD ═══════════════
 // Cache health data for modal drill-down
-let _dashHealth = {};
 
 async function renderDashboard(){
     const c=document.getElementById('content');
-    c.innerHTML='<div class="page"><h2 class="page-title">📊 Dashboard</h2><div class="dash-cards" id="dashCards"><div class="page-loading">Loading…</div></div><div class="dash-identity" id="dashIdentity"></div></div>';
+    c.innerHTML='<div class="page"><h2 class="page-title">📊 Dashboard</h2><div class="dash-cards" id="dashCards"><div class="page-loading">Loading…</div></div><div class="dash-identity" id="dashIdentity"></div><div id="dashQueues"></div></div>';
     const [health,whoami,spaces,tokens]=await Promise.all([
         callTool('system_health',{}).catch(()=>({})),
         callTool('system_whoami',{}).catch(()=>({})),
         loadSpaces(),loadTokens()
     ]);
     _dashHealth = health;
+    _currentIdentity = whoami || {};
     const el=document.getElementById('dashCards');if(!el)return;
     const hst=health.status||'?', hcls=hst==='healthy'?'green':hst==='degraded'?'orange':'red';
     const s3=health.services?.s3?.status||'?', llm=health.services?.llmaas?.status||'?';
@@ -150,6 +156,11 @@ async function renderDashboard(){
     const authBadge=`<span class="badge purple">${esc(whoami.auth_type||'?')}</span>`;
     const warn=whoami.note?` · <span style="color:var(--warn)">⚠️ ${esc(whoami.note)}</span>`:'';
     idEl.innerHTML=`👤 <strong>${esc(whoami.client_name||'?')}</strong> ${authBadge} · ${perms}${warn}`;
+
+    const qEl=document.getElementById('dashQueues');if(!qEl)return;
+    qEl.innerHTML='<div class="page-loading">Loading consolidation lanes…</div>';
+    const queues=await loadConsolidationQueues(spaces.map(s=>s.space_id));
+    if(activeCat==='dashboard')qEl.innerHTML=renderQueueDashboard(queues,spaces);
 }
 
 function showHealthModal(){
@@ -166,6 +177,83 @@ function showHealthModal(){
     }}
     html+=`</div>`;
     showModal('❤️ Health Details',html,'Close',()=>true);
+}
+
+function hasManageScope(){
+    const p=_currentIdentity.permissions||[];
+    return p.includes('manage')||p.includes('admin');
+}
+
+function queueStateBadge(lane){
+    const st=lane?.lane_state||'idle';
+    const cls=st==='running'?'orange':st==='queued'?'blue':st==='failed'?'red':'green';
+    return `<span class="badge ${cls}">${esc(st)}</span>`;
+}
+
+function scopeBadge(job){
+    if(!job)return '<span class="text-muted">—</span>';
+    const cls=job.scope==='all_agents'?'purple':'blue';
+    return `<span class="badge ${cls}">${esc(job.scope_label||job.scope||'scope')}</span>`;
+}
+
+function jobShort(id){
+    if(!id)return '—';
+    return id.length>18?id.substring(0,18)+'…':id;
+}
+
+function jobProgress(job,lane){
+    const p=job?.progress||{};
+    const r=job?.result||{};
+    const batchSize=p.batch_size??r.batch_size??lane?.service_config?.batch_size;
+    const bt=p.batches_total??r.batches_total;
+    const bd=p.batches_done??r.batches_completed;
+    const nt=p.notes_total??r.notes_processed;
+    const nd=p.notes_done??r.notes_processed;
+    const pct=(bt&&bd!=null)?Math.min(100,Math.round((bd/bt)*100)):0;
+    const batchTxt=bt!=null?`${bd||0}/${bt} batches`:'planning batches';
+    const notesTxt=nt!=null?`${nd||0}/${nt} notes`:'notes pending';
+    return `<div class="queue-progress">
+        <div class="queue-progress-top"><span>${esc(batchTxt)}</span><span>${esc(notesTxt)}</span></div>
+        <div class="queue-bar"><span style="width:${pct}%"></span></div>
+        <div class="queue-progress-bottom">batch size: ${batchSize??'?'} notes</div>
+    </div>`;
+}
+
+function renderQueueDashboard(data,spaces=[]){
+    if(data.status==='error')return `<div class="queue-section"><div class="empty">${esc(data.message||'Unable to load consolidation lanes')}</div></div>`;
+    const lanes=data.lanes||[];
+    const byId=new Map(lanes.map(l=>[l.space_id,l]));
+    const rows=(spaces.length?spaces.map(s=>byId.get(s.space_id)||{space_id:s.space_id,lane_state:'idle',queued_count:0,latest_jobs:[],service_config:data.service_config||{}}):lanes);
+    const batchSize=rows.find(l=>l.service_config?.batch_size)?.service_config?.batch_size || '?';
+    return `<div class="queue-section">
+        <div class="queue-section-head">
+            <div><h3>Consolidation Lanes</h3><p>1 worker per space · spaces run in parallel · queues are isolated by space</p></div>
+            <button class="btn-sm blue" data-action="refresh-lanes">Refresh</button>
+        </div>
+        <div class="queue-metrics">
+            <div class="queue-metric"><strong>${data.active_spaces??0}</strong><span>active spaces</span></div>
+            <div class="queue-metric"><strong>${data.running_spaces??0}</strong><span>running now</span></div>
+            <div class="queue-metric"><strong>${data.queued_jobs??0}</strong><span>queued jobs</span></div>
+            <div class="queue-metric"><strong>${batchSize}</strong><span>notes / batch</span></div>
+        </div>
+        <table class="data-table queue-table"><thead><tr><th>Space</th><th>Lane state</th><th>Running scope</th><th>Batch progress</th><th>Queue</th><th>Actions</th></tr></thead><tbody>${
+            rows.map(l=>{
+                const running=l.running_job;
+                const latest=(l.latest_jobs||[])[0];
+                return `<tr>
+                    <td><strong>${esc(l.space_id)}</strong><br><span class="mono text-muted">${esc(l.parallelism_model||'one_worker_per_space')}</span></td>
+                    <td>${queueStateBadge(l)}</td>
+                    <td>${scopeBadge(running)}${running?`<br><span class="mono text-muted">${esc(jobShort(running.job_id))}</span>`:''}</td>
+                    <td>${running?jobProgress(running,l):(latest?`<span class="text-muted">${esc(latest.status||'idle')}</span>`:'<span class="text-muted">—</span>')}</td>
+                    <td>${l.queued_count?`<span class="badge blue">+${l.queued_count}</span>`:'<span class="text-muted">empty</span>'}</td>
+                    <td class="actions-cell">
+                        <button class="btn-sm blue" data-action="explore-space" data-space="${esc(l.space_id)}">Explore</button>
+                        ${running?`<button class="btn-sm" data-action="queue-status" data-job="${esc(running.job_id)}">Status</button>`:''}
+                    </td>
+                </tr>`;
+            }).join('')
+        }</tbody></table>
+    </div>`;
 }
 
 // ═══════════════ SPACES ═══════════════
@@ -310,20 +398,76 @@ async function renderExplorer(){
     const c=document.getElementById('content');
     c.innerHTML=`<div class="page"><div class="page-header"><h2 class="page-title">🔍 Explorer</h2><div>${spaceSelect('explorerSpace')}</div></div><div id="explorerContent"><div class="empty">Select a space to explore.</div></div></div>`;
     document.getElementById('explorerSpace').addEventListener('change',async function(){
-        const sid=this.value,el=document.getElementById('explorerContent');
-        if(!sid){el.innerHTML='<div class="empty">Select a space.</div>';return;}
-        el.innerHTML='<div class="page-loading">Loading…</div>';
-        const [notes,bank]=await Promise.all([callTool('live_read',{space_id:sid,limit:30}).catch(()=>({notes:[]})),callTool('bank_list',{space_id:sid}).catch(()=>({files:[]}))]);
-        const nl=notes.notes||[],fl=bank.files||[];
-        el.innerHTML=`<div class="explorer-grid">
-            <div class="explorer-col"><h3>📝 Live Notes <span class="badge blue">${nl.length}</span></h3>
-                ${nl.length?nl.map(n=>`<div class="note-card"><div class="note-meta"><span class="badge blue">${esc(n.category||'?')}</span> <strong>${esc(n.agent||'?')}</strong> <span class="text-muted">${fmtTime(n.timestamp)}</span></div><div class="note-text">${esc((n.content||'').substring(0,300))}${(n.content||'').length>300?'…':''}</div></div>`).join(''):'<div class="empty">No live notes.</div>'}
-            </div>
-            <div class="explorer-col"><h3>📘 Bank Files <span class="badge green">${fl.length}</span></h3>
-                ${fl.length?`<table class="data-table compact"><thead><tr><th>File</th><th>Size</th><th></th></tr></thead><tbody>${fl.map(f=>`<tr><td><strong>${esc(f.filename)}</strong></td><td class="text-muted">${fmtSize(f.size)}</td><td><button class="btn-sm" data-action="read-bank" data-space="${esc(sid)}" data-file="${esc(f.filename)}">📖 Read</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No bank files.</div>'}
-                <div id="bankFileContent"></div>
-            </div></div>`;
+        await loadExplorerSpace(this.value);
     });
+}
+
+async function loadExplorerSpace(sid){
+    const el=document.getElementById('explorerContent');
+    if(!el)return;
+    if(!sid){el.innerHTML='<div class="empty">Select a space.</div>';return;}
+    el.innerHTML='<div class="page-loading">Loading…</div>';
+    const [notes,bank,queues,whoami]=await Promise.all([
+        callTool('live_read',{space_id:sid,limit:30}).catch(()=>({notes:[]})),
+        callTool('bank_list',{space_id:sid}).catch(()=>({files:[]})),
+        loadConsolidationQueues([sid]),
+        callTool('system_whoami',{}).catch(()=>_currentIdentity||{}),
+    ]);
+    _currentIdentity=whoami||_currentIdentity||{};
+    const nl=notes.notes||[],fl=bank.files||[],lane=(queues.lanes||[])[0]||{space_id:sid,lane_state:'idle',queued_count:0,latest_jobs:[]};
+    el.innerHTML=`${renderExplorerLane(lane)}
+        <div class="explorer-grid">
+        <div class="explorer-col"><h3>📝 Live Notes <span class="badge blue">${nl.length}</span></h3>
+            ${nl.length?nl.map(n=>`<div class="note-card"><div class="note-meta"><span class="badge blue">${esc(n.category||'?')}</span> <strong>${esc(n.agent||'?')}</strong> <span class="text-muted">${fmtTime(n.timestamp)}</span></div><div class="note-text">${esc((n.content||'').substring(0,300))}${(n.content||'').length>300?'…':''}</div></div>`).join(''):'<div class="empty">No live notes.</div>'}
+        </div>
+        <div class="explorer-col"><h3>📘 Bank Files <span class="badge green">${fl.length}</span></h3>
+            ${fl.length?`<table class="data-table compact"><thead><tr><th>File</th><th>Size</th><th></th></tr></thead><tbody>${fl.map(f=>`<tr><td><strong>${esc(f.filename)}</strong></td><td class="text-muted">${fmtSize(f.size)}</td><td><button class="btn-sm" data-action="read-bank" data-space="${esc(sid)}" data-file="${esc(f.filename)}">📖 Read</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No bank files.</div>'}
+            <div id="bankFileContent"></div>
+        </div></div>`;
+}
+
+async function refreshExplorerLane(sid){
+    const current=sid||document.getElementById('explorerSpace')?.value;
+    if(current)await loadExplorerSpace(current);
+}
+
+function renderExplorerLane(lane){
+    const running=lane.running_job;
+    const queued=lane.queued_jobs||[];
+    const canAll=hasManageScope();
+    const mineLabel=_currentIdentity.client_name?`Consolidate my notes (${esc(_currentIdentity.client_name)})`:'Consolidate my notes';
+    return `<div class="lane-panel">
+        <div class="lane-head">
+            <div><h3>Consolidation Lane: ${esc(lane.space_id)}</h3><p>One active worker for this space. Other spaces can run in parallel.</p></div>
+            <div>${queueStateBadge(lane)}</div>
+        </div>
+        <div class="lane-grid">
+            <div class="lane-cell"><span>Status</span><strong>${running?esc(jobShort(running.job_id)):'No active worker'}</strong><small>${esc(lane.guarantee||'in_memory_best_effort')}</small></div>
+            <div class="lane-cell"><span>Scope</span><strong>${running?(running.scope==='all_agents'?'All agents':'Agent scope'):'—'}</strong><small>${running?esc(running.requested_by||''):'Admin can consolidate all; agents only their notes'}</small></div>
+            <div class="lane-cell wide">${running?jobProgress(running,lane):`<span class="text-muted">Next run will use batch size ${lane.service_config?.batch_size??'?'} notes.</span>`}</div>
+        </div>
+        <div class="lane-queue">
+            <strong>Queue</strong>
+            ${queued.length?queued.map(j=>`<button class="queue-chip" data-action="queue-status" data-job="${esc(j.job_id)}">#${j.queue_position} ${esc(j.scope_label||'job')}</button>`).join(''):'<span class="text-muted">empty</span>'}
+        </div>
+        <div class="lane-actions">
+            <button class="btn-sm blue" data-action="refresh-lanes" data-space="${esc(lane.space_id)}">Refresh</button>
+            <button class="btn-action" data-action="consolidate-lane" data-scope="all" data-space="${esc(lane.space_id)}" ${canAll?'':'disabled'}>Consolidate all notes</button>
+            <button class="btn-action blue" data-action="consolidate-lane" data-scope="mine" data-space="${esc(lane.space_id)}">${mineLabel}</button>
+            ${canAll?'':'<span class="form-hint">manage permission required for all notes</span>'}
+        </div>
+    </div>`;
+}
+
+async function consolidateLane(sid,scope='all'){
+    if(!sid)return;
+    const args={space_id:sid};
+    if(scope==='mine'&&_currentIdentity.client_name)args.agent=_currentIdentity.client_name;
+    showModal('🧠 Queueing consolidation','<div class="page-loading">Submitting consolidation job…</div>',null,null);
+    const r=await callTool('bank_consolidate',args);
+    closeModal();
+    showModal('🧠 Consolidation Job',renderPretty('bank_consolidate',r),'Close',()=>true);
+    if(activeCat==='explorer')refreshExplorerLane(sid);
 }
 
 async function readBankFile(sid,filename){
@@ -438,7 +582,7 @@ async function renderMaintenance(){
 }
 
 function _ms(){const s=gv('maint_space');if(!s){alert('Select a space first');} return s;}
-async function maintConsolidate(){const s=_ms();if(!s)return;showModal('🧠 Consolidating…','<div class="page-loading">Running LLM consolidation…</div>',null,null);const r=await callTool('bank_consolidate',{space_id:s});closeModal();showModal('🧠 Consolidation Result',renderPretty('bank_consolidate',r),'Close',()=>true);}
+async function maintConsolidate(){const s=_ms();if(!s)return;showModal('🧠 Queueing consolidation…','<div class="page-loading">Submitting async consolidation job…</div>',null,null);const r=await callTool('bank_consolidate',{space_id:s});closeModal();showModal('🧠 Consolidation Job',renderPretty('bank_consolidate',r),'Close',()=>true);}
 async function maintCompact(){const s=_ms();if(!s)return;const dry=document.getElementById('mp_dry').checked;showModal('📦 Compacting…','<div class="page-loading">'+(dry?'Scanning…':'Compacting via LLM…')+'</div>',null,null);const r=await callTool('bank_compact',{space_id:s,dry_run:dry});closeModal();showModal('📦 Compact Result',renderPretty('bank_compact',r),'Close',()=>true);}
 async function maintRepair(){const s=_ms();if(!s)return;const dry=document.getElementById('mr_dry').checked;showModal('🔧 Repairing…','<div class="page-loading">'+(dry?'Scanning…':'Applying fixes…')+'</div>',null,null);const r=await callTool('bank_repair',{space_id:s,dry_run:dry});closeModal();showModal('🔧 Repair Result',renderPretty('bank_repair',r),'Close',()=>true);}
 async function maintGc(){const s=gv('maint_space');showModal('🗑️ GC Running…','<div class="page-loading">Scanning orphaned notes…</div>',null,null);const r=await callTool('admin_gc_notes',{space_id:s,max_age_days:parseInt(gv('mg_days'))||7,confirm:document.getElementById('mg_confirm').checked});closeModal();showModal('🗑️ GC Result',renderPretty('admin_gc_notes',r),'Close',()=>true);}
@@ -493,10 +637,34 @@ const TOOL_TITLES = {
     system_health: '❤️ Health Status',
     system_about: 'ℹ️ About',
     system_whoami: '👤 Identity',
+    bank_consolidate: '🧠 Consolidation Job',
+    bank_consolidation_status: '🧠 Consolidation Status',
+    bank_consolidation_queues: '🧠 Consolidation Lanes',
 };
 
 function renderPretty(tool, data) {
     if (data.status === 'error') return `<div style="color:var(--danger);padding:1rem">❌ ${esc(data.message||'Error')}</div>`;
+
+    if (tool === 'bank_consolidate' || tool === 'bank_consolidation_status') {
+        return `<div class="pretty-section">
+            <div class="pretty-label">Job</div>
+            <div class="pretty-table">
+                <div class="pretty-row"><span class="pretty-k">Status</span><span class="pretty-v"><span class="badge ${data.status==='running'?'orange':data.status==='queued'?'blue':data.status==='succeeded'?'green':data.status==='failed'?'red':'purple'}">${esc(data.status||'?')}</span></span></div>
+                <div class="pretty-row"><span class="pretty-k">Job ID</span><span class="pretty-v mono">${esc(data.job_id||'—')}</span></div>
+                <div class="pretty-row"><span class="pretty-k">Space</span><span class="pretty-v">${esc(data.space_id||'—')}</span></div>
+                <div class="pretty-row"><span class="pretty-k">Scope</span><span class="pretty-v">${esc(data.scope_label||'—')}</span></div>
+                <div class="pretty-row"><span class="pretty-k">Queue Position</span><span class="pretty-v">${data.queue_position??'—'}</span></div>
+                <div class="pretty-row"><span class="pretty-k">Guarantee</span><span class="pretty-v mono">${esc(data.guarantee||'—')}</span></div>
+            </div>
+            <div class="pretty-section"><div class="pretty-label">Batch Progress</div>${jobProgress(data,{service_config:{batch_size:data.progress?.batch_size||data.result?.batch_size}})}</div>
+            ${data.message?`<div class="pretty-section"><div class="pretty-label">Message</div><p class="text-muted">${esc(data.message)}</p></div>`:''}
+            ${data.error?`<div class="pretty-section"><div class="pretty-label">Error</div><p style="color:var(--danger)">${esc(data.error)}</p></div>`:''}
+        </div>`;
+    }
+
+    if (tool === 'bank_consolidation_queues') {
+        return renderQueueDashboard(data,(data.lanes||[]).map(l=>({space_id:l.space_id})));
+    }
 
     // ── space_info ──
     if (tool === 'space_info') {

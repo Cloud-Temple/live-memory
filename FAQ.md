@@ -170,7 +170,7 @@ An admin token can manage other tokens, consolidate all agents' notes, and run t
 
 An `asyncio.Lock` per space prevents simultaneous consolidations:
 - The first agent acquires the lock → LLM consolidation (15-30s)
-- The second receives `{"status": "conflict"}` → must retry
+- The second receives `{"status": "queued"}` with a `job_id` and queue position
 
 This is intentional: both agents write to the same bank files. Sequential consolidation lets each agent see the previous one's work.
 
@@ -390,11 +390,11 @@ Probable cause: the bank is too large. The LLM has a limited context window and 
 2. Check sizes: `bank_list my-space` — if a file exceeds 15 KB, it's a compaction candidate
 3. Retry consolidation after compaction
 
-### `bank_consolidate` returns "conflict"
+### `bank_consolidate` returns "queued"
 
-Another agent (or yourself in another terminal) is consolidating the same space. The `asyncio` lock protects against concurrent writes.
+Another agent (or yourself in another terminal) is consolidating the same space. Your request was accepted and will run after earlier same-space jobs.
 
-**Solution**: wait 15-30 seconds and retry.
+**Solution**: keep the returned `job_id` and call `bank_consolidation_status(job_id)`, or inspect `space_info` for the queue summary.
 
 ### I can't find my notes after consolidation
 
@@ -422,4 +422,4 @@ No theoretical limit. Each note = 1 S3 file (~200-500 bytes). Consolidation proc
 
 ### How many simultaneous agents?
 
-No limit on the number of agents writing in parallel (append-only, zero conflicts). Consolidation is sequential per space (1 at a time).
+No limit on the number of agents writing in parallel (append-only, zero conflicts). Consolidation is queued FIFO per space (1 job mutates a space's bank at a time).

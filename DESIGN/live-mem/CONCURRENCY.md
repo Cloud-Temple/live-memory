@@ -29,30 +29,28 @@ The UUID8 suffix (`uuid.uuid4().hex[:8]`) guarantees uniqueness even if two agen
 
 ---
 
-### 2.2 Bank Files — ⚠️ POSSIBLE CONFLICT
+### 2.2 Bank Files — FIFO QUEUE
 
 Only `bank_consolidate` writes to the bank (agents never write directly). However, two agents could trigger `bank_consolidate` simultaneously.
 
-**Solution**: An `asyncio.Lock` **per space** for consolidation.
+**Solution**: an in-memory FIFO queue **per space** plus the existing `asyncio.Lock` **per space** for the actual bank mutation.
 
 ```python
 async def bank_consolidate(space_id: str, agent: str = "") -> dict:
-    lock = get_lock_manager().consolidation(space_id)
-    
-    if lock.locked():
-        return {
-            "status": "conflict",
-            "message": f"Consolidation already in progress for space '{space_id}'"
-        }
-    
-    async with lock:
-        return await get_consolidator().consolidate(space_id, agent=agent)
+    # Permissions and effective agent scope are resolved before enqueue.
+    return await get_consolidation_queue().enqueue(
+        space_id=space_id,
+        agent=effective_agent,
+        requested_by=caller,
+    )
 ```
 
 **Behavior**:
-- If an agent requests a consolidation while another is in progress → immediate `"conflict"` response
-- The agent can retry later
+- The MCP call returns quickly with `status="running"` or `status="queued"`
+- A queued request is processed FIFO for the same `space_id`
+- Job status is observable via `bank_consolidation_status(job_id)` and `space_info`
 - Two different spaces can be consolidated in parallel (independent locks)
+- PR 1 queue durability is `in_memory_best_effort`: jobs are not persisted across process restart
 
 ---
 
@@ -84,7 +82,7 @@ Updated during consolidation and `graph_push`. Protected by the consolidation lo
 | `live_note` (N simultaneous agents) | None | Unique files (timestamp+UUID) | **Zero** |
 | `live_read` / `live_search` (parallel reads) | None | Parallel S3 reads | **Zero** |
 | `bank_read` / `bank_read_all` (parallel reads) | None | Parallel S3 reads | **Zero** |
-| `bank_consolidate` (2 agents, same space) | Overwrite | `asyncio.Lock` per space | 2nd receives "conflict" |
+| `bank_consolidate` (2 agents, same space) | Overwrite | In-memory FIFO + `asyncio.Lock` per space | 2nd is queued |
 | `bank_consolidate` (2 agents, different spaces) | None | Independent locks | **Zero** |
 | `admin_create_token` (2 admins) | tokens.json overwrite | Single `asyncio.Lock` for tokens | Serialization (~200ms) |
 | `graph_connect` / `graph_push` | _meta.json update | Sequential (long operations) | **Zero** |
