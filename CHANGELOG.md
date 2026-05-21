@@ -5,6 +5,24 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **`bank_consolidate` no-auto-polling contract** (PR #22) — the async job
+  acknowledgement now carries a machine-readable contract telling callers not to
+  watch/poll automatically:
+  - New payload fields: `next_action="return_to_user_without_polling"` and
+    `polling={recommended:false, mode:"manual_only", status_tool:"bank_consolidation_status", instruction:…}`.
+  - Human-readable `message` field rephrased to make the call-once intent
+    explicit on both `running` and `queued` payloads.
+  - `bank_consolidation_status` is reclassified as a manual-only status check;
+    clients must not call it automatically after every `bank_consolidate`.
+  - Docs updated: `MCP_TOOLS_SPEC.md`, `CONCURRENCY.md`, `CONSOLIDATION_LLM.md`,
+    `FAQ.md`, `README.md`, integration guides.
+
+---
+
 ## [2.2.0] — 2026-05-19
 
 ### Added
@@ -41,8 +59,10 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Bank tool count**: 8 → 10 tools (+ `bank_consolidation_status`, `bank_consolidation_queues`).
   Total MCP tools: 40 → **42** (7 categories).
 - **`bank_consolidate` behavior**: returns `{"status": "running"|"queued"}` with `job_id`
-  instead of blocking until completion. Existing agents/scripts relying on synchronous
-  completion should poll `bank_consolidation_status(job_id)` or inspect `space_info`.
+  instead of blocking until completion. Caller contract: call once at session end and
+  return to the user — do not wait for completion and do not watch/poll automatically.
+  `bank_consolidation_status(job_id)` and `space_info` remain available for explicit
+  manual status checks only (see PR #22 for the machine-readable contract).
 - **FAQ.md**: "conflict" → "queued" language updated.
 - **DESIGN docs updated**: `CONCURRENCY.md`, `CONSOLIDATION_LLM.md`, `MCP_TOOLS_SPEC.md`
   reflect the async queue model.

@@ -322,13 +322,15 @@ The `agent` parameter is **auto-detected** from the token — no need to pass it
 The LLM will consolidate **my own notes** (agent auto-detected from token) by updating the bank files according to the space rules.
 
 > ℹ️ Only an admin can consolidate notes from all agents (`agent=""`).
+>
+> 🔕 `bank_consolidate` is **fire-and-forget**: it returns an async job ack (`running` / `queued`) with `next_action="return_to_user_without_polling"`. **Call it once and return to the user.** Do not watch or poll. `bank_consolidation_status(job_id)` exists for **explicit manual checks only**.
 
 ## ⚠️ Strict rules
 
 1. **NEVER write directly into the bank** — only the LLM consolidation does that
 2. **Always pass `space_id="{SPACE}"`** in every call
 3. **Write atomic notes after each significant step** — 1 note = 1 fact, 1 decision, or 1 task
-4. **Consolidate at session end** — never quit without consolidating, but always after validating with the user
+4. **Consolidate at session end** — call `bank_consolidate` once and return to the user without polling (no automatic `bank_consolidation_status` loop)
 5. **Read the bank at startup** — never work without context
 
 ## 🔄 When to request an update
@@ -361,7 +363,7 @@ If you'd rather not commit Live Memory instructions in every project, add this s
 You have access to Live Memory (MCP server "live-memory").
 - At startup: space_rules("{SPACE}"), bank_read_all("{SPACE}"), live_read("{SPACE}")
 - During work: live_note(space_id="{SPACE}", category="...", content="...")
-- At session end: bank_consolidate(space_id="{SPACE}")
+- At session end: bank_consolidate(space_id="{SPACE}") — call once and return without polling
 `{SPACE}` is defined in the current project's CLAUDE.md. The agent is auto-detected from the token.
 ```
 
