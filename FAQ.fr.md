@@ -1,42 +1,44 @@
 # ❓ FAQ — Live Memory
 
+🇬🇧 [English version](FAQ.md)
+
 ---
 
 ## Concepts généraux
 
 ### Quelle est la différence entre Live Memory et graph-memory ?
 
-|                  | **Live Memory**                  | **graph-memory**                   |
-| ---------------- | -------------------------------- | ---------------------------------- |
-| **Type**         | Mémoire de travail               | Mémoire long terme                 |
-| **Données**      | Notes live + bank Markdown       | Knowledge Graph + embeddings       |
-| **Stockage**     | S3 (fichiers)                    | Neo4j + Qdrant                     |
-| **Intelligence** | LLM consolide les notes en bank  | RAG vectoriel pour la recherche    |
-| **Analogie**     | Tableau blanc → Cahier de projet | Bibliothèque → Moteur de recherche |
+|                  | **Live Memory**                            | **graph-memory**                   |
+| ---------------- | ------------------------------------------ | ---------------------------------- |
+| **Type**         | Mémoire de travail                         | Mémoire long terme                 |
+| **Données**      | Notes live + bank Markdown                 | Knowledge Graph + embeddings       |
+| **Stockage**     | S3 (fichiers)                              | Neo4j + Qdrant                     |
+| **Intelligence** | Le LLM consolide les notes dans la bank    | RAG vectoriel pour la recherche    |
+| **Analogie**     | Tableau blanc → carnet de projet           | Bibliothèque → moteur de recherche |
 
-Les deux sont complémentaires. Live Memory est pour le travail quotidien, graph-memory pour la connaissance persistante.
+Les deux sont complémentaires. Live Memory pour le travail quotidien, graph-memory pour la connaissance persistante.
 
-### C'est quoi un "espace" (space) ?
+### Qu'est-ce qu'un « space » ?
 
 Un espace mémoire isolé = un projet. Il contient :
-- **Rules** : template Markdown qui définit la structure de la bank
-- **Notes live** : observations, décisions, todos... des agents (append-only)
+- **Rules** : template Markdown définissant la structure de la bank
+- **Notes live** : observations, décisions, todos... émises par les agents (append-only)
 - **Bank** : fichiers Markdown consolidés par le LLM selon les rules
 
-### C'est quoi les "rules" ?
+### Que sont les « rules » ?
 
-Les rules définissent la structure de la Memory Bank. Elles sont écrites en Markdown à la création de l'espace et sont **immuables**. Le LLM les utilise pour créer et maintenir les fichiers bank.
+Les rules définissent la structure de la Memory Bank. Elles sont écrites en Markdown à la création du space et sont **immuables**. Le LLM s'en sert pour créer et maintenir les fichiers de la bank.
 
-Exemple de rules (standard Memory Bank) :
+Exemple de rules (Memory Bank standard) :
 ```markdown
 ### projectbrief.md
 Objectifs, périmètre, critères de succès.
 
 ### activeContext.md
-Focus actuel, changements récents, prochaines étapes.
+Focus courant, changements récents, prochaines étapes.
 
 ### progress.md
-Ce qui fonctionne, ce qui reste, problèmes connus.
+Ce qui marche, ce qui reste, problèmes connus.
 ```
 
 ---
@@ -45,14 +47,14 @@ Ce qui fonctionne, ce qui reste, problèmes connus.
 
 ### Quelle est la relation entre un token et un agent ?
 
-Depuis **v0.8.1**, chaque token **est** un agent. Le `client_name` du token est automatiquement utilisé comme identité de l'agent — il n'y a plus de paramètre `agent=` dans `live_note`.
+Depuis la **v0.8.1**, chaque token **est** un agent. Le `client_name` du token est automatiquement utilisé comme identité de l'agent — il n'y a pas de paramètre `agent=` dans `live_note`.
 
-|                        | **Token = Agent**                             |
-| ---------------------- | --------------------------------------------- |
-| **Rôle**               | Authentification **et** identité              |
-| **Exemple**            | Token `cline-dev` → agent `cline-dev`         |
-| **Partageable ?**      | Non — 1 token = 1 agent = 1 identité          |
-| **Où est-il fourni ?** | Header `Authorization: Bearer` (auto-détecté) |
+|                        | **Token = Agent**                                 |
+| ---------------------- | ------------------------------------------------- |
+| **Rôle**               | Authentification **et** identité                  |
+| **Exemple**            | Token `cline-dev` → agent `cline-dev`             |
+| **Partageable ?**      | Non — 1 token = 1 agent = 1 identité              |
+| **Où le fournir ?**    | Header `Authorization: Bearer` (auto-détecté)     |
 
 **Pourquoi ce changement ?** L'ancien modèle (Token ≠ Agent) permettait de passer un nom d'agent libre, ce qui causait des notes orphelines (agent non reconnu à la consolidation), de l'usurpation d'identité, et de l'éparpillement.
 
@@ -64,59 +66,59 @@ Oui ! `live_read(space_id="mon-projet")` retourne les notes de TOUS les agents. 
 
 ## Permissions et sécurité
 
-### Quels sont les niveaux de permission ?
+### Quels sont les niveaux de permissions ?
 
-Depuis **v1.5.0**, il y a 4 niveaux **hiérarchiques et cumulatifs** :
+Depuis la **v1.5.0**, il y a 4 niveaux **hiérarchiques et cumulatifs** :
 
-| Niveau     | Inclut                | Accès                                                                                                                                             |
-| ---------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **read**   | —                     | Lecture : `bank_read`, `live_read`, `space_info`, `backup_list`, etc.                                                                             |
-| **write**  | read                  | Écriture : `live_note`, `bank_consolidate`, `space_create`, etc.                                                                                  |
+| Niveau     | Inclut                | Accès                                                                                                                                            |
+| ---------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **read**   | —                     | Lecture : `bank_read`, `live_read`, `space_info`, `backup_list`, etc.                                                                            |
+| **write**  | read                  | Écriture : `live_note`, `bank_consolidate`, `space_create`, etc.                                                                                 |
 | **manage** | write + read          | Maintenance : `bank_write`, `bank_delete`, `bank_repair`, `bank_compact`, `space_delete`, `space_update_rules`, `backup_restore`, `backup_delete` |
-| **admin**  | manage + write + read | Administration : `admin_create_token`, `admin_gc_notes`, etc.                                                                                     |
+| **admin**  | manage + write + read | Administration : `admin_create_token`, `admin_gc_notes`, etc.                                                                                    |
 
-Un token `write` ne peut **pas** modifier directement les fichiers bank ni supprimer des espaces — il faut `manage` ou `admin`.
+Un token `write` **ne peut pas** modifier directement les fichiers bank ni supprimer des spaces — il faut `manage` ou `admin`.
 
 ### Pourquoi les permissions sont-elles cumulatives ?
 
-Chaque niveau **inclut automatiquement** tous les niveaux inférieurs. Il n'est pas nécessaire de spécifier `read,write` si vous donnez `manage` — `manage` contient déjà `write` et `read`.
+Chaque niveau **inclut automatiquement** tous les niveaux inférieurs. Inutile de préciser `read,write` si vous accordez `manage` — `manage` contient déjà `write` et `read`.
 
 ```
 read < write < manage < admin
 ```
 
-En pratique, lors de la création ou mise à jour d'un token, spécifiez toujours la **liste complète** des permissions (ex : `"read,write,manage"`), car le champ `permissions` est une **liste explicite** stockée sur S3, pas un niveau unique. Le serveur vérifie la présence du niveau requis dans cette liste.
+En pratique, lors de la création ou de la mise à jour d'un token, indiquez toujours la **liste complète** des permissions (ex. : `"read,write,manage"`), car le champ `permissions` est une **liste explicite** stockée sur S3, pas un niveau unique. Le serveur vérifie la présence du niveau requis dans cette liste.
 
-### Quel type de token créer selon mon cas d'usage ?
+### Quel type de token créer pour mon cas d'usage ?
 
 | Cas d'usage | Permissions recommandées | `space_ids` |
 | --- | --- | --- |
-| Agent IA en mode travail (Cline, Claude) | `read,write` | Espaces du projet |
-| Agent IA + maintenance (compaction, repair) | `read,write,manage` | Espaces du projet |
-| Opérateur humain (maintenance multi-projets) | `read,write,manage` | Tous les espaces concernés |
-| Administrateur | `read,write,manage,admin` | Vide (admin voit tout) |
-| Lecteur / dashboard de monitoring | `read` | Espaces à surveiller |
+| Agent IA en mode travail (Cline, Claude) | `read,write` | Spaces du projet |
+| Agent IA + maintenance (compaction, repair) | `read,write,manage` | Spaces du projet |
+| Opérateur humain (maintenance multi-projets) | `read,write,manage` | Tous les spaces concernés |
+| Administrateur | `read,write,manage,admin` | Vide (l'admin voit tout) |
+| Lecteur / dashboard de monitoring | `read` | Spaces à monitorer |
 
-### Comment restreindre un token à certains espaces ?
+### Comment restreindre un token à des spaces spécifiques ?
 
-Chaque token a un champ `space_ids` qui liste les espaces autorisés :
+Chaque token a un champ `space_ids` listant les spaces autorisés :
 
 ```bash
-# Restreindre KSE à 3 espaces
+# Restreindre KSE à 3 spaces
 python scripts/mcp_cli.py token update sha256:363... -p "read,write" -s "live-mem,graph-mem,mcp-office"
 ```
 
 **Sémantique de `space_ids` (v1.5.0+)** :
-- `space_ids = ["a", "b"]` → accès uniquement à ces espaces
-- `space_ids = []` pour un **non-admin** → **aucun accès** (changed in v1.5.0, avant = tout)
+- `space_ids = ["a", "b"]` → accès uniquement à ces spaces
+- `space_ids = []` pour un **non-admin** → **aucun accès** (changement en v1.5.0, valait « tous » avant)
 - `space_ids = []` pour un **admin** → accès à **tout** (inchangé)
 
 À la **création** d'un token via `admin_create_token`, vous pouvez utiliser :
-- `space_ids=""` (défaut) → token "muet" (aucun accès aux espaces existants). La réponse contient un champ `warning_no_access` pour vous le signaler explicitement.
+- `space_ids=""` (par défaut) → token « muet » (aucun accès aux spaces existants). La réponse contient un champ `warning_no_access` pour le signaler explicitement.
 - `space_ids="a,b,c"` → liste explicite.
-- `space_ids="*"` ou `space_ids="all"` → **snapshot** de tous les espaces existants au moment de la création (pas les futurs spaces, c'est volontaire pour rester aligné avec la sémantique stricte v1.5.0).
+- `space_ids="*"` ou `space_ids="all"` → **snapshot** de tous les spaces existants à la création (pas les futurs spaces — volontaire pour rester aligné sur la sémantique stricte v1.5.0).
 
-### Le hash retourné par `admin_list_tokens` contient `sha256:` — faut-il le passer tel quel ?
+### Le hash retourné par `admin_list_tokens` contient `sha256:` — dois-je le passer tel quel ?
 
 Depuis l'issue #11, **les deux formes sont acceptées** par `admin_revoke_token`, `admin_delete_token` et `admin_update_token` :
 ```bash
@@ -124,11 +126,11 @@ admin_update_token(token_hash="sha256:f172084ef03...", space_ids="x")  # OK
 admin_update_token(token_hash="f172084ef03...", space_ids="x")          # OK aussi
 ```
 
-Le minimum reste 16 caractères hex (8 octets de hash) pour éviter les collisions accidentelles.
+Le minimum reste de 16 caractères hex (8 octets de hash) pour éviter les collisions accidentelles.
 
 ### Que se passe-t-il quand un token crée un nouveau space ?
 
-Le space est **automatiquement ajouté** au `space_ids` du token (via `add_space_to_token()`). Ainsi un token restreint à `["projet-a"]` qui crée `projet-b` se retrouve avec `["projet-a", "projet-b"]`. Pas de deadlock UX.
+Le space est **automatiquement ajouté** au `space_ids` du token (via `add_space_to_token()`). Donc un token restreint à `["project-a"]` qui crée `project-b` se retrouve avec `["project-a", "project-b"]`. Pas de deadlock UX.
 
 ### Comment ajouter la permission `manage` à un token ?
 
@@ -136,22 +138,22 @@ Le space est **automatiquement ajouté** au `space_ids` du token (via `add_space
 python scripts/mcp_cli.py token update sha256:xxx -p "read,write,manage"
 ```
 
-⚠️ La mise à jour des permissions **remplace** la liste complète — il faut toujours inclure `read,write` en plus de `manage`.
+⚠️ La mise à jour de permissions **remplace** la liste complète — incluez toujours `read,write` en plus de `manage`.
 
 ### Que s'est-il passé lors de la migration v1.5.0 ?
 
-Avant v1.5.0, `space_ids=[]` signifiait "accès à tout". Depuis v1.5.0, ça signifie "aucun accès" (pour les non-admin).
+Avant la v1.5.0, `space_ids=[]` signifiait « accès à tout ». Depuis la v1.5.0, cela signifie « aucun accès » (pour les tokens non-admin).
 
-**Migration automatique au démarrage** : tous les tokens non-admin ayant `space_ids=[]` se sont vu assigner automatiquement la liste de **tous les espaces existants**. Aucune perte d'accès.
+**Migration automatique au démarrage** : tous les tokens non-admin avec `space_ids=[]` ont été automatiquement réassignés à la liste de **tous les spaces existants**. Aucune perte d'accès.
 
-### Puis-je donner les droits admin à un token ?
+### Puis-je donner des droits admin à un token ?
 
-Oui, mais avec prudence :
+Oui, avec prudence :
 ```bash
 python scripts/mcp_cli.py token update sha256:xxx -p "read,write,manage,admin"
 ```
 
-Un token admin peut gérer les tokens des autres, consolider les notes de tous les agents, et exécuter le GC. Il voit tous les espaces quel que soit son `space_ids`.
+Un token admin peut gérer les autres tokens, consolider les notes de tous les agents et lancer le GC. Il voit tous les spaces indépendamment de son `space_ids`.
 
 ---
 
@@ -159,22 +161,23 @@ Un token admin peut gérer les tokens des autres, consolider les notes de tous l
 
 ### Comment fonctionne la consolidation ?
 
-1. Le LLM (qwen3.5:27b) lit les **rules**, la **bank actuelle**, la **synthèse précédente**, et les **notes live**
+1. Le LLM lit les **rules**, la **bank actuelle**, la **synthèse précédente** et les **notes live**
 2. Il produit des fichiers bank mis à jour (Markdown pur)
 3. Les notes consolidées sont **supprimées** de `live/`
 4. Une synthèse résiduelle est sauvegardée
 
 ### Que se passe-t-il si 2 agents consolident en même temps ?
 
-Un `asyncio.Lock` par espace empêche les consolidations simultanées :
-- Le premier agent acquiert le lock → consolidation LLM (15-30s)
-- Le second reçoit `{"status": "conflict"}` → doit réessayer
+Un `asyncio.Lock` par space empêche les consolidations simultanées :
+- La première requête est acceptée comme un job async avec `{"status": "running"}` et un `job_id`
+- La seconde reçoit `{"status": "queued"}` avec un `job_id` et une position dans la file
+- Appelez `bank_consolidate` une seule fois en fin de session et rendez la main à l'utilisateur ; ne surveillez pas et ne pollez pas tant qu'un check de statut explicite n'est pas demandé
 
 C'est voulu : les deux agents écrivent dans les mêmes fichiers bank. La consolidation séquentielle permet à chaque agent de voir le travail du précédent.
 
 ### Puis-je consolider les notes de TOUS les agents d'un coup ?
 
-Oui ! `bank_consolidate(space_id="mon-projet")` sans paramètre `agent=` consolide toutes les notes de tous les agents en une seule fois.
+Oui ! `bank_consolidate(space_id="mon-projet")` sans paramètre `agent=` consolide toutes les notes de tous les agents en une seule passe.
 
 ⚠️ **Permissions** : consolider les notes d'un autre agent ou de tous les agents nécessite un token **manage** (ou admin). Un token write ne peut consolider que ses propres notes (`agent="mon-nom"`).
 
@@ -186,7 +189,7 @@ Elles sont **supprimées** de `live/`. Leur contenu est intégré dans les fichi
 
 Depuis la **v1.9.0**, le consolidateur intègre **7 règles anti-hallucination** dans son prompt système :
 
-1. **Attribution stricte aux sources** — tout fait dans la bank DOIT provenir d'une note. Si une section n'a pas de source, elle reste vide ou marquée "À définir".
+1. **Attribution stricte aux sources** — tout fait dans la bank DOIT provenir d'une note. Si une section n'a pas de source, elle reste vide ou marquée « À définir ».
 2. **Préservation du vocabulaire métier** — les termes spécifiques au projet sont utilisés verbatim, jamais ré-interprétés via les priors du LLM.
 3. **Gating des métriques** — les chiffres n'apparaissent que s'ils sont explicitement sourcés dans une note.
 4. **Pas de structure inventée** — les arborescences de fichiers ne sont PAS générées si les notes ne les décrivent pas.
@@ -222,7 +225,7 @@ Oui ! Depuis la **v1.8.1**, définissez `PROXY_URL` dans `.env` :
 PROXY_URL=http://10.0.0.1:3128
 ```
 
-Cela route le trafic S3 (boto3) et LLM (httpx) via le proxy. C'est une **variable custom** (pas `HTTP_PROXY`) pour ne pas affecter les autres bibliothèques Python. Les connexions Graph Memory ne sont pas supportées via le proxy.
+Cela route le trafic S3 (boto3) et LLM (httpx) à travers le proxy. C'est une **variable maison** (pas `HTTP_PROXY`) pour éviter d'affecter d'autres bibliothèques Python. Les connexions Graph Memory ne sont pas supportées via le proxy.
 
 ---
 
@@ -230,7 +233,7 @@ Cela route le trafic S3 (boto3) et LLM (httpx) via le proxy. C'est une **variabl
 
 ### Pourquoi un Garbage Collector ?
 
-Si un agent écrit des notes mais ne consolide jamais (crash, suppression, oubli), les notes s'accumulent sans fin dans `live/`. Le GC identifie et traite ces notes orphelines.
+Si un agent écrit des notes mais ne consolide jamais (crash, suppression, oubli), les notes s'accumulent indéfiniment dans `live/`. Le GC identifie et traite ces notes orphelines.
 
 ### Comment fonctionne le GC ?
 
@@ -239,10 +242,10 @@ Si un agent écrit des notes mais ne consolide jamais (crash, suppression, oubli
 | Mode              | Paramètres                       | Action                                                                 |
 | ----------------- | -------------------------------- | ---------------------------------------------------------------------- |
 | **Dry-run**       | `confirm=False` (défaut)         | Scanne et rapporte                                                     |
-| **Consolidation** | `confirm=True`                   | Consolide les notes dans la bank via LLM + ajoute une notice "⚠️ GC" |
+| **Consolidation** | `confirm=True`                   | Consolide les notes dans la bank via LLM + ajoute un avertissement « ⚠️ GC » |
 | **Suppression**   | `confirm=True, delete_only=True` | Supprime sans consolider (perte de données)                            |
 
-Par défaut, le GC **consolide** (ne supprime pas) pour ne pas perdre de données.
+Par défaut, le GC **consolide** (ne supprime pas) pour éviter la perte de données.
 
 ### Le GC laisse-t-il une trace dans la bank ?
 
@@ -253,40 +256,35 @@ Le GC a détecté X notes orphelines de l'agent 'nom-agent' (> 7 jours).
 Ces notes n'ont jamais été consolidées par l'agent.
 ```
 
-Le LLM voit cette note et l'intègre dans la bank, assurant la traçabilité.
+Le LLM voit cette note et l'intègre à la bank, assurant la traçabilité.
 
 ---
 
 ## Docker et déploiement
 
-### Comment tester en local ?
+### Comment tester localement ?
 
 ```bash
 # 1. Configurer l'environnement
 cp .env.example .env
 nano .env  # Remplir S3, LLMaaS, ADMIN_BOOTSTRAP_KEY
 
-# 2. Lancer le stack
+# 2. Démarrer la stack
 docker compose build
 docker compose up -d
 
 # 3. Tester
-python scripts/test_recette.py           # Recette simple
-python scripts/test_multi_agents.py      # Multi-agents
-python scripts/test_gc.py                # Garbage Collector
+python scripts/test_recette.py           # Recette de base
+python scripts/test_hallucination.py     # Anti-hallucination (Issue #17)
 ```
 
 ### Comment fonctionne le WAF ?
 
-Caddy + Coraza (OWASP CRS) protège contre les injections, XSS, etc. Les routes MCP (SSE + messages) passent **sans** WAF (authentifiées par token côté serveur). Les autres routes passent par le WAF.
-
-### Pourquoi les routes SSE ne passent pas par le WAF ?
-
-Coraza bufférise les réponses pour les inspecter, ce qui est **incompatible** avec le streaming SSE (connexions longues, flux continu). L'authentification est gérée côté serveur MCP.
+Caddy + Coraza (OWASP CRS) protège contre les injections, XSS, etc. Les routes MCP (Streamable HTTP) sont authentifiées par token côté serveur. Les autres routes passent par le WAF.
 
 ### Comment déployer en production ?
 
-1. Mettre `SITE_ADDRESS=mon-domaine.com` dans `.env`
+1. Définir `SITE_ADDRESS=mon-domaine.com` dans `.env`
 2. Exposer les ports 80+443 dans docker-compose.yml
 3. Caddy obtient automatiquement un certificat Let's Encrypt
 4. Voir [DEPLOIEMENT_PRODUCTION.md](DESIGN/live-mem/DEPLOIEMENT_PRODUCTION.md) pour les détails
@@ -297,10 +295,10 @@ Coraza bufférise les réponses pour les inspecter, ce qui est **incompatible** 
 
 ### Pourquoi S3 et pas une base de données ?
 
-- Simplicité : pas de schéma, pas de migrations, pas de serveur DB
-- Portabilité : tout est fichier Markdown/JSON
+- Simplicité : pas de schéma, pas de migration, pas de serveur DB
+- Portabilité : tout est fichiers Markdown/JSON
 - Scalabilité : S3 gère des milliards d'objets
-- Coût : stockage S3 très bon marché
+- Coût : le stockage S3 est très abordable
 
 ### Pourquoi deux clients S3 (SigV2 + SigV4) ?
 
@@ -316,7 +314,7 @@ Oui ! Configurez `S3_ENDPOINT_URL` et les credentials. Le dual SigV2/V4 n'est n�
 
 ---
 
-## CLI et Shell
+## CLI et shell
 
 ### Comment configurer la CLI ?
 
@@ -332,26 +330,26 @@ python scripts/mcp_cli.py health
 python scripts/mcp_cli.py --url http://mon-serveur:8080 --token lm_xxx health
 
 # 3. Automatique (lit .env)
-python scripts/mcp_cli.py health   # URL défaut 8080, token depuis .env
+python scripts/mcp_cli.py health   # URL par défaut 8080, token depuis .env
 ```
 
-### Comment avoir l'aide sur une commande ?
+### Comment obtenir l'aide sur une commande ?
 
 ```bash
-# CLI Click (--help natif)
+# CLI Click (aide native --help)
 python scripts/mcp_cli.py space --help
 python scripts/mcp_cli.py bank consolidate --help
 
 # Shell interactif
 live-mem> help           # aide globale
-live-mem> help space     # sous-commandes de space
+live-mem> help space     # sous-commandes space
 live-mem> space          # idem
-live-mem> help bank      # sous-commandes de bank
+live-mem> help bank      # sous-commandes bank
 ```
 
-### Puis-je utiliser la CLI en mode JSON pour le scripting ?
+### Puis-je utiliser la CLI en mode JSON pour scripter ?
 
-Oui ! Ajoutez `--json` (CLI) ou `--json` (shell) à n'importe quelle commande :
+Oui ! Ajoutez `--json` à n'importe quelle commande :
 
 ```bash
 python scripts/mcp_cli.py space list --json | jq '.spaces[].space_id'
@@ -359,32 +357,32 @@ python scripts/mcp_cli.py space list --json | jq '.spaces[].space_id'
 
 ---
 
-## Troubleshooting — Problèmes courants
+## Troubleshooting — problèmes fréquents
 
-### J'ai un 403 sur tous les espaces
+### Je reçois un 403 sur tous les spaces
 
-**Cause la plus fréquente** : votre token a `space_ids=[]` (aucun accès). Depuis v1.5.0, un token non-admin sans `space_ids` ne peut accéder à rien.
+**Cause la plus fréquente** : votre token a `space_ids=[]` (aucun accès). Depuis la v1.5.0, un token non-admin sans `space_ids` ne peut accéder à rien.
 
 **Diagnostic** :
 ```bash
 python scripts/mcp_cli.py token list --json | jq '.tokens[] | select(.name=="mon-token") | .space_ids'
 ```
 
-**Solution** : demander à un admin de mettre à jour vos espaces :
+**Solution** : demandez à un admin de mettre à jour vos spaces :
 ```bash
-python scripts/mcp_cli.py token update sha256:xxx -s "espace-a,espace-b"
+python scripts/mcp_cli.py token update sha256:xxx -s "space-a,space-b"
 ```
 
 ### Mon token `manage` ne peut rien faire
 
-Un token `manage` sans `space_ids` est un "mainteneur sans rien à maintenir". Il peut uniquement créer de nouveaux espaces (qui seront auto-ajoutés à ses `space_ids`).
+Un token `manage` sans `space_ids` est un « mainteneur sans rien à maintenir ». Il peut seulement créer de nouveaux spaces (qui sont auto-ajoutés à son `space_ids`).
 
-**Solution** : ajouter les espaces à gérer :
+**Solution** : ajouter des spaces à gérer :
 ```bash
-python scripts/mcp_cli.py token update sha256:xxx -s "espace-a,espace-b"
+python scripts/mcp_cli.py token update sha256:xxx -s "space-a,space-b"
 ```
 
-### La consolidation échoue avec "LLM returned invalid JSON"
+### La consolidation échoue avec « LLM returned invalid JSON »
 
 Cause probable : la bank est trop volumineuse. Le LLM a un context window limité et peut échouer sur les réponses JSON longues.
 
@@ -393,11 +391,11 @@ Cause probable : la bank est trop volumineuse. Le LLM a un context window limit�
 2. Vérifier les tailles : `bank_list mon-espace` — si un fichier dépasse 15 KB, c'est un candidat à la compaction
 3. Relancer la consolidation après compaction
 
-### `bank_consolidate` retourne "conflict"
+### `bank_consolidate` retourne « queued »
 
-Un autre agent (ou vous-même dans un autre terminal) est en train de consolider le même espace. Le lock `asyncio` protège contre les écritures concurrentes.
+Un autre agent (ou vous-même dans un autre terminal) consolide le même space. Votre requête a été acceptée et s'exécutera après les jobs précédents sur ce space.
 
-**Solution** : attendre 15-30 secondes et réessayer.
+**Solution** : rendez la main à l'utilisateur sans poller. Conservez le `job_id` retourné uniquement si un check de statut explicite est nécessaire plus tard. `bank_consolidation_status(job_id)` est manuel uniquement ; ne le pollez pas automatiquement.
 
 ### Je ne retrouve plus mes notes après consolidation
 
@@ -415,14 +413,15 @@ Pas de limite théorique. Chaque note = 1 fichier S3 (~200-500 octets). La conso
 
 ### Quelle est la latence ?
 
-| Opération                     | Latence typique |
-| ----------------------------- | --------------- |
-| `live_note` (écriture)        | ~50ms           |
-| `live_read` (lecture)         | ~100ms          |
-| `bank_consolidate` (12 notes) | ~15-30s         |
-| `bank_read_all` (6 fichiers)  | ~200ms          |
-| `system_health`               | ~500ms          |
+| Opération                              | Latence typique |
+| -------------------------------------- | --------------- |
+| `live_note` (écriture)                 | ~50ms           |
+| `live_read` (lecture)                  | ~100ms          |
+| `bank_consolidate` enqueue             | ~50ms           |
+| Consolidation en arrière-plan (12 notes) | ~15-30s       |
+| `bank_read_all` (6 fichiers)           | ~200ms          |
+| `system_health`                        | ~500ms          |
 
 ### Combien d'agents simultanés ?
 
-Pas de limite sur le nombre d'agents écrivant en parallèle (append-only, zéro conflit). La consolidation est séquentielle par espace (1 à la fois).
+Pas de limite sur le nombre d'agents écrivant en parallèle (append-only, zéro conflit). La consolidation est sérialisée FIFO par space (1 job mute la bank d'un space à la fois). `bank_consolidate` est un handoff async en « call-once » ; ne surveillez pas et ne pollez pas sauf demande explicite.
