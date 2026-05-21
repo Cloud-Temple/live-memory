@@ -5,9 +5,9 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [2.3.0] — 2026-05-21
 
-### Changed
+### Added
 
 - **`bank_consolidate` no-auto-polling contract** (PR #22) — the async job
   acknowledgement now carries a machine-readable contract telling callers not to
@@ -19,7 +19,18 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `bank_consolidation_status` is reclassified as a manual-only status check;
     clients must not call it automatically after every `bank_consolidate`.
   - Docs updated: `MCP_TOOLS_SPEC.md`, `CONCURRENCY.md`, `CONSOLIDATION_LLM.md`,
-    `FAQ.md`, `README.md`, integration guides.
+    `FAQ.md`, `README.md`, integration guides (Claude Code, Cline, Codex).
+
+### Changed
+
+- **FR docs retranslated** from latest EN sources (drift accumulated since v1.9.0):
+  `FAQ.fr.md`, `README.fr.md`, `CLAUDE_CODE_INTEGRATION.fr.md`,
+  `CLINE_INTEGRATION_GUIDE.fr.md`, `CODEX_INTEGRATION.fr.md`.
+
+### Tests
+
+- 384 passed + 1 xfailed. 2 new assertions cover the no-auto-polling contract
+  on `running` and `queued` payloads (`tests/test_consolidation_queue.py`).
 
 ---
 
