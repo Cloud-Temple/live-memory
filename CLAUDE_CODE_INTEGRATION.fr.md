@@ -11,12 +11,12 @@ Ce guide détaille pas à pas comment connecter **Claude Code** (le CLI d'Anthro
 - [Prérequis](#-prérequis)
 - [Étape 1 — Démarrer Live Memory](#-étape-1--démarrer-live-memory)
 - [Étape 2 — Créer un token pour Claude Code](#-étape-2--créer-un-token-pour-claude-code)
-- [Étape 3 — Brancher Claude Code sur Live Memory](#-étape-3--brancher-claude-code-sur-live-memory)
+- [Étape 3 — Connecter Claude Code à Live Memory](#-étape-3--connecter-claude-code-à-live-memory)
 - [Étape 4 — Créer un espace mémoire](#-étape-4--créer-un-espace-mémoire)
-- [Étape 5 — Donner des instructions à Claude Code](#-étape-5--donner-des-instructions-à-claude-code)
+- [Étape 5 — Donner ses instructions à Claude Code](#-étape-5--donner-ses-instructions-à-claude-code)
 - [Workflow recommandé](#-workflow-recommandé)
-- [Multi-agents : Claude Code + Cline + Claude Desktop + autres](#-multi-agents--claude-code--cline--claude-desktop--autres)
-- [Dépannage](#-dépannage)
+- [Multi-agent : Claude Code + Cline + Claude Desktop + autres](#-multi-agent--claude-code--cline--claude-desktop--autres)
+- [Troubleshooting](#-troubleshooting)
 - [Avec Claude Desktop](#-avec-claude-desktop)
 - [Récapitulatif](#-récapitulatif)
 
@@ -29,9 +29,9 @@ Ce guide détaille pas à pas comment connecter **Claude Code** (le CLI d'Anthro
 | **Docker**           | ≥ 24.0             | `docker --version`                  |
 | **Docker Compose**   | v2                 | `docker compose version`            |
 | **Claude Code**      | ≥ 2.1              | `claude --version`                  |
-| **Live Memory**      | Déployé et running | `curl http://localhost:8080/health` |
+| **Live Memory**      | Déployé et démarré | `curl http://localhost:8080/health` |
 
-> 💡 Si Claude Code n'est pas installé : `npm install -g @anthropic-ai/claude-code` (macOS/Linux/Windows) ou via l'installateur dédié — voir la documentation officielle Anthropic. Claude Code expose la commande `claude` dans le terminal et propose des extensions IDE (VS Code, JetBrains) qui partagent la même configuration.
+> 💡 Si Claude Code n'est pas installé : `npm install -g @anthropic-ai/claude-code` (macOS/Linux/Windows) ou utilisez l'installateur dédié — voir la documentation officielle Anthropic. Claude Code fournit la commande `claude` dans le terminal et propose des extensions IDE (VS Code, JetBrains) qui partagent la même configuration.
 
 ---
 
@@ -42,12 +42,12 @@ Si Live Memory n'est pas encore démarré :
 ```bash
 cd /chemin/vers/live-memory
 cp .env.example .env
-# Éditer .env avec vos credentials S3, LLMaaS, et ADMIN_BOOTSTRAP_KEY
+# Éditer .env avec vos credentials S3, LLMaaS et ADMIN_BOOTSTRAP_KEY
 docker compose build
 docker compose up -d
 ```
 
-**Vérifier** :
+**Vérification** :
 
 ```bash
 # Doit retourner {"status": "ok", ...}
@@ -66,40 +66,40 @@ Claude Code a besoin d'un **Bearer Token** avec les permissions `read,write` pou
 cd /chemin/vers/live-memory
 export MCP_TOKEN=<votre_ADMIN_BOOTSTRAP_KEY>
 
-# Créer un token "read,write" pour Claude Code
+# Créer un token « read,write » pour Claude Code
 python scripts/mcp_cli.py token create claude-code-agent read,write
 ```
 
 La CLI affichera quelque chose comme :
 
 ```
-Token créé avec succès !
-  Nom    : claude-code-agent
+Token created successfully!
+  Name   : claude-code-agent
   Token  : lm_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0u1V2
   Perms  : read, write
 
-⚠️  Ce token ne sera PLUS JAMAIS affiché. Copiez-le maintenant !
+⚠️  This token will NEVER be displayed again. Copy it now!
 ```
 
-> **⚠️ IMPORTANT** : Copiez ce token immédiatement ! Il ne sera plus jamais affiché (seul le hash SHA-256 est stocké).
+> **⚠️ IMPORTANT** : copiez ce token immédiatement ! Il ne sera plus jamais affiché (seul le hash SHA-256 est stocké).
 
-### Option B — Via la bootstrap key (temporaire)
+### Option B — Via la clé bootstrap (temporaire)
 
-Pour un test rapide, vous pouvez utiliser directement la `ADMIN_BOOTSTRAP_KEY` définie dans votre `.env`. Mais **en production**, créez toujours un token dédié avec les permissions minimales.
+Pour un test rapide, vous pouvez utiliser directement l'`ADMIN_BOOTSTRAP_KEY` définie dans votre `.env`. Mais **en production**, créez toujours un token dédié avec des permissions minimales.
 
 ---
 
-## ⚙️ Étape 3 — Brancher Claude Code sur Live Memory
+## ⚙️ Étape 3 — Connecter Claude Code à Live Memory
 
-Claude Code stocke sa configuration MCP dans un fichier JSON. Trois scopes sont disponibles :
+Claude Code stocke sa configuration MCP dans un fichier JSON. Trois portées sont disponibles :
 
-| Scope     | Emplacement                                  | Portée                              |
-| --------- | -------------------------------------------- | ----------------------------------- |
-| `local`   | `~/.claude.json` (clé `projects.<cwd>`)      | Le répertoire courant uniquement    |
-| `user`    | `~/.claude.json` (clé `mcpServers` globale)  | Tous les projets de l'utilisateur   |
-| `project` | `.mcp.json` à la racine du projet            | Commité dans le repo (équipes)      |
+| Portée    | Emplacement                                    | Portée effective                   |
+| --------- | ---------------------------------------------- | ---------------------------------- |
+| `local`   | `~/.claude.json` (clé `projects.<cwd>`)        | Répertoire courant uniquement      |
+| `user`    | `~/.claude.json` (clé `mcpServers` au top)     | Tous les projets de l'utilisateur  |
+| `project` | `.mcp.json` à la racine du projet              | Commitée au repo (équipes)         |
 
-Pour une utilisation perso multi-projets, le scope `user` est généralement le plus pratique.
+Pour un usage personnel multi-projets, la portée `user` est généralement la plus pratique.
 
 ### 3.1 — Méthode CLI (recommandée)
 
@@ -109,7 +109,7 @@ claude mcp add \
   --scope user \
   live-memory \
   https://votre-serveur/mcp \
-  --header "Authorization: Bearer lm_VOTRE_TOKEN_ICI"
+  --header "Authorization: Bearer lm_YOUR_TOKEN_HERE"
 ```
 
 Pour un serveur local en HTTP :
@@ -120,12 +120,12 @@ claude mcp add \
   --scope user \
   live-memory \
   http://localhost:8080/mcp \
-  --header "Authorization: Bearer lm_VOTRE_TOKEN_ICI"
+  --header "Authorization: Bearer lm_YOUR_TOKEN_HERE"
 ```
 
-### 3.2 — Méthode édition manuelle
+### 3.2 — Édition manuelle
 
-Si vous préférez éditer directement le JSON, ajoutez le bloc suivant dans `~/.claude.json` (scope `user`, sous la clé `mcpServers` au premier niveau) :
+Si vous préférez éditer le JSON directement, ajoutez le bloc suivant à `~/.claude.json` (portée `user`, sous la clé `mcpServers` au top) :
 
 ```json
 {
@@ -134,16 +134,16 @@ Si vous préférez éditer directement le JSON, ajoutez le bloc suivant dans `~/
       "type": "http",
       "url": "https://votre-serveur/mcp",
       "headers": {
-        "Authorization": "Bearer lm_VOTRE_TOKEN_ICI"
+        "Authorization": "Bearer lm_YOUR_TOKEN_HERE"
       }
     }
   }
 }
 ```
 
-> **Remplacez** `lm_VOTRE_TOKEN_ICI` par le token obtenu à l'étape 2 et `votre-serveur` par votre domaine (ou `localhost:8080` en local).
+> **Remplacez** `lm_YOUR_TOKEN_HERE` par le token de l'étape 2 et `votre-serveur` par votre domaine (ou `localhost:8080` en local).
 
-Pour le scope `project` (configuration partagée en équipe), créez plutôt un fichier `.mcp.json` à la racine du projet avec le même format.
+Pour la portée `project` (config partagée avec l'équipe), créez un fichier `.mcp.json` à la racine du projet avec le même format.
 
 ### 3.3 — Vérifier la connexion
 
@@ -155,13 +155,13 @@ claude mcp list
 
 Vous devriez voir `live-memory` avec un statut connecté. Lancez ensuite Claude Code dans un projet et demandez :
 
-> *« Appelle `system_health` sur live-memory et donne-moi le retour. »*
+> *« Appelle `system_health` sur live-memory et montre-moi la réponse. »*
 
 Si Claude répond avec `{"status": "ok", ...}`, la connexion fonctionne.
 
 ### 3.4 — Whitelister les outils (éviter les prompts de permission)
 
-Claude Code demande confirmation à chaque appel d'outil MCP non autorisé. Pour éviter ces interruptions, ajoutez les outils Live Memory à la liste blanche du projet (ou de l'utilisateur).
+Claude Code demande confirmation à chaque appel d'outil MCP non autorisé. Pour éviter ces interruptions, ajoutez les outils Live Memory à l'allow-list du projet (ou de l'utilisateur).
 
 Créez ou éditez `.claude/settings.local.json` à la racine du projet :
 
@@ -184,21 +184,21 @@ Créez ou éditez `.claude/settings.local.json` à la racine du projet :
 }
 ```
 
-> 💡 **Convention de nommage** : Claude Code expose chaque outil MCP sous la forme `mcp__<nom-du-serveur>__<nom-de-l-outil>`. Si vous avez nommé votre serveur `live-memory-prod` à l'étape 3.1, remplacez le préfixe en conséquence.
+> 💡 **Convention de nommage** : Claude Code expose chaque outil MCP sous la forme `mcp__<nom-serveur>__<nom-outil>`. Si vous avez nommé votre serveur `live-memory-prod` à l'étape 3.1, ajustez le préfixe en conséquence.
 
 Alternative interactive : tapez `/permissions` dans une session Claude Code pour ouvrir l'éditeur de permissions.
 
-Pour une configuration globale (tous projets), utilisez plutôt `~/.claude/settings.json`.
+Pour une configuration globale (tous projets), utilisez `~/.claude/settings.json` à la place.
 
-### 3.5 — Serveur distant HTTPS
+### 3.5 — Serveur HTTPS distant
 
-Pour un déploiement production, l'URL et le bloc JSON sont identiques — seul le schéma change (`https://` au lieu de `http://`). Aucune option supplémentaire n'est nécessaire côté Claude Code.
+Pour un déploiement en production, l'URL et le bloc JSON sont identiques — seul le schéma change (`https://` au lieu de `http://`). Aucune option supplémentaire requise côté Claude Code.
 
 ---
 
 ## 📁 Étape 4 — Créer un espace mémoire
 
-Avant que Claude Code puisse écrire des notes, il faut un **espace mémoire** avec des **rules** qui définissent la structure de la Memory Bank.
+Avant que Claude Code puisse écrire des notes, il vous faut un **espace mémoire** avec des **rules** qui définissent la structure de la Memory Bank.
 
 ### Via la CLI
 
@@ -208,26 +208,26 @@ python scripts/mcp_cli.py space create mon-projet \
   -d "Mon projet de développement"
 ```
 
-Plusieurs templates de rules sont fournis dans le répertoire `RULES/` du repo :
+Plusieurs templates de rules sont fournis dans le dossier `RULES/` du repo :
 
-| Template                              | Usage                                                       |
-| ------------------------------------- | ----------------------------------------------------------- |
-| `RULES/standard.memory.bank.md`       | Memory Bank Cline classique (6 fichiers projet)             |
-| `RULES/product.management.memory.bank.md` | Équipe produit (vision, portfolio, personas, features)  |
-| `RULES/medical.memory.bank.md`        | Suivi de patient / dossier clinique                         |
-| `RULES/presales.memory.bank.md`       | Avant-vente, qualification de prospect, RFP                 |
-| `RULES/book.memory.bank.md`           | Écriture de livre / projet éditorial                        |
-| `RULES/live-mem.standard.memory.bank.md` | Développement du serveur Live Memory lui-même            |
+| Template                                  | Cas d'usage                                           |
+| ----------------------------------------- | ----------------------------------------------------- |
+| `RULES/standard.memory.bank.md`           | Memory Bank Cline classique (6 fichiers projet)       |
+| `RULES/product.management.memory.bank.md` | Équipe produit (vision, portfolio, personas, features) |
+| `RULES/medical.memory.bank.md`            | Suivi patient / dossier clinique                      |
+| `RULES/presales.memory.bank.md`           | Avant-vente, qualification de prospect, RFP           |
+| `RULES/book.memory.bank.md`               | Écriture de livre / projet éditorial                  |
+| `RULES/live-mem.standard.memory.bank.md`  | Développement du serveur Live Memory lui-même         |
 
 ### Via Claude Code directement
 
 Vous pouvez aussi demander à Claude de créer l'espace. Dites-lui simplement :
 
-> *« Utilise l'outil `space_create` pour créer un espace `mon-projet` avec des rules standard de type Memory Bank (projectbrief, activeContext, progress, techContext, systemPatterns, productContext). »*
+> *« Utilise l'outil `space_create` pour créer un space `mon-projet` avec les rules standards Memory Bank (projectbrief, activeContext, progress, techContext, systemPatterns, productContext). »*
 
-Claude Code utilisera l'outil MCP `space_create` pour le faire.
+Claude Code invoquera l'outil MCP `space_create`.
 
-### Exemple de rules standard
+### Exemple de rules standards
 
 ```markdown
 # Memory Bank Rules
@@ -238,10 +238,10 @@ Claude Code utilisera l'outil MCP `space_create` pour le faire.
 Vision, objectifs, périmètre du projet.
 
 ### activeContext.md
-Focus actuel, travail en cours, décisions récentes, prochaines étapes.
+Focus courant, travail en cours, décisions récentes, prochaines étapes.
 
 ### progress.md
-Ce qui fonctionne, ce qui reste à faire, problèmes connus.
+Ce qui marche, ce qui reste à faire, problèmes connus.
 
 ### techContext.md
 Technologies utilisées, configuration, contraintes techniques.
@@ -255,27 +255,27 @@ Pourquoi ce projet existe, problèmes résolus, expérience utilisateur.
 
 ---
 
-## 📝 Étape 5 — Donner des instructions à Claude Code
+## 📝 Étape 5 — Donner ses instructions à Claude Code
 
 Claude Code lit automatiquement les fichiers `CLAUDE.md` au démarrage. Deux emplacements possibles :
 
-| Emplacement             | Portée                                                | Recommandé pour                       |
-| ----------------------- | ----------------------------------------------------- | ------------------------------------- |
-| `<racine-projet>/CLAUDE.md` | Le projet courant (commité avec le repo)          | Workflow spécifique au projet         |
-| `~/.claude/CLAUDE.md`   | Tous les projets de l'utilisateur (privé, non commité) | Préférences globales, identité, style |
+| Emplacement                | Portée                                              | Recommandé pour                       |
+| -------------------------- | --------------------------------------------------- | ------------------------------------- |
+| `<racine-projet>/CLAUDE.md` | Le projet courant (committé avec le repo)          | Workflow spécifique au projet         |
+| `~/.claude/CLAUDE.md`      | Tous les projets de l'utilisateur courant (privé)   | Préférences globales, identité, style |
 
-Pour Live Memory, le `CLAUDE.md` projet est l'endroit idéal car la valeur de `{SPACE}` est spécifique au projet.
+Pour Live Memory, le `CLAUDE.md` au niveau projet est l'emplacement idéal car `{SPACE}` est spécifique au projet.
 
 ### Template recommandé (à coller dans `CLAUDE.md`)
 
-Ce template utilise le placeholder `{SPACE}` — il suffit de configurer **une seule valeur** :
+Ce template utilise le placeholder `{SPACE}` — vous n'avez qu'**une seule valeur** à configurer :
 
 ```markdown
 # Memory Bank — Live Memory MCP
 
 Ma mémoire se réinitialise complètement entre les sessions. Je dépends ENTIÈREMENT de la Memory Bank pour comprendre le projet et continuer efficacement.
 
-## 🔌 Configuration (à modifier par projet)
+## 🔌 Configuration (à personnaliser par projet)
 
 Ma mémoire persistante est gérée par le serveur MCP **Live Memory** (`live-memory`).
 
@@ -283,57 +283,59 @@ Ma mémoire persistante est gérée par le serveur MCP **Live Memory** (`live-me
 >
 > - **SPACE** = `mon-projet`       ← Remplacez par votre space_id
 >
-> Toutes les instructions ci-dessous utilisent `{SPACE}` — je le substitue automatiquement par la valeur ci-dessus.
-> Le nom de l'agent est **auto-détecté** depuis le token d'authentification (pas besoin de le configurer).
+> Toutes les instructions ci-dessous utilisent `{SPACE}` — je le remplace automatiquement par la valeur ci-dessus.
+> Le nom d'agent est **auto-détecté** depuis le token d'authentification (aucune configuration nécessaire).
 
-## 📖 Au démarrage de CHAQUE tâche (OBLIGATOIRE)
+## 📖 Au début de CHAQUE tâche (OBLIGATOIRE)
 
 1. Appeler `space_rules("{SPACE}")` pour lire les rules (structure de la bank)
 2. Appeler `bank_read_all("{SPACE}")` pour charger TOUT le contexte consolidé
 3. Appeler `live_read(space_id="{SPACE}")` pour lire les **notes non consolidées**
 4. Lire attentivement le contenu avant de commencer
-5. Identifier le focus actuel dans `activeContext.md`
+5. Identifier le focus courant dans `activeContext.md`
 
-> ⚠️ Ne JAMAIS commencer à travailler sans avoir lu la bank.
+> ⚠️ NE JAMAIS commencer à travailler sans avoir lu la bank.
 >
-> 💡 **Pourquoi lire les notes live ?** Entre deux sessions, des notes ont pu être écrites (par moi ou par d'autres agents) sans avoir été consolidées dans la bank. Ces notes contiennent du contexte récent qui n'apparaît pas encore dans les fichiers bank. Les ignorer = risquer de refaire du travail déjà fait ou de rater des décisions récentes.
+> 💡 **Pourquoi lire les notes live ?** Entre les sessions, des notes peuvent avoir été écrites (par moi ou par d'autres agents) sans avoir été consolidées. Ces notes contiennent du contexte récent qui n'apparaît pas encore dans les fichiers bank. Les ignorer = risque de refaire un travail déjà fait ou de manquer une décision récente.
 
 ## 📝 Pendant le travail
 
-Écrire des notes fréquentes et atomiques avec `live_note` :
+Écrire des notes atomiques fréquentes via `live_note` :
 
     live_note(space_id="{SPACE}", category="<catégorie>", content="...")
 
-Le paramètre `agent` est **auto-détecté** depuis le token — inutile de le passer.
+Le paramètre `agent` est **auto-détecté** depuis le token — pas besoin de le passer.
 
 **Catégories** :
-- `observation` — Constats factuels, résultats de commandes
-- `decision` — Choix techniques et leur justification
-- `progress` — Avancement, ce qui est terminé
-- `issue` — Problèmes rencontrés, bugs
-- `todo` — Tâches identifiées à faire
-- `insight` — Apprentissages, patterns découverts
-- `question` — Points à clarifier, décisions en suspens
+- `observation` — constats factuels, résultats de commandes
+- `decision` — choix techniques et leur justification
+- `progress` — avancement, travail terminé
+- `issue` — problèmes rencontrés, bugs
+- `todo` — tâches identifiées à faire
+- `insight` — apprentissages, patterns découverts
+- `question` — points à clarifier, décisions en attente
 
 ## 🧠 En fin de session (ou après un bloc de travail significatif)
 
     bank_consolidate(space_id="{SPACE}")
 
-Le LLM consolidera **mes propres notes** (auto-détection de l'agent depuis le token) en mettant à jour les fichiers de la bank selon les rules du space.
+Le LLM va consolider **mes propres notes** (agent auto-détecté depuis le token) en mettant à jour les fichiers bank selon les rules du space.
 
 > ℹ️ Seul un admin peut consolider les notes de tous les agents (`agent=""`).
+>
+> 🔕 `bank_consolidate` est **fire-and-forget** : il retourne un accusé async (`running` / `queued`) avec `next_action="return_to_user_without_polling"`. **Appelez-le une seule fois et rendez la main à l'utilisateur.** Ne surveillez pas et ne pollez pas. `bank_consolidation_status(job_id)` existe uniquement pour des **checks manuels explicites**.
 
-## ⚠️ Règles impératives
+## ⚠️ Règles strictes
 
-1. **Ne JAMAIS écrire directement dans la bank** — seule la consolidation LLM le fait
-2. **Toujours passer `space_id="{SPACE}"`** dans tous les appels
-3. **Écrire des notes atomiques après chaque étape importante** — 1 note = 1 fait, 1 décision, ou 1 tâche
-4. **Consolider en fin de session** — ne jamais quitter sans consolider mais toujours après avoir validé avec l'utilisateur
+1. **NE JAMAIS écrire directement dans la bank** — seule la consolidation LLM le fait
+2. **Toujours passer `space_id="{SPACE}"`** dans chaque appel
+3. **Écrire des notes atomiques après chaque étape significative** — 1 note = 1 fait, 1 décision, ou 1 tâche
+4. **Consolider en fin de session** — appelez `bank_consolidate` une seule fois et rendez la main à l'utilisateur sans poller (pas de boucle automatique sur `bank_consolidation_status`)
 5. **Lire la bank au démarrage** — ne jamais travailler sans contexte
 
 ## 🔄 Quand demander une mise à jour
 
-Si l'utilisateur demande **"update memory bank"** ou **"met à jour la memory bank"** :
+Si l'utilisateur dit **« update memory bank »** :
 1. Écrire des notes `live_note` résumant l'état actuel du travail
 2. Appeler `bank_consolidate(space_id="{SPACE}")`
 3. Vérifier le résultat avec `bank_read_all("{SPACE}")`
@@ -342,30 +344,30 @@ Si l'utilisateur demande **"update memory bank"** ou **"met à jour la memory ba
 
 | Action                          | Commande                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------- |
-| Lire tout le contexte           | `bank_read_all("{SPACE}")`                                                |
+| Lire le contexte complet        | `bank_read_all("{SPACE}")`                                                |
 | Lire les rules                  | `space_rules("{SPACE}")`                                                  |
 | Écrire une note                 | `live_note(space_id="{SPACE}", category="...", content="...")`            |
 | Consolider                      | `bank_consolidate(space_id="{SPACE}")`                                    |
 | Voir les notes récentes         | `live_read(space_id="{SPACE}")`                                           |
 | Voir les notes d'un autre agent | `live_read(space_id="{SPACE}", agent="autre-agent")`                      |
-| Info sur l'espace               | `space_info("{SPACE}")`                                                   |
+| Infos space                     | `space_info("{SPACE}")`                                                   |
 ```
 
-> 💡 **Pour un nouveau projet** : copiez ce fichier dans `<racine-projet>/CLAUDE.md`, changez la ligne `SPACE`, c'est tout !
+> 💡 **Pour un nouveau projet** : copiez ce fichier dans `<racine-projet>/CLAUDE.md`, changez la ligne `SPACE`, et c'est tout !
 
 ### Version minimaliste (`~/.claude/CLAUDE.md` global)
 
-Si vous préférez ne pas commiter d'instructions Live Memory dans chaque projet, ajoutez ce bloc court dans `~/.claude/CLAUDE.md` :
+Si vous préférez ne pas committer les instructions Live Memory dans chaque projet, ajoutez ce court bloc à `~/.claude/CLAUDE.md` :
 
 ```
-Tu as accès à Live Memory (serveur MCP "live-memory").
-- Au démarrage: space_rules("{SPACE}"), bank_read_all("{SPACE}"), live_read("{SPACE}")
-- Pendant le travail: live_note(space_id="{SPACE}", category="...", content="...")
-- En fin de session: bank_consolidate(space_id="{SPACE}")
-Le `{SPACE}` est défini dans le CLAUDE.md du projet courant. L'agent est auto-détecté depuis le token.
+Vous avez accès à Live Memory (serveur MCP « live-memory »).
+- Au démarrage : space_rules("{SPACE}"), bank_read_all("{SPACE}"), live_read("{SPACE}")
+- Pendant le travail : live_note(space_id="{SPACE}", category="...", content="...")
+- En fin de session : bank_consolidate(space_id="{SPACE}") — appeler une seule fois et rendre la main sans poller
+`{SPACE}` est défini dans le CLAUDE.md du projet courant. L'agent est auto-détecté depuis le token.
 ```
 
-Chaque projet déclare ensuite uniquement sa valeur de `{SPACE}` dans son propre `CLAUDE.md`.
+Chaque projet déclare alors uniquement sa valeur `{SPACE}` dans son propre `CLAUDE.md`.
 
 ---
 
@@ -390,8 +392,8 @@ Chaque projet déclare ensuite uniquement sa valeur de `{SPACE}` dans son propre
 ├────────────────────────────────────────────────┤
 │  3. FIN DE SESSION                             │
 │     bank_consolidate("mon-projet")             │
-│     → LLM synthétise les notes en bank         │
-│     → Notes live supprimées après succès       │
+│     → Le LLM synthétise les notes dans la bank │
+│     → Les notes live sont supprimées si OK     │
 └────────────────────────────────────────────────┘
 ```
 
@@ -400,11 +402,11 @@ Chaque projet déclare ensuite uniquement sa valeur de `{SPACE}` dans son propre
 | Situation                   | Recommandation                       |
 | --------------------------- | ------------------------------------ |
 | Session courte (< 10 notes) | Consolider en fin de session         |
-| Session longue (> 20 notes) | Consolider toutes les 15-20 notes    |
+| Session longue (> 20 notes) | Consolider toutes les 15–20 notes    |
 | Changement de contexte      | Consolider avant de changer de sujet |
 | Fin de journée              | Toujours consolider                  |
 
-### Visualiser en temps réel
+### Visualisation en temps réel
 
 Pendant que Claude Code travaille, ouvrez l'interface web pour suivre en direct :
 
@@ -412,26 +414,26 @@ Pendant que Claude Code travaille, ouvrez l'interface web pour suivre en direct 
 http://localhost:8080/live
 ```
 
-Vous verrez les notes apparaître en temps réel dans la **Live Timeline** et la **Bank** se mettre à jour après chaque consolidation.
+Les notes apparaîtront en temps réel dans la **Live Timeline** et la **Bank** se mettra à jour après chaque consolidation.
 
 ---
 
-## 👥 Multi-agents : Claude Code + Cline + Claude Desktop + autres
+## 👥 Multi-agent : Claude Code + Cline + Claude Desktop + autres
 
 Live Memory permet à **plusieurs agents** de collaborer sur le même espace mémoire.
 
 ### Scénario : Claude Code (dev) + Cline (review) + Claude Desktop (synthèse)
 
-Pour que plusieurs agents collaborent, il suffit de leur créer **un token par identité** :
+Pour que plusieurs agents collaborent, créez **un token par identité** :
 
 1. `admin_create_token name="claude-code-dev"`
 2. `admin_create_token name="cline-review"`
-3. `admin_create_token name="claude-desktop-synthese"`
+3. `admin_create_token name="claude-desktop-synth"`
 4. Configurer chaque agent avec son propre token
 
-L'identité de l'agent est **automatiquement déduite de son token** à chaque fois qu'il appelle `live_note` ou `bank_consolidate`. Aucun paramètre `agent` à préciser.
+L'identité de l'agent est **automatiquement dérivée de son token** chaque fois qu'il appelle `live_note` ou `bank_consolidate`. Aucun paramètre `agent` à passer.
 
-### Communication entre agents
+### Communication inter-agents
 
 Les agents ne se parlent pas directement. Ils communiquent **via l'espace partagé** :
 
@@ -444,62 +446,62 @@ Claude Code   → live_read(category="decision")   ← voit la réponse
 
 ### Consolidation par agent
 
-Chaque agent consolide **ses propres notes** sans interférer avec celles des autres. Si un agent a les droits **admin**, il peut consolider les notes de tous les agents en appelant `bank_consolidate` (qui, pour un admin, traite par défaut tout le monde).
+Chaque agent consolide **ses propres notes** sans interférer avec les autres. Si un agent a des droits **admin**, il peut consolider les notes de tous les agents en appelant `bank_consolidate` (qui, pour un admin, traite tout le monde par défaut).
 
 ---
 
-## 🔍 Dépannage
+## 🔍 Troubleshooting
 
-### `claude mcp list` ne montre pas live-memory
+### `claude mcp list` n'affiche pas live-memory
 
-1. Vérifiez que le serveur est démarré : `curl http://localhost:8080/health`
-2. Vérifiez la syntaxe JSON dans `~/.claude.json` (pas de virgule trailing, accolades bien fermées)
-3. Quittez complètement Claude Code et relancez-le — le fichier n'est lu qu'au démarrage
-4. Inspectez les logs : `claude --debug` puis exécutez une session courte
+1. Vérifiez que le serveur est lancé : `curl http://localhost:8080/health`
+2. Vérifiez la syntaxe JSON dans `~/.claude.json` (pas de virgule traînante, accolades fermées)
+3. Quittez complètement Claude Code et relancez — le fichier n'est lu qu'au démarrage
+4. Inspectez les logs : `claude --debug` puis lancez une session courte
 
-### Erreur "401 Unauthorized"
+### Erreur « 401 Unauthorized »
 
-- Le token est incorrect, périmé ou révoqué
+- Le token est incorrect, expiré ou révoqué
 - Vérifiez que le header est bien `"Authorization": "Bearer lm_..."` (avec le préfixe `lm_`)
-- Attention aux espaces / sauts de ligne parasites lors du copier-coller du token
-- La bootstrap key fonctionne pour les tests mais créez un vrai token pour l'usage courant
+- Attention aux espaces ou retours à la ligne parasites lors du copier-coller du token
+- La clé bootstrap fonctionne pour les tests, mais créez un vrai token pour un usage normal
 
-### Erreur "Accès refusé à l'espace"
+### Erreur « Access denied to space »
 
-Le token est restreint à certains espaces (`space_ids`). Soit :
-- Créez un token sans restriction d'espace (paramètre `space_ids` vide)
-- Soit ajoutez l'espace au token : `admin_update_token(token_hash, space_ids="mon-projet", action="add")`
+Le token est restreint à certains spaces (`space_ids`). Soit :
+- Créez un token sans restriction de space (paramètre `space_ids` vide)
+- Soit ajoutez le space au token : `admin_update_token(token_hash, space_ids="mon-projet", action="add")`
 
-### Claude Code demande la permission à chaque appel
+### Claude Code demande une permission à chaque appel
 
-Whitelistez les outils via `.claude/settings.local.json` (voir Étape 3.4) ou tapez `/permissions` dans la session pour les ajouter interactivement.
+Whitelistez les outils via `.claude/settings.local.json` (voir Étape 3.4), ou tapez `/permissions` en session pour les ajouter interactivement.
 
-### Claude Code n'utilise pas Live Memory spontanément
+### Claude Code n'utilise pas Live Memory tout seul
 
-Sans `CLAUDE.md` explicite, Claude Code ne sait pas qu'il doit appeler ces outils en début de session. Ajoutez le template de l'Étape 5 dans `<racine-projet>/CLAUDE.md` ou `~/.claude/CLAUDE.md`.
+Sans un `CLAUDE.md` explicite, Claude Code ne sait pas qu'il doit appeler ces outils au démarrage d'une session. Ajoutez le template de l'étape 5 dans `<racine-projet>/CLAUDE.md` ou `~/.claude/CLAUDE.md`.
 
-### Le MCP ne se connecte pas derrière un VPN ou un proxy
+### MCP ne se connecte pas derrière un VPN ou un proxy
 
-Si Live Memory est sur un serveur distant, vérifiez :
-- Que le port 443 (HTTPS) ou 8080 (HTTP) est accessible
-- Que l'URL dans la config Claude Code est correcte (avec `/mcp` à la fin)
-- Testez manuellement : `curl -H "Authorization: Bearer lm_..." https://votre-serveur/mcp`
+Si Live Memory est sur un serveur distant, vérifiez que :
+- Le port 443 (HTTPS) ou 8080 (HTTP) est accessible
+- L'URL dans la config Claude Code est correcte (avec `/mcp` à la fin)
+- Test manuel : `curl -H "Authorization: Bearer lm_..." https://votre-serveur/mcp`
 
-### Suivre l'avancement d'une consolidation
+### Suivre une consolidation en cours
 
-Côté serveur, observez les logs :
+Côté serveur, suivez les logs :
 
 ```bash
 docker compose logs -f live-mem-service --tail 20
 ```
 
-Claude Code maintient la connexion HTTP ouverte pendant tout l'appel, donc une consolidation longue ne pose normalement pas de problème de timeout côté client.
+Claude Code maintient la connexion HTTP ouverte pendant tout l'appel, donc une consolidation longue ne provoque généralement pas de timeout côté client.
 
 ---
 
 ## 🖥️ Avec Claude Desktop
 
-La configuration est similaire à Claude Code mais le fichier change. Éditez `claude_desktop_config.json` :
+La configuration est similaire à Claude Code, mais le fichier change. Éditez `claude_desktop_config.json` :
 
 | OS          | Emplacement                                                       |
 | ----------- | ----------------------------------------------------------------- |
@@ -513,7 +515,7 @@ La configuration est similaire à Claude Code mais le fichier change. Éditez `c
     "live-memory": {
       "url": "http://localhost:8080/mcp",
       "headers": {
-        "Authorization": "Bearer lm_VOTRE_TOKEN_ICI"
+        "Authorization": "Bearer lm_YOUR_TOKEN_HERE"
       },
       "timeout": 600
     }
@@ -525,22 +527,22 @@ La configuration est similaire à Claude Code mais le fichier change. Éditez `c
 
 Redémarrez Claude Desktop après la modification. Les outils Live Memory apparaîtront dans la liste des outils disponibles.
 
-> ℹ️ **Note** : Claude Desktop ne propose pas de système d'allow-list par outil (contrairement à Claude Code). Les permissions se gèrent au niveau de l'application elle-même.
+> ℹ️ **Note** : Claude Desktop ne propose pas de système d'allow-list par outil (contrairement à Claude Code). Les permissions sont gérées au niveau application.
 
 ---
 
 ## 📊 Récapitulatif
 
-| Étape     | Action                                                | Temps      |
-| --------- | ----------------------------------------------------- | ---------- |
-| 1         | Démarrer Live Memory (`docker compose up -d`)         | 1 min      |
-| 2         | Créer un token (`mcp_cli.py token create`)            | 30 sec     |
-| 3         | Configurer Claude Code (`claude mcp add`)             | 1 min      |
-| 3.4       | Whitelister les outils (`.claude/settings.local.json`) | 1 min      |
-| 4         | Créer un espace (`space_create`)                      | 30 sec     |
-| 5         | Ajouter le `CLAUDE.md` du projet                      | 2 min      |
-| **Total** | **Prêt à utiliser**                                   | **~6 min** |
+| Étape     | Action                                                  | Temps      |
+| --------- | ------------------------------------------------------- | ---------- |
+| 1         | Démarrer Live Memory (`docker compose up -d`)           | 1 min      |
+| 2         | Créer un token (`mcp_cli.py token create`)              | 30 sec     |
+| 3         | Configurer Claude Code (`claude mcp add`)               | 1 min      |
+| 3.4       | Whitelister les outils (`.claude/settings.local.json`)  | 1 min      |
+| 4         | Créer un space (`space_create`)                         | 30 sec     |
+| 5         | Ajouter le `CLAUDE.md` du projet                        | 2 min      |
+| **Total** | **Prêt à l'emploi**                                     | **~6 min** |
 
 ---
 
-*Guide d'intégration Live Memory ↔ Claude Code v1.0.0 — [Documentation complète](README.md)*
+*Guide d'intégration Live Memory ↔ Claude Code v1.0.0 — [Documentation complète](README.fr.md)*

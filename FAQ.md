@@ -169,8 +169,9 @@ An admin token can manage other tokens, consolidate all agents' notes, and run t
 ### What happens if 2 agents consolidate at the same time?
 
 An `asyncio.Lock` per space prevents simultaneous consolidations:
-- The first agent acquires the lock → LLM consolidation (15-30s)
+- The first request is accepted as an async job with `{"status": "running"}` and a `job_id`
 - The second receives `{"status": "queued"}` with a `job_id` and queue position
+- Call `bank_consolidate` once at session end and return to the user; do not watch/poll unless an explicit status check is requested
 
 This is intentional: both agents write to the same bank files. Sequential consolidation lets each agent see the previous one's work.
 
@@ -394,7 +395,7 @@ Probable cause: the bank is too large. The LLM has a limited context window and 
 
 Another agent (or yourself in another terminal) is consolidating the same space. Your request was accepted and will run after earlier same-space jobs.
 
-**Solution**: keep the returned `job_id` and call `bank_consolidation_status(job_id)`, or inspect `space_info` for the queue summary.
+**Solution**: return to the user without polling. Keep the returned `job_id` only if an explicit status check is needed later. `bank_consolidation_status(job_id)` is manual-only; do not watch/poll automatically.
 
 ### I can't find my notes after consolidation
 
@@ -416,10 +417,11 @@ No theoretical limit. Each note = 1 S3 file (~200-500 bytes). Consolidation proc
 | ----------------------------- | --------------- |
 | `live_note` (write)           | ~50ms           |
 | `live_read` (read)            | ~100ms          |
-| `bank_consolidate` (12 notes) | ~15-30s         |
+| `bank_consolidate` enqueue    | ~50ms           |
+| Background consolidation (12 notes) | ~15-30s   |
 | `bank_read_all` (6 files)     | ~200ms          |
 | `system_health`               | ~500ms          |
 
 ### How many simultaneous agents?
 
-No limit on the number of agents writing in parallel (append-only, zero conflicts). Consolidation is queued FIFO per space (1 job mutates a space's bank at a time).
+No limit on the number of agents writing in parallel (append-only, zero conflicts). Consolidation is queued FIFO per space (1 job mutates a space's bank at a time). `bank_consolidate` is a call-once async handoff; do not watch/poll unless explicitly requested.

@@ -59,7 +59,7 @@ _synthesis.md (previous)
 
 ## 2. The `agent` Parameter (v0.2.0+)
 
-The `agent` parameter of `bank_consolidate` controls note filtering. Since issue #20, `bank_consolidate` enqueues a background job and returns immediately; notes are collected at job execution time, not at enqueue time.
+The `agent` parameter of `bank_consolidate` controls note filtering. Since issue #20, `bank_consolidate` enqueues a background job and returns immediately; notes are collected at job execution time, not at enqueue time. The caller contract is call once and return to the user; do not watch/poll unless an explicit status check is requested via `bank_consolidation_status`.
 
 | Value | Behavior | Permission |
 |-------|----------|------------|
@@ -233,7 +233,9 @@ consolidate(space_id, agent):
 - **Single meta update**: `consolidation_count` incremented by 1 (not N), `total_notes_processed` accumulated
 - **Sanitization**: `_sanitize_filename()` applied on each filename before S3 write
 
-### Enriched Metrics (`bank_consolidate` response)
+### Enriched Metrics (background job result)
+
+These fields are available in the completed job result when an explicit status check is requested. They are not a reason to poll automatically after `bank_consolidate`.
 
 ```json
 {

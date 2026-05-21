@@ -36,6 +36,7 @@ docker-compose-local.yml
 
 # === MCP config (local) ===
 .mcp.json
+.codex/
 
 # === IDE ===
 .vscode/

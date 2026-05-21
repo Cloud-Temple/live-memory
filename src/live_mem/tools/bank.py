@@ -324,7 +324,10 @@ def register(mcp: FastMCP) -> int:
                    Si l'agent est différent → manage requis.
 
         Returns:
-            Accusé de réception du job (running/queued + job_id)
+            Accusé de réception async du job (running/queued + job_id),
+            incluant le contrat machine-readable demandant de rendre la main
+            sans attendre ni poller automatiquement. `bank_consolidation_status`
+            est réservé aux demandes explicites de statut.
         """
         from ..auth.context import (
             check_access,

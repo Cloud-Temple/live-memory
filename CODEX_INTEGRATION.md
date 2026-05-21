@@ -241,12 +241,14 @@ live_note(space_id="{SPACE}", category="<category>", content="...")
 bank_consolidate(space_id="{SPACE}")
 ```
 
+> 🔕 `bank_consolidate` is **fire-and-forget**: it returns an async job ack (`running` / `queued`) with `next_action="return_to_user_without_polling"`. **Call it once and return to the user.** Do not watch or poll. `bank_consolidation_status(job_id)` exists for **explicit manual checks only**.
+
 ## Mandatory Rules
 
 1. **NEVER write directly to the bank** — only the LLM consolidation does that
 2. **Always pass `space_id="{SPACE}"`** in every call
 3. **Write atomic notes after each significant step** — 1 note = 1 fact, 1 decision, or 1 task
-4. **Consolidate at session end** — never leave without consolidating
+4. **Consolidate at session end** — call `bank_consolidate` once and return to the user without polling (no automatic `bank_consolidation_status` loop)
 5. **Read the bank at startup** — never work without context
 ```
 
@@ -256,7 +258,7 @@ bank_consolidate(space_id="{SPACE}")
 You have access to Live Memory (MCP server: my-live-mem).
 - At startup: space_rules("my-project"), bank_read_all("my-project"), live_read("my-project")
 - During work: live_note(space_id="my-project", category="...", content="...")
-- At session end: bank_consolidate(space_id="my-project")
+- At session end: bank_consolidate(space_id="my-project") — call once and return without polling
 The agent name is auto-detected from the authentication token.
 ```
 

@@ -28,6 +28,16 @@ logger = logging.getLogger("live_mem.consolidation_queue")
 
 QUEUE_GUARANTEE = "in_memory_best_effort"
 TERMINAL_STATUSES = {"succeeded", "failed"}
+NO_AUTO_POLLING_NEXT_ACTION = "return_to_user_without_polling"
+NO_AUTO_POLLING_CONTRACT = {
+    "recommended": False,
+    "mode": "manual_only",
+    "status_tool": "bank_consolidation_status",
+    "instruction": (
+        "Do not wait for completion or poll automatically. Store the job_id "
+        "only if an explicit status check is needed."
+    ),
+}
 
 
 def _now() -> str:
@@ -278,17 +288,23 @@ class ConsolidationQueueService:
             "started_at": job.started_at,
             "finished_at": job.finished_at,
             "progress": dict(job.progress),
+            "next_action": NO_AUTO_POLLING_NEXT_ACTION,
+            "polling": dict(NO_AUTO_POLLING_CONTRACT),
         }
         if job.status == "running":
             payload["message"] = (
-                "Consolidation request accepted. This job is running for "
-                f"space '{job.space_id}'."
+                "Async consolidation job accepted and running for "
+                f"space '{job.space_id}'. Do not wait for completion by "
+                "default. Use bank_consolidation_status only for an explicit "
+                "status check."
             )
         elif job.status == "queued":
             payload["message"] = (
-                "Consolidation request accepted. Another consolidation is "
+                "Async consolidation job accepted. Another consolidation is "
                 f"running for '{job.space_id}'; this job is queued at "
-                f"position {payload['queue_position']}."
+                f"position {payload['queue_position']}. Do not wait for "
+                "completion by default. Use bank_consolidation_status only "
+                "for an explicit status check."
             )
         if job.result is not None:
             payload["result"] = job.result

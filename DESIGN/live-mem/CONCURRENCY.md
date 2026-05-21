@@ -47,8 +47,10 @@ async def bank_consolidate(space_id: str, agent: str = "") -> dict:
 
 **Behavior**:
 - The MCP call returns quickly with `status="running"` or `status="queued"`
+- The response includes `next_action="return_to_user_without_polling"` and `polling.recommended=false`
+- Caller contract: call once, do not watch/poll unless explicitly requested
 - A queued request is processed FIFO for the same `space_id`
-- Job status is observable via `bank_consolidation_status(job_id)` and `space_info`
+- Job status is observable via `bank_consolidation_status(job_id)` and `space_info`, but `bank_consolidation_status` is a manual-only explicit check, not an automatic polling loop
 - Two different spaces can be consolidated in parallel (independent locks)
 - PR 1 queue durability is `in_memory_best_effort`: jobs are not persisted across process restart
 
@@ -154,21 +156,23 @@ T+0s: Agent C → live_note("todo", "Write tests")              → PUT S3: note
 
 ```
 T+0s:  Agent A → bank_consolidate("project-alpha", agent="agent-A")
-       → Lock acquired ✅, consolidation starts (takes 30s)
+       → Async job accepted: {"status": "running", "job_id": "..."}
+       → Agent A returns to the user without polling
 
 T+5s:  Agent B → bank_consolidate("project-alpha", agent="agent-B")
-       → Lock already held → immediate return {"status": "conflict"} ⚡
+       → Async job accepted: {"status": "queued", "job_id": "...", "queue_position": 2}
+       → Agent B returns to the user without polling
 
 T+30s: Agent A → consolidation complete, lock released ✅
-T+31s: Agent B → bank_consolidate("project-alpha", agent="agent-B")
-       → Lock acquired ✅, consolidation starts
+       → Worker starts Agent B's queued job automatically
 ```
 
 ### Scenario 3: Agent writes during a consolidation
 
 ```
 T+0s:  Agent A → bank_consolidate("project-alpha", agent="agent-A")
-       → Lock acquired, reads agent-A's live notes
+       → Async job accepted; background worker acquires the lock
+       → Worker reads agent-A's live notes when the job starts
 
 T+5s:  Agent B → live_note("observation", "New finding")
        → PUT S3: note_new.md ✅ (no lock needed)
@@ -184,7 +188,7 @@ T+30s: Agent A → consolidation complete
 
 ```
 T+0s:  Agent A → bank_consolidate("project-alpha")
-       → Consolidation lock acquired
+       → Async job accepted; background worker may hold the consolidation lock
 
 T+5s:  Agent B → graph_push("project-alpha")
        → No lock needed (read-only access to bank + MCP Streamable HTTP call)
@@ -200,7 +204,8 @@ T+5s:  Agent B → graph_push("project-alpha")
 | `live_note` | 50-100ms (1 PUT S3) | No | None |
 | `live_read` (50 notes) | 200-500ms (1 LIST + N GETs) | No | None |
 | `bank_read_all` (6 files) | 100-300ms (1 LIST + 6 GETs) | No | None |
-| `bank_consolidate` | 20-60s (LLM + S3 I/O) | Yes (per space) | Blocks other consolidations for the same space |
+| `bank_consolidate` enqueue | ~50ms | No | Returns `running`/`queued`; caller must not auto-poll |
+| Background consolidation job | 20-60s (LLM + S3 I/O) | Yes (per space) | Serializes bank mutation for the same space |
 | `graph_push` (6 files) | 60-180s (MCP Streamable HTTP) | No | None |
 | `admin_create_token` | 100-200ms (1 GET + 1 PUT S3) | Yes (tokens) | Short serialization |
 
