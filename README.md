@@ -306,15 +306,16 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `live_read`   | `space_id`, `limit?`, `category?`, `agent?` | Reads live notes (optional filters)                                                                                         |
 | `live_search` | `space_id`, `query`, `limit?`               | Full-text search in notes                                                                                                   |
 
-### Bank (9 tools)
+### Bank (10 tools)
 
 | Tool               | Parameters                        | Description                                                                                             |
 | ------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `bank_read`        | `space_id`, `filename`            | Reads a bank file (supports subfolders: `personaProfiles/buyer.md`)                                     |
 | `bank_read_all`    | `space_id`                        | Reads entire bank in one request (🚀 agent startup)                                                    |
 | `bank_list`        | `space_id`                        | Lists bank files with relative paths (without content)                                                  |
-| `bank_consolidate` | `space_id`, `agent?`              | 🧠 Enqueues LLM consolidation. Empty `agent` = all notes (admin). `agent=name` = notes from this agent |
-| `bank_consolidation_status` | `job_id`              | Tracks an in-memory consolidation job returned by `bank_consolidate` |
+| `bank_consolidate` | `space_id`, `agent?`              | 🧠 Enqueues async LLM consolidation. Call once; do not watch/poll unless explicitly requested |
+| `bank_consolidation_status` | `job_id`              | Manual-only status check for a job returned by `bank_consolidate` |
+| `bank_consolidation_queues` | `space_ids?`          | Read-only summary of consolidation lanes by space |
 | `bank_compact`     | `space_id`, `dry_run?`            | 🔧 Compacts oversized bank files via LLM. `dry_run=True` by default (admin)                            |
 | `bank_repair`      | `space_id`, `dry_run?`            | 🔧 Repairs corrupted filenames (Unicode, parasitic prefixes). `dry_run=True` by default (admin)        |
 | `bank_write`       | `space_id`, `filename`, `content` | ✏️ Writes/replaces a bank file directly — bypasses LLM consolidation (admin)                          |
@@ -364,7 +365,7 @@ Live Memory can push its Memory Bank into a [Graph Memory](https://github.com/Cl
    └─ Tests connection, creates Graph Memory if needed
 
 2. bank_consolidate(space_id)
-   └─ LLM produces/updates bank files
+   └─ Queues async consolidation; call once and do not watch/poll unless explicitly requested
 
 3. graph_push(space_id)
    ├─ Lists documents in Graph Memory
@@ -701,7 +702,8 @@ docker compose logs waf --tail 20
 
 - Check LLMaaS credentials in `.env`
 - Default timeout is 600s — increase `CONSOLIDATION_TIMEOUT` if needed
-- `bank_consolidate` is queued FIFO per space; only one job mutates a space's bank at a time (asyncio lock)
+- `bank_consolidate` returns an async job acknowledgement (`running` or `queued`) with `next_action="return_to_user_without_polling"`; call it once and do not watch/poll unless explicitly requested
+- `bank_consolidation_status(job_id)` remains available for manual status checks only
 
 ---
 

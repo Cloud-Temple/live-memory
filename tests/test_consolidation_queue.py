@@ -83,6 +83,13 @@ def _bank_tool(name: str):
     raise AssertionError(f"Tool {name} has no callable")
 
 
+def _assert_no_auto_polling_contract(payload: dict) -> None:
+    assert payload["next_action"] == "return_to_user_without_polling"
+    assert payload["polling"]["recommended"] is False
+    assert payload["polling"]["mode"] == "manual_only"
+    assert payload["polling"]["status_tool"] == "bank_consolidation_status"
+
+
 @pytest.fixture(autouse=True)
 def reset_queue():
     reset_consolidation_queue_for_tests()
@@ -103,6 +110,7 @@ async def test_enqueue_first_job_returns_running_and_processes_without_cooldown(
         assert result["status"] == "running"
         assert result["queue_position"] == 1
         assert result["guarantee"] == QUEUE_GUARANTEE
+        _assert_no_auto_polling_contract(result)
 
         await asyncio.wait_for(fake.started.wait(), timeout=1)
         fake.release.set()
@@ -142,6 +150,8 @@ async def test_same_space_second_request_is_queued_not_conflict_and_fifo():
         assert first["status"] == "running"
         assert second["status"] == "queued"
         assert second["queue_position"] == 2
+        _assert_no_auto_polling_contract(first)
+        _assert_no_auto_polling_contract(second)
 
         fake.release.set()
         await asyncio.sleep(0.05)

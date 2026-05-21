@@ -294,6 +294,8 @@ async def bank_list(space_id: str) -> dict:
 
 Enqueues LLM consolidation: returns immediately with a job acknowledgement. The background worker reads live notes, rules, and the current bank when the job actually runs, then uses the LLM to produce updated bank files.
 
+Caller contract: call `bank_consolidate` once at session end, then return to the user. Do not wait for completion and do not watch/poll automatically unless the user explicitly asks for a status check.
+
 ```python
 @mcp.tool()
 async def bank_consolidate(
@@ -312,6 +314,8 @@ async def bank_consolidate(
 - Only one consolidation mutates a space's bank at a time (global per-space lock)
 - Same-space requests are serialized FIFO instead of rejected with `conflict`
 - The PR 1 queue is in-memory only (`guarantee="in_memory_best_effort"`)
+- The response explicitly sets `next_action="return_to_user_without_polling"`
+- `polling.recommended=false`; `bank_consolidation_status` is manual-only for explicit status checks
 - If no live notes exist, the background job result is `{"status": "ok", "notes_processed": 0, "message": "No new notes to consolidate"}`
 - Configurable timeout (`CONSOLIDATION_TIMEOUT`, default 600s)
 
@@ -325,7 +329,14 @@ async def bank_consolidate(
   "agent": "cline-dev",
   "requested_by": "cline-dev",
   "queue_position": 1,
-  "guarantee": "in_memory_best_effort"
+  "guarantee": "in_memory_best_effort",
+  "next_action": "return_to_user_without_polling",
+  "polling": {
+    "recommended": false,
+    "mode": "manual_only",
+    "status_tool": "bank_consolidation_status",
+    "instruction": "Do not wait for completion or poll automatically. Store the job_id only if an explicit status check is needed."
+  }
 }
 ```
 
@@ -338,7 +349,7 @@ Returns the in-memory status for a consolidation job.
 async def bank_consolidation_status(job_id: str) -> dict:
 ```
 
-Returns `queued`, `running`, `succeeded`, `failed`, or `not_found`. The caller must have read access to the job's `space_id`.
+Returns `queued`, `running`, `succeeded`, `failed`, or `not_found`. The caller must have read access to the job's `space_id`. This tool is for explicit manual status checks only; clients must not call it automatically after every `bank_consolidate`.
 
 ---
 
