@@ -73,7 +73,10 @@ SHELL_COMMANDS = {
     "bank list": "List bank files (bank list <space>)",
     "bank read": "Read a bank file (bank read <space> <file>)",
     "bank read-all": "Read entire bank (bank read-all <space>)",
-    "bank consolidate": "Consolidate via LLM (bank consolidate <space>)",
+    "bank consolidate": "Consolidate via LLM (bank consolidate <space>) — async, fire-and-forget",
+    "bank consolidation-status": "Manual status check for a consolidation job (bank consolidation-status <job_id>)",
+    "bank consolidation-queues": "Show consolidation lanes per space (bank consolidation-queues [csv_space_ids])",
+    "bank stale-spaces": "List spaces with too many unconsolidated notes (bank stale-spaces [--min-notes 5] [--min-age-days 5] [--consolidate])",
     "bank write": "Write a bank file (bank write <space> <file> -f <path.md>) admin",
     "bank delete": "Delete a bank file (bank delete <space> <file>) admin",
     "bank repair": "Repair corrupted names (bank repair <space> [--apply]) admin",
@@ -589,9 +592,74 @@ async def _handle_bank(client, args, json_out):
         else:
             show_error(result.get("message", "?"))
 
+    elif sub == "stale-spaces":
+        # Parse flags: --min-notes N, --min-age-days N, --consolidate, --space-ids CSV
+        min_notes = 5
+        min_age_days = 5
+        consolidate = False
+        space_ids_arg = ""
+        i = 1
+        while i < len(args):
+            flag = args[i]
+            if flag in ("--min-notes", "-n") and i + 1 < len(args):
+                try:
+                    min_notes = int(args[i + 1])
+                except ValueError:
+                    show_error(f"Invalid value for {flag}")
+                    return
+                i += 2
+            elif flag in ("--min-age-days", "-d") and i + 1 < len(args):
+                try:
+                    min_age_days = int(args[i + 1])
+                except ValueError:
+                    show_error(f"Invalid value for {flag}")
+                    return
+                i += 2
+            elif flag in ("--space-ids", "-s") and i + 1 < len(args):
+                space_ids_arg = args[i + 1]
+                i += 2
+            elif flag == "--consolidate":
+                consolidate = True
+                i += 1
+            else:
+                i += 1
+        result = await client.call_tool(
+            "bank_stale_spaces",
+            {
+                "min_notes": min_notes,
+                "min_age_days": min_age_days,
+                "space_ids": space_ids_arg,
+            },
+        )
+        if json_out:
+            show_json(result)
+        elif result.get("status") == "ok":
+            from .display import show_stale_spaces
+            show_stale_spaces(result)
+        else:
+            show_error(result.get("message", "?"))
+            return
+        if consolidate and result.get("status") == "ok":
+            from .display import show_consolidation_result
+            for entry in result.get("spaces", []):
+                sid = entry.get("space_id")
+                if not sid:
+                    continue
+                job = await client.call_tool(
+                    "bank_consolidate", {"space_id": sid}
+                )
+                if json_out:
+                    show_json(job)
+                elif job.get("status") in ("running", "queued"):
+                    show_consolidation_result(job)
+                else:
+                    show_error(
+                        f"{sid}: {job.get('message', job.get('status', '?'))}"
+                    )
+
     else:
         show_warning(
-            "Usage: bank [list|read|read-all|consolidate|consolidation-status|consolidation-queues|compact|write|delete|repair] ..."
+            "Usage: bank [list|read|read-all|consolidate|consolidation-status|consolidation-queues|stale-spaces|compact|write|delete|repair] ..."
         )
 
 

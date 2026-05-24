@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -122,7 +122,7 @@ Concrètement, les agents peuvent :
                        │
           ┌────────────┴───────────────────┐
           │   Live Memory MCP (:8002)      │
-          │   42 outils • Auth Bearer      │
+          │   43 outils • Auth Bearer      │
           │   Consolidation LLM            │
           └──────┬──────────┬──────┬───────┘
                  │          │      │
@@ -255,10 +255,15 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `MCP_SERVER_PORT`         | `8002`            | Port d'écoute du serveur MCP    |
 | `MCP_SERVER_DEBUG`        | `false`           | Logs détaillés (messages d'erreur complets) |
 | `CONSOLIDATION_TIMEOUT`   | `600`             | Timeout par appel LLM (secondes) |
-| `CONSOLIDATION_MAX_NOTES` | `500`             | Max de notes par consolidation  |
+| `CONSOLIDATION_MAX_NOTES` | `200`             | Max de notes par consolidation  |
 | `CONSOLIDATION_BATCH_SIZE`| `5`               | Notes par batch LLM (petit = précis, grand = plus rapide) |
+| `CONSOLIDATION_COOLDOWN_SECONDS` | `60`      | Cooldown anti-spam par space pour `bank_consolidate` (`0` désactive) |
+| `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
+| `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
 | `COMPACT_THRESHOLD`       | `0.6`             | Déclenchement de l'auto-compaction (0.6 = compacter si bank > 60% du budget) |
 | `BANK_FILE_MAX_SIZE`      | `15360`           | Taille max par fichier bank (octets, 15 KB). Au-dessus = candidat à la compaction |
+| `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
+| `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
 ---
 
@@ -274,7 +279,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 ## 🔧 Outils MCP
 
-42 outils exposés via le protocole MCP (Streamable HTTP), répartis en 7 catégories.
+43 outils exposés via le protocole MCP (Streamable HTTP), répartis en 7 catégories.
 
 ### System (3 outils)
 
@@ -306,7 +311,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `live_read`   | `space_id`, `limit?`, `category?`, `agent?` | Lit les notes live (filtres optionnels)                                                                                    |
 | `live_search` | `space_id`, `query`, `limit?`               | Recherche full-text dans les notes                                                                                         |
 
-### Bank (10 outils)
+### Bank (11 outils)
 
 | Outil                       | Paramètres                        | Description                                                                                                       |
 | --------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -316,6 +321,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `bank_consolidate`          | `space_id`, `agent?`              | 🧠 Enfile une consolidation LLM async. Appeler une seule fois ; ne pas surveiller/poller sauf demande explicite   |
 | `bank_consolidation_status` | `job_id`                          | Check de statut manuel uniquement pour un job retourné par `bank_consolidate`                                     |
 | `bank_consolidation_queues` | `space_ids?`                      | Résumé read-only des files de consolidation par space                                                             |
+| `bank_stale_spaces`         | `min_notes?=5`, `min_age_days?=5`, `space_ids?` | 🚨 Liste les spaces avec ≥N notes non consolidées dont la plus ancienne a ≥D jours (supervision) |
 | `bank_compact`              | `space_id`, `dry_run?`            | 🔧 Compacte les fichiers bank surdimensionnés via LLM. `dry_run=True` par défaut (admin)                          |
 | `bank_repair`               | `space_id`, `dry_run?`            | 🔧 Répare les noms de fichiers corrompus (Unicode, préfixes parasites). `dry_run=True` par défaut (admin)         |
 | `bank_write`                | `space_id`, `filename`, `content` | ✏️ Écrit/remplace un fichier bank directement — contourne la consolidation LLM (admin)                           |
@@ -445,7 +451,7 @@ Les endpoints `/api/*` nécessitent un Bearer Token. La page `/live` et les fich
 
 ### Console d'administration (`/admin`)
 
-Une **console d'administration** complète est disponible sur `/admin`, exposant les 42 outils MCP via une interface web :
+Une **console d'administration** complète est disponible sur `/admin`, exposant les 43 outils MCP via une interface web :
 
 ```
 http://localhost:8080/admin
@@ -639,7 +645,7 @@ python scripts/test_recette.py --suite isolation -v --step --no-cleanup
 
 ```
 live-memory/
-├── src/live_mem/              # Code source (42 outils MCP + interface web)
+├── src/live_mem/              # Code source (43 outils MCP + interface web)
 │   ├── server.py              # Serveur FastMCP + middlewares
 │   ├── config.py              # Configuration pydantic-settings
 │   ├── auth/                  # Authentification

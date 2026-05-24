@@ -235,6 +235,11 @@ select.form-input option{background:var(--bg-input)}
 .space-chip.active{border-color:var(--accent-border);color:var(--accent);background:var(--accent-dim);font-weight:600}
 .space-chip input[type=checkbox]{display:none}
 
+/* ═══ STALE BANKS FILTERS ═══ */
+.stale-filters{display:flex;gap:.8rem;align-items:center;flex-wrap:wrap}
+.stale-filters label{display:inline-flex;gap:.4rem;align-items:center;font-size:.75rem;color:#888}
+.stale-input{width:72px;text-align:center;padding:.3rem .4rem;font-size:.8rem}
+
 /* ═══ UTILITIES ═══ */
 .text-muted{color:#666}
 .mono{font-family:'SF Mono','Fira Code',monospace}

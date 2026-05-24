@@ -494,6 +494,85 @@ def bank_consolidation_queues_cmd(ctx, space_ids, jflag):
     )
 
 
+@bank_grp.command("stale-spaces")
+@click.option(
+    "--min-notes",
+    "min_notes",
+    type=int,
+    default=5,
+    show_default=True,
+    help="Minimum number of unconsolidated live notes to flag a space.",
+)
+@click.option(
+    "--min-age-days",
+    "min_age_days",
+    type=int,
+    default=5,
+    show_default=True,
+    help="Minimum age (days) of the oldest note to flag a space.",
+)
+@click.option(
+    "--space-ids",
+    "space_ids",
+    default="",
+    help="CSV of spaces to inspect (default: all accessible).",
+)
+@click.option(
+    "--consolidate",
+    is_flag=True,
+    help="After listing, enqueue bank_consolidate on each stale space.",
+)
+@click.option("--json", "-j", "jflag", is_flag=True)
+@click.pass_context
+def bank_stale_spaces_cmd(
+    ctx, min_notes, min_age_days, space_ids, consolidate, jflag
+):
+    """🚨 List spaces with too many unconsolidated notes (optionally trigger)."""
+    from .display import show_stale_spaces
+
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool(
+                "bank_stale_spaces",
+                {
+                    "min_notes": min_notes,
+                    "min_age_days": min_age_days,
+                    "space_ids": space_ids,
+                },
+            )
+            if jflag:
+                show_json(result)
+            elif result.get("status") == "ok":
+                show_stale_spaces(result)
+            else:
+                show_error(result.get("message", "?"))
+                return
+
+            if not consolidate:
+                return
+            stale = result.get("spaces", [])
+            if not stale:
+                return
+            for entry in stale:
+                sid = entry.get("space_id")
+                if not sid:
+                    continue
+                job = await client.call_tool("bank_consolidate", {"space_id": sid})
+                if jflag:
+                    show_json(job)
+                elif job.get("status") in ("running", "queued"):
+                    show_consolidation_result(job)
+                else:
+                    show_error(
+                        f"{sid}: {job.get('message', job.get('status', '?'))}"
+                    )
+        except Exception as e:
+            show_error(f"Connection failed: {e}")
+
+    asyncio.run(_run())
+
+
 @bank_grp.command("write")
 @click.argument("space_id")
 @click.argument("filename")

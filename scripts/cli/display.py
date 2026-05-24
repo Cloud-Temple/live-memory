@@ -573,6 +573,53 @@ def show_consolidation_job(result: dict):
     )
 
 
+def show_stale_spaces(result: dict):
+    """Displays spaces flagged as stale (too many unconsolidated notes)."""
+    spaces = result.get("spaces", [])
+    summary = (
+        f"[bold]Stale spaces  :[/bold] {result.get('total_stale', len(spaces))}\n"
+        f"[bold]Scanned       :[/bold] {result.get('total_spaces', '?')}\n"
+        f"[bold]Min notes     :[/bold] {result.get('min_notes', '?')}\n"
+        f"[bold]Min age (days):[/bold] {result.get('min_age_days', '?')}"
+    )
+    color = "red" if spaces else "green"
+    title_icon = "🚨" if spaces else "✅"
+    console.print(
+        Panel.fit(
+            summary,
+            title=f"{title_icon} Stale Memory Banks",
+            border_style=color,
+        )
+    )
+
+    if not spaces:
+        console.print("[dim]No space matches the staleness thresholds.[/dim]")
+        return
+
+    table = Table(show_header=True)
+    table.add_column("Space", style="cyan bold")
+    table.add_column("Notes", justify="right")
+    table.add_column("Oldest (days)", justify="right")
+    table.add_column("Oldest timestamp", style="dim")
+    for s in spaces:
+        age = s.get("oldest_note_age_days", 0)
+        age_str = f"{age:.1f}"
+        age_style = "red" if age >= 14 else "yellow" if age >= 7 else "white"
+        table.add_row(
+            s.get("space_id", "?"),
+            str(s.get("live_notes_count", 0)),
+            f"[{age_style}]{age_str}[/{age_style}]",
+            (s.get("oldest_note_timestamp", "") or "")[:19].replace("T", " "),
+        )
+    console.print(table)
+
+    denied = result.get("denied_spaces", [])
+    if denied:
+        console.print(
+            f"[dim]({len(denied)} space(s) denied — insufficient permissions)[/dim]"
+        )
+
+
 def show_consolidation_queues(result: dict):
     """Displays consolidation queue lanes per space."""
     spaces = result.get("spaces", [])

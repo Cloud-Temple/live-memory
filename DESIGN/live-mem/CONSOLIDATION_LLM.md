@@ -205,7 +205,7 @@ The `qwen3.5:27b` LLM inserts **invisible Unicode characters** (ZWSP, BOM, Soft 
 
 ```
 CONSOLIDATION_BATCH_SIZE=5   # Notes per batch (default 5)
-CONSOLIDATION_MAX_NOTES=500  # Global limit per consolidation
+CONSOLIDATION_MAX_NOTES=200  # Global limit per consolidation
 ```
 
 ### Algorithm
@@ -527,7 +527,7 @@ LLMAAS_MODEL=qwen3.5:27b
 LLMAAS_MAX_TOKENS=100000
 LLMAAS_TEMPERATURE=0.3
 CONSOLIDATION_TIMEOUT=600
-CONSOLIDATION_MAX_NOTES=500
+CONSOLIDATION_MAX_NOTES=200
 ```
 
 ---

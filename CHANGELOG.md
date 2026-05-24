@@ -5,6 +5,67 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.4.0] — 2026-05-22
+
+### Added
+
+- **`bank_stale_spaces` MCP tool** — read-only supervision tool that identifies
+  memory banks whose consolidation has fallen behind:
+  - Signature: `bank_stale_spaces(min_notes: int = 5, min_age_days: int = 5, space_ids: str = "")`.
+  - A space is `stale` iff `live_notes_count >= min_notes` **AND**
+    `oldest_note_age_days >= min_age_days` (both inclusive).
+  - Lightweight S3 listing (`list_objects`, no content fetched). Oldest note
+    age derived from the deterministic timestamp prefix of the filename
+    (`YYYYMMDDTHHMMSS_…`), not S3 `LastModified`.
+  - Returns `spaces` (filtered + sorted by notes_count DESC, age DESC),
+    `scanned` (every inspected space with `is_stale` flag), and `denied_spaces`.
+  - Displayed `oldest_note_age_days` is **truncated** (never round-to-nearest),
+    so the UI cannot show an age that exceeds the real age at the threshold
+    boundary.
+- **CLI `bank stale-spaces`** (Click and interactive shell):
+  - Flags: `--min-notes N`, `--min-age-days N`, `--space-ids CSV`, `--consolidate`, `--json`.
+  - `--consolidate` chains `bank_consolidate` over every space reported stale.
+- **Admin web console `/admin` → 🚨 Stale Banks**:
+  - New sidebar category with live filter inputs (`Min notes`, `Min age (days)`)
+    and Refresh button.
+  - Table of stale spaces with color-coded age badges (blue / orange / red
+    above 7d / 14d).
+  - Per-row `▶ Consolidate` action and global `▶ Consolidate all stale` action
+    (with confirmation + bulk-result modal showing per-space job IDs).
+- **Bank tool count**: 10 → 11 tools. Total MCP tools: 42 → **43** (7 categories).
+
+### Changed
+
+- **DESIGN/live-mem/MCP_TOOLS_SPEC.md** — added missing sections for
+  `bank_consolidation_queues` (latent gap from PR #21) and `bank_stale_spaces`,
+  plus permission rows in the matrix.
+- **DESIGN/live-mem/ARCHITECTURE.md** and **DEPLOIEMENT_PRODUCTION.md** — tool
+  count refreshed to 43.
+- **`.env.example` and configuration docs** — aligned consolidation defaults
+  with code (`CONSOLIDATION_MAX_NOTES=200`, `CONSOLIDATION_BATCH_SIZE=5`) and
+  documented cooldown, validation, response, and admin API body-size settings.
+
+### Tests
+
+- New `tests/test_bank_stale_spaces.py` — **24 tests** including 8 explicitly
+  anti-complacent assertions:
+  - Boundary inclusivity on both axes (`>=`, not `>`).
+  - Just-below-threshold isolation (no over-rounding into the stale set).
+  - AND vs OR combination check (separate spaces failing each criterion).
+  - Storage exception → safe error (no exception propagation, no internal
+    string leak).
+  - Denied spaces do NOT trigger S3 listing (no information leak / no wasted call).
+  - Non-admin path passes `allowed_resources` to `list_spaces`, even when empty
+    (v1.5.0 semantics: empty allowed = zero spaces, not all spaces).
+  - Oldest filename actually matches the oldest timestamp (independent of S3
+    return order).
+- A new test discovered and fixed a real UI bug: previously the displayed
+  `oldest_note_age_days` used `round(x, 2)`, which could display `5.0` while
+  `is_stale=False` (true age `4.998`). Now uses truncation.
+- Suite: **408 passed + 1 xfailed** (vs 384 baseline).
+
+---
+
 ## [2.3.0] — 2026-05-21
 
 ### Added

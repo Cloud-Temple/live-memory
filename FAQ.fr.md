@@ -201,6 +201,30 @@ De plus, chaque note est transmise au LLM avec ses **métadonnées** `[agent, ca
 
 **Si vous constatez encore du contenu halluciné**, signalez-le sur l'[Issue #17](https://github.com/Cloud-Temple/live-memory/issues/17) avec les notes et la bank produite.
 
+### Comment identifier les banks qui ont besoin d'être consolidées sur plusieurs spaces ?
+
+Utilisez **`bank_stale_spaces`** (v2.4.0+) — un outil de supervision read-only qui
+scanne la liste S3 de chaque space accessible et signale ceux dont les notes live
+se sont accumulées :
+
+```bash
+# Seuils par défaut : ≥5 notes non consolidées ET la plus ancienne ≥5 jours
+python scripts/mcp_cli.py bank stale-spaces
+
+# Seuils personnalisés + déclenchement de la consolidation sur chaque space stale
+python scripts/mcp_cli.py bank stale-spaces --min-notes 10 --min-age-days 7 --consolidate
+```
+
+La même vue est disponible dans la console web admin sous **`/admin → 🚨 Stale Banks`**
+avec des inputs de filtre live et des boutons `Consolidate` par ligne / en bulk.
+
+Un space est marqué `stale` ssi `live_notes_count >= min_notes` **ET**
+`oldest_note_age_days >= min_age_days` (les deux inclusifs). Le listing est léger
+(clés S3 uniquement, aucun contenu fetché). L'âge de la plus ancienne note est
+dérivé du préfixe timestamp du nom de fichier (`YYYYMMDDTHHMMSS_…`), pas du
+`LastModified` S3 — donc le résultat est déterministe et indépendant du clock
+drift entre agents.
+
 ### Qu'est-ce que la compaction de bank (`bank_compact`) ?
 
 Quand les fichiers bank deviennent trop volumineux (> `BANK_FILE_MAX_SIZE`, 15 KB par défaut), ils peuvent causer des échecs de consolidation (dépassement du context window LLM) ou des performances dégradées.
@@ -409,7 +433,7 @@ Si vous pensez que des notes ont été perdues, vérifiez la synthèse résiduel
 
 ### Combien de notes peut-on écrire ?
 
-Pas de limite théorique. Chaque note = 1 fichier S3 (~200-500 octets). La consolidation traite jusqu'à 500 notes à la fois (`CONSOLIDATION_MAX_NOTES`).
+Pas de limite théorique. Chaque note = 1 fichier S3 (~200-500 octets). La consolidation traite jusqu'à 200 notes à la fois par défaut (`CONSOLIDATION_MAX_NOTES`).
 
 ### Quelle est la latence ?
 

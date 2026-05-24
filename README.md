@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -122,7 +122,7 @@ Specifically, agents can:
                        │
           ┌────────────┴───────────────────┐
           │   Live Memory MCP (:8002)      │
-          │   42 tools • Auth Bearer       │
+          │   43 tools • Auth Bearer       │
           │   LLM Consolidation            │
           └──────┬──────────┬──────┬───────┘
                  │          │      │
@@ -255,10 +255,15 @@ The consolidator uses an LLM (OpenAI-compatible API) to transform live notes int
 | `MCP_SERVER_PORT`         | `8002`            | MCP server listening port       |
 | `MCP_SERVER_DEBUG`        | `false`           | Detailed logs (full error messages) |
 | `CONSOLIDATION_TIMEOUT`   | `600`             | Timeout per LLM call (seconds)  |
-| `CONSOLIDATION_MAX_NOTES` | `500`             | Max notes per consolidation     |
+| `CONSOLIDATION_MAX_NOTES` | `200`             | Max notes per consolidation     |
 | `CONSOLIDATION_BATCH_SIZE`| `5`               | Notes per LLM batch (small = precise, large = faster) |
+| `CONSOLIDATION_COOLDOWN_SECONDS` | `60`      | Per-space anti-spam cooldown for `bank_consolidate` (`0` disables) |
+| `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Optional post-consolidation check for unattributed claims |
+| `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Max examples returned by the validation pass |
 | `COMPACT_THRESHOLD`       | `0.6`             | Auto-compaction trigger (0.6 = compact if bank > 60% of budget) |
 | `BANK_FILE_MAX_SIZE`      | `15360`           | Max size per bank file (bytes, 15 KB). Above = compaction candidate |
+| `RESPONSE_MAX_BYTES`      | `524288`          | Max non-MCP response body size before truncation |
+| `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Max request body accepted by `/api/tool` |
 
 ---
 
@@ -274,7 +279,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 ## 🔧 MCP Tools
 
-42 tools exposed via the MCP protocol (Streamable HTTP), divided into 7 categories.
+43 tools exposed via the MCP protocol (Streamable HTTP), divided into 7 categories.
 
 ### System (3 tools)
 
@@ -306,7 +311,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `live_read`   | `space_id`, `limit?`, `category?`, `agent?` | Reads live notes (optional filters)                                                                                         |
 | `live_search` | `space_id`, `query`, `limit?`               | Full-text search in notes                                                                                                   |
 
-### Bank (10 tools)
+### Bank (11 tools)
 
 | Tool               | Parameters                        | Description                                                                                             |
 | ------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -316,6 +321,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `bank_consolidate` | `space_id`, `agent?`              | 🧠 Enqueues async LLM consolidation. Call once; do not watch/poll unless explicitly requested |
 | `bank_consolidation_status` | `job_id`              | Manual-only status check for a job returned by `bank_consolidate` |
 | `bank_consolidation_queues` | `space_ids?`          | Read-only summary of consolidation lanes by space |
+| `bank_stale_spaces` | `min_notes?=5`, `min_age_days?=5`, `space_ids?` | 🚨 Lists spaces with ≥N unconsolidated notes whose oldest is ≥D days old (supervision) |
 | `bank_compact`     | `space_id`, `dry_run?`            | 🔧 Compacts oversized bank files via LLM. `dry_run=True` by default (admin)                            |
 | `bank_repair`      | `space_id`, `dry_run?`            | 🔧 Repairs corrupted filenames (Unicode, parasitic prefixes). `dry_run=True` by default (admin)        |
 | `bank_write`       | `space_id`, `filename`, `content` | ✏️ Writes/replaces a bank file directly — bypasses LLM consolidation (admin)                          |
@@ -445,7 +451,7 @@ http://localhost:8080/live
 
 ### Admin Console (`/admin`)
 
-A full **administration console** is available at `/admin`, exposing all 42 MCP tools through a web interface:
+A full **administration console** is available at `/admin`, exposing all 43 MCP tools through a web interface:
 
 ```
 http://localhost:8080/admin
@@ -611,7 +617,7 @@ python scripts/test_recette.py --suite isolation -v --step --no-cleanup
 | ----------- | ----- | ----------------------------------------------------------------------------------- |
 | `recette`   | 7     | Full pipeline: token → notes → LLM consolidation → bank                             |
 | `isolation` | 18    | Multi-tenant isolation v0.7.1: cross-space access, backup filtering, auto-add token |
-| `qualite`   | 19    | 35 MCP tools testing: system, admin, space, live, bank, backup, GC                  |
+| `qualite`   | 19    | MCP tools regression testing: system, admin, space, live, bank, backup, GC          |
 | `graph`     | ~8    | Graph Memory bridge: connect, push, status, disconnect (optional)                   |
 
 ---
@@ -639,7 +645,7 @@ python scripts/test_recette.py --suite isolation -v --step --no-cleanup
 
 ```
 live-memory/
-├── src/live_mem/              # Source code (42 MCP tools + web interface)
+├── src/live_mem/              # Source code (43 MCP tools + web interface)
 │   ├── server.py              # FastMCP server + middlewares
 │   ├── config.py              # pydantic-settings configuration
 │   ├── auth/                  # Authentication

@@ -8,14 +8,14 @@ Ce fichier :
 3. Assemble la chaîne de middlewares ASGI
 4. Démarre le serveur Uvicorn
 
-Architecture des outils (42 outils, 7 catégories) :
-    tools/system.py → system_health, system_about (2)
-    tools/space.py  → space_create, space_list, space_info, ... (7)
+Architecture des outils (43 outils, 7 catégories) :
+    tools/system.py → system_health, system_about, system_whoami (3)
+    tools/space.py  → space_create, space_update, space_info, ... (9)
     tools/live.py   → live_note, live_read, live_search (3)
-    tools/bank.py   → bank_read, bank_consolidate, bank_consolidation_status, ... (10)
+    tools/bank.py   → bank_read, bank_consolidate, bank_stale_spaces, ... (11)
     tools/graph.py  → graph_connect, graph_push, ... (4)
     tools/backup.py → backup_create, backup_restore, ... (5)
-    tools/admin.py  → admin_create_token, admin_gc_notes, ... (5)
+    tools/admin.py  → admin_create_token, admin_gc_notes, ... (8)
 
 Usage :
     python -m live_mem.server

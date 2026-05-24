@@ -1,22 +1,22 @@
 # MCP Tools Specification — Live Memory
 
-> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
+> **Version**: 2.4.0 | **Date**: 2026-05-22 | **Author**: Cloud Temple
 
 ---
 
 ## Overview
 
-Live Memory exposes **40 MCP tools** in 7 categories:
+Live Memory exposes **43 MCP tools** in 7 categories:
 
 | Category        | Tools | Description                                        |
 | --------------- | ----- | -------------------------------------------------- |
-| **System** (2)  | 2     | Service health & identity                          |
-| **Space** (7)   | 7     | Memory space CRUD                                  |
+| **System** (3)  | 3     | Service health & identity                          |
+| **Space** (9)   | 9     | Memory space CRUD                                  |
 | **Live** (3)    | 3     | Real-time notes                                    |
-| **Bank** (5)    | 4     | LLM-consolidated Memory Bank                       |
+| **Bank** (11)   | 11    | LLM-consolidated Memory Bank                       |
 | **Graph** (4)   | 4     | Bridge to Graph Memory (long-term memory)          |
 | **Backup** (5)  | 5     | Backup & restore                                   |
-| **Admin** (5)   | 5     | Token management + maintenance (GC)                |
+| **Admin** (8)   | 8     | Token management + maintenance (GC)                |
 
 ---
 
@@ -353,6 +353,74 @@ Returns `queued`, `running`, `succeeded`, `failed`, or `not_found`. The caller m
 
 ---
 
+### `bank_consolidation_queues` 🔑
+
+Read-only summary of the consolidation lanes (one per space). Use it to drive a multi-space dashboard without N+1 calls.
+
+```python
+@mcp.tool()
+async def bank_consolidation_queues(space_ids: str = "") -> dict:
+```
+
+**Behavior**:
+
+- If `space_ids` is empty → enumerates all spaces accessible to the caller (or all spaces if admin).
+- Returns one lane per space with: `lane_state` (idle/queued/running/failed), `running_job`, `queued_count`, `latest_jobs`, `parallelism_model`, `service_config.batch_size`.
+- Adds aggregated counters: `total_spaces`, `active_spaces`, `running_spaces`, `queued_jobs`, `failed_recent`.
+- Denied spaces are surfaced under `denied_spaces`.
+
+---
+
+### `bank_stale_spaces` 🔑
+
+Read-only supervision tool that identifies memory banks whose consolidation has fallen behind. Useful to detect inactive agents that left notes queued or sessions that forgot to consolidate.
+
+```python
+@mcp.tool()
+async def bank_stale_spaces(
+    min_notes: int = 5,
+    min_age_days: int = 5,
+    space_ids: str = "",
+) -> dict:
+```
+
+**Definition**: a space is `stale` iff `live_notes_count >= min_notes` **AND** `oldest_note_age_days >= min_age_days` (both inclusive).
+
+**Behavior**:
+
+- Lightweight S3 listing (`list_objects` on `{space}/live/`) — no content fetched.
+- Oldest note age derived from the timestamp prefix of the filename (`YYYYMMDDTHHMMSS_…`), not from S3 `LastModified` (deterministic, clock-independent).
+- Returns `spaces` (filtered + sorted by notes_count DESC, age DESC), `scanned` (every inspected space with its is_stale flag), and `denied_spaces`.
+- Displayed `oldest_note_age_days` is truncated to 2 decimals (never rounded up) so the UI never shows an age exceeding the real value at the threshold boundary.
+
+**Payload sketch**:
+
+```json
+{
+    "status": "ok",
+    "spaces": [
+        {
+            "space_id": "...",
+            "live_notes_count": 12,
+            "oldest_note_age_days": 8.5,
+            "oldest_note_timestamp": "2026-05-13T18:00:00+00:00",
+            "oldest_note_filename": "20260513T180000_agent_observation_<hash>.md",
+            "is_stale": true
+        }
+    ],
+    "scanned": [...],
+    "total_spaces": 25,
+    "total_stale": 3,
+    "min_notes": 5,
+    "min_age_days": 5,
+    "denied_spaces": []
+}
+```
+
+Clients can then iterate and call `bank_consolidate(space_id=…)` per stale space; admin UIs typically expose a per-row button and a bulk "Consolidate all stale" action.
+
+---
+
 ## 5. Graph — Bridge to Graph Memory
 
 ### `graph_connect` ✏️
@@ -583,6 +651,8 @@ async def admin_gc_notes(
 | `bank_list`          |  ✅  |       |       |        |
 | `bank_consolidate`   |      |  ✅*  |       |        |
 | `bank_consolidation_status` |  ✅  |       |       |        |
+| `bank_consolidation_queues` |  ✅  |       |       |        |
+| `bank_stale_spaces`  |  ✅  |       |       |        |
 | `graph_connect`      |      |  ✅   |       |        |
 | `graph_push`         |      |  ✅   |       |        |
 | `graph_status`       |  ✅  |       |       |        |

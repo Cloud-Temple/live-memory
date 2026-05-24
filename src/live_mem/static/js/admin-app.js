@@ -20,7 +20,7 @@ async function loadConsolidationQueues(spaceIds=[]) { try{return await callTool(
 const CATS = {
     dashboard:{icon:'📊',label:'Dashboard'}, spaces:{icon:'📂',label:'Spaces'}, tokens:{icon:'🔑',label:'Tokens'},
     explorer:{icon:'🔍',label:'Explorer'}, backups:{icon:'💾',label:'Backups'}, graph:{icon:'🌉',label:'Graph Bridge'},
-    maintenance:{icon:'🧹',label:'Maintenance'},
+    stale:{icon:'🚨',label:'Stale Banks'}, maintenance:{icon:'🧹',label:'Maintenance'},
 };
 let activeCat = 'dashboard';
 let _dashHealth = {};
@@ -48,7 +48,7 @@ function showCategory(cat){
     document.querySelectorAll('.sidebar-btn').forEach(b=>b.classList.toggle('active',b.dataset.cat===cat));
     const c=document.getElementById('content');
     c.innerHTML='<div class="page-loading">Loading…</div>';
-    ({dashboard:renderDashboard,spaces:renderSpaces,tokens:renderTokens,explorer:renderExplorer,backups:renderBackups,graph:renderGraph,maintenance:renderMaintenance}[cat]||renderDashboard)();
+    ({dashboard:renderDashboard,spaces:renderSpaces,tokens:renderTokens,explorer:renderExplorer,backups:renderBackups,graph:renderGraph,stale:renderStaleSpaces,maintenance:renderMaintenance}[cat]||renderDashboard)();
 }
 
 function spaceSelect(id, required=true, includeEmpty=false){
@@ -115,6 +115,11 @@ document.addEventListener('click', e => {
 
     // Upload rules
     if (a === 'upload-rules') { showUploadRules(d.space); return; }
+
+    // Stale banks
+    if (a === 'refresh-stale') { renderStaleSpaces(); return; }
+    if (a === 'consolidate-stale-row') { consolidateStaleSpace(d.space); return; }
+    if (a === 'consolidate-stale-all') { consolidateAllStale(); return; }
 });
 
 // ═══════════════ DASHBOARD ═══════════════
@@ -547,6 +552,99 @@ async function graphPush(sid){
     el.innerHTML='<div class="page-loading">Pushing to Graph Memory… (may take a while)</div>';
     const r=await callTool('graph_push',{space_id:sid});
     el.innerHTML=`<div class="result-card">${renderJSON(r)}</div>`;
+}
+
+// ═══════════════ STALE BANKS ═══════════════
+const _staleDefaults = { minNotes: 5, minAgeDays: 5 };
+
+async function renderStaleSpaces(){
+    const c=document.getElementById('content');
+    const minNotes=parseInt(document.getElementById('stale_min_notes')?.value)||_staleDefaults.minNotes;
+    const minAge=parseInt(document.getElementById('stale_min_age')?.value)||_staleDefaults.minAgeDays;
+    c.innerHTML=`<div class="page">
+        <div class="page-header">
+            <h2 class="page-title">🚨 Stale Memory Banks</h2>
+            <div class="stale-filters">
+                <label class="form-hint">Min notes <input class="form-input stale-input" data-1p-ignore type="number" id="stale_min_notes" value="${minNotes}" min="1"></label>
+                <label class="form-hint">Min age (days) <input class="form-input stale-input" data-1p-ignore type="number" id="stale_min_age" value="${minAge}" min="0"></label>
+                <button class="btn-sm blue" data-action="refresh-stale">Refresh</button>
+            </div>
+        </div>
+        <div id="staleContent"><div class="page-loading">Scanning live notes across accessible spaces…</div></div>
+    </div>`;
+    const result=await callTool('bank_stale_spaces',{min_notes:minNotes,min_age_days:minAge}).catch(e=>({status:'error',message:String(e)}));
+    const el=document.getElementById('staleContent');if(!el)return;
+    if(result.status==='error'){el.innerHTML=`<div class="empty">❌ ${esc(result.message||'Failed to load')}</div>`;return;}
+    const spaces=result.spaces||[];
+    const denied=result.denied_spaces||[];
+    const head=`<div class="queue-section">
+        <div class="queue-section-head">
+            <div><h3>Stale spaces</h3><p>${spaces.length} stale / ${result.total_spaces||0} scanned · thresholds ≥ ${result.min_notes} notes & ≥ ${result.min_age_days} days</p></div>
+            ${spaces.length?'<button class="btn-action red" data-action="consolidate-stale-all">▶ Consolidate all stale</button>':''}
+        </div>
+        <div class="queue-metrics">
+            <div class="queue-metric"><strong>${result.total_stale??0}</strong><span>stale spaces</span></div>
+            <div class="queue-metric"><strong>${result.total_spaces??0}</strong><span>scanned</span></div>
+            <div class="queue-metric"><strong>${result.min_notes??'?'}</strong><span>min notes</span></div>
+            <div class="queue-metric"><strong>${result.min_age_days??'?'}</strong><span>min age (days)</span></div>
+        </div>`;
+    const body=spaces.length?`<table class="data-table queue-table"><thead><tr><th>Space</th><th>Live notes</th><th>Oldest (days)</th><th>Oldest timestamp</th><th>Actions</th></tr></thead><tbody>${
+        spaces.map(s=>{
+            const sid=esc(s.space_id);
+            const age=Number(s.oldest_note_age_days||0);
+            const ageCls=age>=14?'red':age>=7?'orange':'blue';
+            const ts=(s.oldest_note_timestamp||'').replace('T',' ').substring(0,19);
+            return `<tr>
+                <td><strong>${sid}</strong></td>
+                <td><span class="badge purple">${s.live_notes_count}</span></td>
+                <td><span class="badge ${ageCls}">${age.toFixed(1)}</span></td>
+                <td class="mono text-muted">${esc(ts)}</td>
+                <td class="actions-cell">
+                    <button class="btn-sm blue" data-action="explore-space" data-space="${sid}">Explore</button>
+                    <button class="btn-sm orange" data-action="consolidate-stale-row" data-space="${sid}">▶ Consolidate</button>
+                </td>
+            </tr>`;
+        }).join('')
+    }</tbody></table>`:'<div class="empty">✅ No space matches the staleness thresholds.</div>';
+    const deniedBlock=denied.length?`<div class="text-muted" style="margin-top:.6rem;font-size:.75rem">${denied.length} space(s) denied — insufficient permissions.</div>`:'';
+    el.innerHTML=head+body+deniedBlock+'</div>';
+}
+
+async function consolidateStaleSpace(sid){
+    if(!sid)return;
+    showModal('🧠 Queueing consolidation…','<div class="page-loading">Submitting async consolidation job…</div>',null,null);
+    const r=await callTool('bank_consolidate',{space_id:sid});
+    closeModal();
+    showModal('🧠 Consolidation Job',renderPretty('bank_consolidate',r),'Close',()=>{renderStaleSpaces();return true;});
+}
+
+async function consolidateAllStale(){
+    const minNotes=parseInt(document.getElementById('stale_min_notes')?.value)||_staleDefaults.minNotes;
+    const minAge=parseInt(document.getElementById('stale_min_age')?.value)||_staleDefaults.minAgeDays;
+    const scan=await callTool('bank_stale_spaces',{min_notes:minNotes,min_age_days:minAge}).catch(e=>({status:'error',message:String(e)}));
+    if(scan.status!=='ok'){alert(scan.message||'Failed to load');return;}
+    const spaces=scan.spaces||[];
+    if(!spaces.length){alert('No stale spaces to consolidate.');return;}
+    if(!confirm(`Enqueue bank_consolidate for ${spaces.length} stale space(s)?`))return;
+    showModal('🧠 Bulk consolidation','<div class="page-loading">Submitting jobs…</div>',null,null);
+    const results=[];
+    for(const s of spaces){
+        const r=await callTool('bank_consolidate',{space_id:s.space_id}).catch(e=>({status:'error',message:String(e)}));
+        results.push({space_id:s.space_id,status:r.status,job_id:r.job_id,message:r.message});
+    }
+    closeModal();
+    const okCount=results.filter(r=>r.status==='running'||r.status==='queued').length;
+    const html=`<div class="pretty-table">
+        <div class="pretty-row"><span class="pretty-k">Submitted</span><span class="pretty-v"><span class="badge green">${okCount}</span> / ${results.length}</span></div>
+    </div>
+    <table class="data-table compact" style="margin-top:.8rem"><thead><tr><th>Space</th><th>Status</th><th>Job ID</th></tr></thead><tbody>${
+        results.map(r=>`<tr>
+            <td><strong>${esc(r.space_id)}</strong></td>
+            <td><span class="badge ${r.status==='running'?'orange':r.status==='queued'?'blue':'red'}">${esc(r.status||'?')}</span></td>
+            <td class="mono text-muted">${esc(r.job_id||r.message||'—')}</td>
+        </tr>`).join('')
+    }</tbody></table>`;
+    showModal('🧠 Bulk Consolidation Result',html,'Close',()=>{renderStaleSpaces();return true;});
 }
 
 // ═══════════════ MAINTENANCE ═══════════════

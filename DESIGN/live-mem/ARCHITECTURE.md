@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
+> **Version**: 2.4.0 | **Date**: 2026-05-22 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -118,7 +118,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 | Component                | Role                                       | Technology                               |
 | ------------------------ | ------------------------------------------ | ---------------------------------------- |
 | **WAF**                  | Secure reverse proxy                       | Caddy + Coraza OWASP CRS + Rate Limiting |
-| **MCP Server**           | Python MCP server (42 tools, 7 categories) | FastMCP + Uvicorn (ASGI)                 |
+| **MCP Server**           | Python MCP server (43 tools, 7 categories) | FastMCP + Uvicorn (ASGI)                 |
 | **Storage Service**      | S3 abstraction (read/write/listing)        | boto3 hybrid SigV2/V4                    |
 | **Consolidator Service** | LLM synthesis of notes → bank              | AsyncOpenAI (qwen3.5:27b)                |
 | **Graph Bridge**         | Bridge to Graph Memory (long-term memory)  | MCP SDK (streamablehttp_client)          |
@@ -312,7 +312,7 @@ Live Memory exposes a **SPA web interface** on `/live`:
 
 ### Admin Console (`/admin`)
 
-Live Memory also exposes an **administration console** on `/admin` covering all 42 MCP tools:
+Live Memory also exposes an **administration console** on `/admin` covering all 43 MCP tools:
 
 - **Architecture**: internal proxy via `_mcp_ref.call_tool_direct()` bypassing the Streamable HTTP protocol. The ASGI auth middleware injects the token context before each call, so security is inherited from the MCP layer.
 - **Backend**: `POST /api/tool` route in `auth/middleware.py`, protected (401 without session). Routes `/admin` and `/static/css/admin.css`, `/static/js/admin-*.js` served by StaticFilesMiddleware.
@@ -429,7 +429,7 @@ SITE_ADDRESS=:8080
 
 # ─── Consolidation ───
 CONSOLIDATION_TIMEOUT=600        # LLM timeout in seconds
-CONSOLIDATION_MAX_NOTES=500      # Max notes per consolidation
+CONSOLIDATION_MAX_NOTES=200      # Max notes per consolidation
 ```
 
 ---

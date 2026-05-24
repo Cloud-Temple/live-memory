@@ -201,6 +201,29 @@ Additionally, each note is transmitted to the LLM with its **metadata** `[agent,
 
 **If you still see hallucinated content**, report it on [Issue #17](https://github.com/Cloud-Temple/live-memory/issues/17) with the notes and bank output.
 
+### How do I find which banks need consolidation across many spaces?
+
+Use **`bank_stale_spaces`** (v2.4.0+) — a read-only supervision tool that scans the
+S3 listing of every accessible space and flags those whose live notes have
+accumulated:
+
+```bash
+# Default thresholds: ≥5 unconsolidated notes AND oldest ≥5 days old
+python scripts/mcp_cli.py bank stale-spaces
+
+# Custom thresholds + trigger consolidation on each stale space
+python scripts/mcp_cli.py bank stale-spaces --min-notes 10 --min-age-days 7 --consolidate
+```
+
+The same view is available in the web admin console under **`/admin → 🚨 Stale Banks`**
+with live filter inputs and per-row / bulk `Consolidate` buttons.
+
+A space is reported as `stale` iff `live_notes_count >= min_notes` **AND**
+`oldest_note_age_days >= min_age_days` (both inclusive). Listing is lightweight
+(S3 keys only, no content fetched). Oldest age is derived from the timestamp
+prefix of the filename (`YYYYMMDDTHHMMSS_…`), not S3 `LastModified` — so the
+result is deterministic and independent of clock drift between agents.
+
 ### What is bank compaction (`bank_compact`)?
 
 When bank files grow too large (> `BANK_FILE_MAX_SIZE`, default 15 KB), they may cause consolidation failures (LLM context window overflow) or slow performance.
@@ -409,7 +432,7 @@ If you think notes were lost, check the residual synthesis: `space_summary my-sp
 
 ### How many notes can be written?
 
-No theoretical limit. Each note = 1 S3 file (~200-500 bytes). Consolidation processes up to 500 notes at a time (`CONSOLIDATION_MAX_NOTES`).
+No theoretical limit. Each note = 1 S3 file (~200-500 bytes). Consolidation processes up to 200 notes at a time by default (`CONSOLIDATION_MAX_NOTES`).
 
 ### What is the latency?
 

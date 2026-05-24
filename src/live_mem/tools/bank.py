@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Outils MCP — Catégorie Bank (10 outils).
+Outils MCP — Catégorie Bank (11 outils).
 
 Memory Bank consolidée : lire, lister, consolider via LLM, compacter,
 réparer, écrire et supprimer manuellement.
@@ -12,6 +12,7 @@ Permissions :
     - bank_consolidate ✏️ (write)   — Déclenche la consolidation LLM
     - bank_consolidation_status 🔑 (read) — Consulte un job de consolidation
     - bank_consolidation_queues 🔑 (read) — Résume les lanes de consolidation
+    - bank_stale_spaces 🔑 (read)   — Liste les spaces avec trop de notes non consolidées
     - bank_compact     🔧 (manage)  — Compacte les fichiers bank surdimensionnés via LLM
     - bank_repair      🔧 (manage)  — Répare les noms de fichiers corrompus par le LLM
     - bank_write       🔧 (manage)  — Écrit/remplace un fichier bank directement
@@ -26,11 +27,35 @@ Voir CONSOLIDATION_LLM.md pour le pipeline détaillé.
 """
 
 import re
+from datetime import datetime, timezone
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
+
+
+_LIVE_NOTE_TS_RE = re.compile(r"^(\d{8}T\d{6})_")
+
+
+def _parse_live_note_timestamp(filename: str) -> datetime | None:
+    """
+    Extrait le timestamp UTC depuis le préfixe d'un nom de fichier de note live.
+
+    Format attendu : `YYYYMMDDTHHMMSS_<agent>_<category>_<uuid8>.md`
+    (généré par `LiveService.write_note()`).
+
+    Retourne None si le format ne matche pas — la note sera ignorée.
+    """
+    m = _LIVE_NOTE_TS_RE.match(filename)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%Y%m%dT%H%M%S").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return None
 
 
 # LM2-12 fix : caractères interdits dans les noms de fichiers bank.
@@ -539,6 +564,182 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def bank_stale_spaces(
+        min_notes: Annotated[
+            int,
+            Field(
+                default=5,
+                ge=1,
+                description=(
+                    "Nombre minimum de notes live non consolidées pour qu'un "
+                    "space soit considéré stale (défaut 5)."
+                ),
+            ),
+        ] = 5,
+        min_age_days: Annotated[
+            int,
+            Field(
+                default=5,
+                ge=0,
+                description=(
+                    "Âge minimum (en jours) de la note la plus ancienne pour "
+                    "qu'un space soit considéré stale (défaut 5)."
+                ),
+            ),
+        ] = 5,
+        space_ids: Annotated[
+            str,
+            Field(
+                default="",
+                description=(
+                    "CSV optionnel des spaces à inspecter. Vide = tous les "
+                    "spaces accessibles au token courant."
+                ),
+            ),
+        ] = "",
+    ) -> dict:
+        """
+        Identifie les spaces dont la consolidation est en retard.
+
+        Pour chaque space accessible, compte les notes live non consolidées
+        et calcule l'âge de la plus ancienne (depuis le préfixe timestamp
+        du nom de fichier `YYYYMMDDTHHMMSS_...`). Un space est marqué
+        `stale` si :
+        - `live_notes_count >= min_notes` ET
+        - `oldest_note_age_days >= min_age_days`.
+
+        Outil read-only utile pour la supervision multi-spaces : repère les
+        banks qui accumulent du contexte non consolidé (agent inactif,
+        oubli en fin de session, etc.). Les clients peuvent ensuite
+        déclencher `bank_consolidate` par space ou en bulk.
+
+        Args:
+            min_notes: Seuil sur le nombre de notes (défaut 5).
+            min_age_days: Seuil sur l'âge de la plus ancienne note (défaut 5).
+            space_ids: CSV optionnel pour cibler une liste de spaces et
+                éviter un listing.
+
+        Returns:
+            Liste des spaces stale + métriques globales et spaces refusés.
+        """
+        from ..auth.context import _get_effective_token_info, check_access
+        from ..core.space import get_space_service
+        from ..core.storage import get_storage
+
+        try:
+            token_info = _get_effective_token_info()
+            if token_info is None:
+                return {"status": "error", "message": "Authentification requise"}
+
+            requested_ids = [
+                sid.strip() for sid in space_ids.split(",") if sid.strip()
+            ]
+            denied_spaces = []
+
+            if requested_ids:
+                visible_ids = []
+                for sid in requested_ids:
+                    access_err = check_access(sid)
+                    if access_err:
+                        denied_spaces.append(
+                            {"space_id": sid, "message": access_err.get("message")}
+                        )
+                        continue
+                    visible_ids.append(sid)
+            else:
+                permissions = token_info.get("permissions", [])
+                allowed = token_info.get("allowed_resources", [])
+                if "admin" in permissions:
+                    allowed_ids = None
+                elif not allowed:
+                    allowed_ids = []
+                else:
+                    allowed_ids = allowed
+                spaces_result = await get_space_service().list_spaces(
+                    allowed_space_ids=allowed_ids
+                )
+                if spaces_result.get("status") != "ok":
+                    return spaces_result
+                visible_ids = [s["space_id"] for s in spaces_result.get("spaces", [])]
+
+            storage = get_storage()
+            now = datetime.now(timezone.utc)
+            scanned = []
+            stale = []
+
+            for sid in visible_ids:
+                objects = await storage.list_objects(f"{sid}/live/")
+                notes_count = 0
+                oldest_ts: datetime | None = None
+                oldest_filename = ""
+
+                for obj in objects:
+                    key = obj.get("Key", "")
+                    filename = key.rsplit("/", 1)[-1]
+                    ts = _parse_live_note_timestamp(filename)
+                    if ts is None:
+                        continue
+                    notes_count += 1
+                    if oldest_ts is None or ts < oldest_ts:
+                        oldest_ts = ts
+                        oldest_filename = filename
+
+                if notes_count == 0 or oldest_ts is None:
+                    scanned.append(
+                        {
+                            "space_id": sid,
+                            "live_notes_count": 0,
+                            "oldest_note_age_days": 0.0,
+                            "oldest_note_timestamp": "",
+                            "oldest_note_filename": "",
+                            "is_stale": False,
+                        }
+                    )
+                    continue
+
+                age_days = (now - oldest_ts).total_seconds() / 86400.0
+                is_stale = (
+                    notes_count >= min_notes and age_days >= float(min_age_days)
+                )
+                # Truncate (not round) to 2 decimals so the displayed age never
+                # exceeds the real age. Otherwise "5.0 days, not stale" can
+                # appear when the threshold is 5 — confusing the operator.
+                displayed_age = int(age_days * 100) / 100.0
+                entry = {
+                    "space_id": sid,
+                    "live_notes_count": notes_count,
+                    "oldest_note_age_days": displayed_age,
+                    "oldest_note_timestamp": oldest_ts.isoformat(),
+                    "oldest_note_filename": oldest_filename,
+                    "is_stale": is_stale,
+                }
+                scanned.append(entry)
+                if is_stale:
+                    stale.append(entry)
+
+            stale.sort(
+                key=lambda e: (
+                    -e["live_notes_count"],
+                    -e["oldest_note_age_days"],
+                )
+            )
+
+            return {
+                "status": "ok",
+                "spaces": stale,
+                "scanned": scanned,
+                "total_spaces": len(scanned),
+                "total_stale": len(stale),
+                "min_notes": min_notes,
+                "min_age_days": min_age_days,
+                "denied_spaces": denied_spaces,
+            }
+        except Exception as e:
+            from ..auth.context import safe_error
+
+            return safe_error(e, "bank")
+
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
     async def bank_repair(
         space_id: Annotated[
@@ -1014,4 +1215,4 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    return 10  # Nombre d'outils enregistrés
+    return 11  # Nombre d'outils enregistrés
