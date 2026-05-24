@@ -68,6 +68,20 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 
 logger = logging.getLogger("live_mem")
 
+
+# =============================================================================
+# Helpers internes
+# =============================================================================
+
+
+def _read_version() -> str:
+    """Lit la version depuis le fichier VERSION à la racine du projet."""
+    version_file = Path(__file__).parent.parent.parent / "VERSION"
+    if version_file.exists():
+        return version_file.read_text().strip()
+    return "dev"
+
+
 # =============================================================================
 # Instance FastMCP
 # =============================================================================
@@ -95,6 +109,10 @@ mcp = FastMCP(
     port=settings.mcp_server_port,
     lifespan=_lifespan,
 )
+# FastMCP 1.27.0 does not expose a constructor-level version argument.
+# Without this explicit low-level assignment, MCP initialize/serverInfo.version
+# falls back to the SDK package version ("mcp"), not Live Memory's VERSION file.
+mcp._mcp_server.version = _read_version()
 
 # =============================================================================
 # Enregistrement des outils — délégué aux modules tools/
@@ -157,19 +175,6 @@ def create_app():
     app = RequestIdMiddleware(app)
 
     return app
-
-
-# =============================================================================
-# Helpers internes
-# =============================================================================
-
-
-def _read_version() -> str:
-    """Lit la version depuis le fichier VERSION à la racine du projet."""
-    version_file = Path(__file__).parent.parent.parent / "VERSION"
-    if version_file.exists():
-        return version_file.read_text().strip()
-    return "dev"
 
 
 # =============================================================================

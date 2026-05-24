@@ -72,7 +72,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 │              Live Memory MCP Server (:8002)                │
 │                                                            │
 │  ┌─────────────────┐  ┌──────────────────┐                 │
-│  │  42 MCP Tools   │  │  LLM Service     │                 │
+│  │  43 MCP Tools   │  │  LLM Service     │                 │
 │  │  (7 categories) │  │  (consolidator)  │                 │
 │  └────────┬────────┘  └────────┬─────────┘                 │
 │           │                    │                           │

@@ -98,13 +98,13 @@ def _validate_bank_filename(filename: str) -> dict | None:
 
 def register(mcp: FastMCP) -> int:
     """
-    Enregistre les 10 outils bank sur l'instance MCP.
+    Enregistre les 11 outils bank sur l'instance MCP.
 
     Args:
         mcp: Instance FastMCP
 
     Returns:
-        Nombre d'outils enregistrés (10)
+        Nombre d'outils enregistrés (11)
     """
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))

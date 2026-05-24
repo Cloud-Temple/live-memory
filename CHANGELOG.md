@@ -41,9 +41,14 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   plus permission rows in the matrix.
 - **DESIGN/live-mem/ARCHITECTURE.md** and **DEPLOIEMENT_PRODUCTION.md** — tool
   count refreshed to 43.
+- **README inventories** — refreshed Admin and Bank tool counts so the main
+  MCP matrix and repository tree both match the 43-tool server inventory.
 - **`.env.example` and configuration docs** — aligned consolidation defaults
   with code (`CONSOLIDATION_MAX_NOTES=200`, `CONSOLIDATION_BATCH_SIZE=5`) and
   documented cooldown, validation, response, and admin API body-size settings.
+- **MCP `serverInfo.version`** — now reports Live Memory's application version
+  from `VERSION` instead of falling back to the installed `mcp` SDK package
+  version.
 
 ### Tests
 
@@ -62,7 +67,10 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A new test discovered and fixed a real UI bug: previously the displayed
   `oldest_note_age_days` used `round(x, 2)`, which could display `5.0` while
   `is_stale=False` (true age `4.998`). Now uses truncation.
-- Suite: **408 passed + 1 xfailed** (vs 384 baseline).
+- New `tests/test_cli_surface_sync.py` — pins parity between `mcp_cli.py`,
+  Click commands, interactive shell dispatch, and the `/admin` bank supervision
+  tools (`bank_stale_spaces`, `bank_consolidation_queues`).
+- Suite: **413 passed + 1 xfailed** (vs 384 baseline).
 
 ---
 

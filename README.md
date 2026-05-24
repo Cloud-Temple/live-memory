@@ -346,7 +346,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `backup_download` | `backup_id`                | Download as tar.gz base64                |
 | `backup_delete`   | `backup_id`                | Deletes a backup                         |
 
-### Admin (7 tools)
+### Admin (8 tools)
 
 | Tool                 | Parameters                                                        | Description                                                                                                  |
 | -------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -356,6 +356,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `admin_delete_token` | `token_hash`                                                      | Physically deletes a token from the registry (⚠️ irreversible)                                             |
 | `admin_purge_tokens` | `revoked_only?`                                                   | Bulk purge: revoked only (default) or all tokens                                                             |
 | `admin_update_token` | `token_hash`, `space_ids`, `action`                               | Modifies token spaces (add/remove/set)                                                                       |
+| `admin_bulk_update_tokens` | `filters`, `delta`, `confirm?`                            | Bulk token update with filters and add/remove/set operations                                                  |
 | `admin_gc_notes`     | `space_id?`, `max_age_days?`, `confirm?`, `delete_only?`          | Garbage Collector: cleans orphaned notes                                                                     |
 
 ---
@@ -671,7 +672,7 @@ live-memory/
 │       ├── system.py          #   3 tools (health, whoami, about)
 │       ├── space.py           #   9 tools (spaces CRUD)
 │       ├── live.py            #   3 tools (notes)
-│       ├── bank.py            #   8 tools (bank + consolidation + compaction + admin)
+│       ├── bank.py            #   11 tools (bank + consolidation + supervision + maintenance)
 │       ├── graph.py           #   4 tools (Graph Bridge)
 │       ├── backup.py          #   5 tools (snapshots)
 │       └── admin.py           #   8 tools (tokens + GC + purge + bulk)
@@ -683,7 +684,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dependencies & project config (uv)
 ├── uv.lock                    # uv lockfile
-├── VERSION                    # 1.9.0
+├── VERSION                    # 2.4.0
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -735,4 +736,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.2.0 — Shared working memory for collaborative AI agents*
+*Live Memory v2.4.0 — Shared working memory for collaborative AI agents*
