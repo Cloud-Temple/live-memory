@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: 2.4.0 | **Date**: 2026-05-22 | **Author**: Cloud Temple
+> **Version**: 2.5.0 | **Date**: 2026-06-04 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -250,6 +250,18 @@ Agent → bank_consolidate("project-alpha", agent="cline-dev")
 
 ### 4.4 Graph Push (Bridge to Graph Memory)
 
+> ⚠️ **Architecture invariant (v2.5.0) — Live ↔ Graph responsibility separation**
+>
+> The Memory Bank is a **compact session bootstrap**, not a long-term archive: `activeContext.md` is a volatile focus snapshot, `progress.md` is a bounded recent journal, sub-files are compact fact sheets. The Live Memory consolidator continuously rewrites and compacts them. Graph Memory, on the other hand, must index **stable canonical documents** (RFCs, incidents, runbooks, design docs, infrastructure inventories) and serves as a **semantic locator** for those documents.
+>
+> Therefore:
+> - **Graph Memory complements the bank; it does not replace it.**
+> - **Graph Memory localizes; canonical repository files confirm.**
+> - **The Live Memory consolidator never pushes anything into Graph Memory.** Graph ingestion is an **agent / tooling responsibility**, started from canonical repository documents.
+> - **`graph_push` is NOT a routine action.** It remains available for one-off bootstrap of a new graph or for explicit debug / migration. In particular, `activeContext.md` and `progress.md` must never end up in Graph Memory.
+>
+> A future revision (tracked in [`./EVOLUTION_LIVE_GRAPH_INTEGRATION.md`](./EVOLUTION_LIVE_GRAPH_INTEGRATION.md)) will turn this contract into a server-side guardrail. For v2.5.0 the contract is doctrinal — enforced through the agent rules template ([`../../WORKSPACE_CLINE_ADVANCE_RULES.md`](../../WORKSPACE_CLINE_ADVANCE_RULES.md)) and the `graph_push` docstring. The push flow described below remains accurate; it just must not be called in routine session-end consolidation.
+
 ```
 Agent → graph_push("project-alpha")
                 │
@@ -434,4 +446,4 @@ CONSOLIDATION_MAX_NOTES=200      # Max notes per consolidation
 
 ---
 
-*Document updated April 25, 2026 — Live Memory v1.6.0*
+*Document updated June 4, 2026 — Live Memory v2.5.0*

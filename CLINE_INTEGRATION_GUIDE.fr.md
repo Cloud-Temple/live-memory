@@ -213,7 +213,16 @@ Pour que Cline utilise automatiquement Live Memory, ajoutez des **Custom Instruc
 
 Dans Cline : **Settings** → **Custom Instructions**, ou mieux, placez un fichier `WORKSPACE_CLINE_RULES.md` à la racine de votre projet (Cline le charge automatiquement comme instructions au niveau workspace).
 
-Le dépôt fournit un template prêt à l'emploi : [`WORKSPACE_CLINE_RULES.md`](WORKSPACE_CLINE_RULES.md). Copiez-le simplement à la racine de votre projet et personnalisez la valeur `SPACE`.
+Le dépôt fournit **deux** templates prêts à l'emploi — choisissez celui qui correspond à votre workspace :
+
+| Template                                                                  | Quand l'utiliser                                                                |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| [`WORKSPACE_CLINE_RULES.md`](WORKSPACE_CLINE_RULES.md)                    | Workspaces avec **Live Memory uniquement**.                                     |
+| [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md)    | Workspaces également connectés à un serveur MCP **Graph Memory** (incidents, RFC, runbooks, rappel cross-documents). Ajoute la politique Graph-first, la discipline de compaction et l'ingestion explicite côté agent. |
+
+Copiez le template choisi à la racine de votre projet et personnalisez les placeholders (`SPACE`, et pour le template avancé `LIVE_MCP_SERVER` / `GRAPH_MCP_SERVER` / `GRAPH_MEMORY_ID`).
+
+> ℹ️ **Le template avancé est strictement additif** : le consolidateur Live Memory ne change pas — il ne pousse jamais rien dans Graph Memory. L'ingestion Graph reste une action explicite côté agent/outillage, partant des fichiers canoniques du dépôt. Aucun token ni endpoint ne doit figurer dans un template.
 
 ### 5.2 Instructions recommandées (template avec `{SPACE}`)
 

@@ -1,4 +1,4 @@
-# Standard Memory Bank Rules — LIVE MEMORY v1.9.0
+# Standard Memory Bank Rules — LIVE MEMORY v2.5.0
 
 ## Core Principle
 

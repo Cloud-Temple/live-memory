@@ -205,7 +205,9 @@ def register(mcp: FastMCP) -> int:
         ],
     ) -> dict:
         """
-        Pousse la Memory Bank dans Graph Memory.
+        ⚠️ **Advanced / debug tool — NOT for routine flows.**
+
+        Pushes the Memory Bank into Graph Memory.
 
         Synchronisation intelligente :
         1. Les fichiers bank déjà présents dans le graphe sont supprimés
@@ -217,6 +219,50 @@ def register(mcp: FastMCP) -> int:
         d'entités/relations + embeddings). Comptez ~10-30s par fichier.
 
         Le space doit d'abord être connecté via graph_connect.
+
+        ## Why this is NOT a routine action (architecture note, v2.5.0)
+
+        The Memory Bank is a **compact session bootstrap** by design:
+        `activeContext.md` is a volatile focus snapshot, `progress.md` is
+        a bounded recent journal, sub-files are compact fact sheets. The
+        Live Memory consolidator continuously rewrites, compacts, and
+        prunes these files.
+
+        Graph Memory, on the other hand, must index **stable, canonical
+        documents** (RFCs, incidents, runbooks, design docs, billing
+        rules, infrastructure inventories). Indexing the bank teaches the
+        graph transient or already-superseded content, and a later
+        compaction strands those documents as stale.
+
+        Therefore the recommended flow is:
+
+        - **Memory Bank** = compact session bootstrap (Live Memory).
+        - **Graph Memory** = durable semantic index for canonical
+          repository documents (agent-side ingestion).
+        - **Repository files** = final authority.
+
+        Graph Memory complements the bank; it does not replace it.
+        Graph Memory localizes; canonical repository files confirm.
+
+        Routine flows **should not call `graph_push`**. Instead, the
+        agent or tooling layer ingests canonical repository documents
+        directly into Graph Memory (e.g. with the project's ingestion
+        script), using stable `source_path` keys.
+
+        `graph_push` remains available for:
+        - one-off bootstrap of a brand-new Graph Memory tied to a
+          stabilised bank,
+        - explicit debug / migration scenarios under operator control.
+
+        In particular, `activeContext.md` and `progress.md` **must not**
+        end up in Graph Memory. A future revision (tracked in
+        `DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md`) will turn this
+        into a server-side guardrail. For now, the contract is doctrinal:
+        do not invoke this tool as part of session-end consolidation.
+
+        See `WORKSPACE_CLINE_ADVANCE_RULES.md`, README "Live ↔ Graph
+        Memory" section, and `DESIGN/live-mem/ARCHITECTURE.md` for the
+        full responsibility separation.
 
         Args:
             space_id: Identifiant du space live-memory

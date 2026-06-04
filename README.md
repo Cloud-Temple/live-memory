@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -363,6 +363,18 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 ## 🌉 Graph Bridge — Link to Graph Memory
 
+> ⚠️ **Architecture note (v2.5.0) — Live Memory + Graph Memory responsibility separation**
+>
+> - **Memory Bank** (Live Memory) = compact session bootstrap. `activeContext.md` is a volatile focus snapshot, `progress.md` is a bounded recent journal. The consolidator continuously rewrites and compacts these files.
+> - **Graph Memory** = durable semantic index for **stable canonical documents** (RFCs, incidents, runbooks, design docs, infrastructure inventories).
+> - **Repository files** = final authority.
+>
+> **Graph Memory complements the bank; it does not replace it. Graph Memory localizes; canonical repository files confirm.**
+>
+> Therefore, **`graph_push` is NOT a routine action**: pushing the full bank into the graph teaches it transient content that a later compaction strands as stale. Routine flows should ingest **canonical repository documents** directly into Graph Memory from the agent / tooling layer, using stable `source_path` keys. `graph_push` remains available for one-off bootstrap and explicit debug / migration only.
+>
+> In particular, `activeContext.md` and `progress.md` **must never** end up in Graph Memory. A future revision (tracked in [`DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md`](DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md)) will turn this into a server-side guardrail. See [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md) for the agent-side template.
+
 Live Memory can push its Memory Bank into a [Graph Memory](https://github.com/Cloud-Temple/graph-memory) instance for long-term memory. The knowledge graph extracts entities, relations, and embeddings from bank files.
 
 ### Workflow
@@ -476,7 +488,7 @@ http://localhost:8080/admin
 
 ## 🔌 MCP Integration
 
-> 📖 **Full Guide**: See [GUIDE_INTEGRATION_CLINE.md](GUIDE_INTEGRATION_CLINE.md) for the step-by-step guide (Cline configuration, custom instructions, workflow, multi-agents, troubleshooting).
+> 📖 **Full Guide**: See [`CLINE_INTEGRATION_GUIDE.md`](CLINE_INTEGRATION_GUIDE.md) for the step-by-step guide (Cline configuration, custom instructions, workflow, multi-agents, troubleshooting). Equivalent guides exist for [`CLAUDE_CODE_INTEGRATION.md`](CLAUDE_CODE_INTEGRATION.md) and [`CODEX_INTEGRATION.md`](CODEX_INTEGRATION.md).
 
 ### With Cline (VS Code / VSCodium)
 
@@ -495,15 +507,18 @@ In Cline's MCP settings (`cline_mcp_settings.json`):
 }
 ```
 
-To configure the **Custom Instructions** for your agent, copy the [`clinerules.md`](clinerules.md) file into your Cline global Custom Instructions (or into a `.clinerules/` directory in your project). You only need to change **two values**:
-- The **MCP server name** (as configured in `cline_mcp_settings.json`, e.g. `my-live-mem`)
-- The **name of your memory space** (the ID passed to `space_create`, e.g. `my-project`)
+To configure the **Custom Instructions** for your agent, copy one of the two workspace rule templates into your Cline global Custom Instructions (or into a `.clinerules/` directory in your project):
 
-The agent name is **auto-detected** from the authentication token — nothing else to configure.
+| Template                                                                | When to use                                                                                  |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [`WORKSPACE_CLINE_RULES.md`](WORKSPACE_CLINE_RULES.md)                  | Workspaces with **Live Memory only**.                                                        |
+| [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md)  | Workspaces also connected to **Graph Memory** (Graph-first lookup, compaction discipline, agent-side ingestion). |
 
-> 💡 **Ready-to-use template:** [`clinerules.md`](clinerules.md) — copy and customize the 2 bold values
+Customize a few placeholders (`{LIVE_MCP_SERVER}`, `{SPACE}`, and for the advanced template `{GRAPH_MCP_SERVER}` / `{GRAPH_MEMORY_ID}`). The agent name is **auto-detected** from the authentication token — nothing else to configure.
+
+> 💡 **Ready-to-use templates**: [`WORKSPACE_CLINE_RULES.md`](WORKSPACE_CLINE_RULES.md) (Live-only) and [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md) (Live + Graph) — copy and customize the placeholders.
 >
-> 📖 **Detailed guide:** [Cline Integration & Custom Instructions Guide](GUIDE_INTEGRATION_CLINE.md)
+> 📖 **Detailed integration guides**: [`CLINE_INTEGRATION_GUIDE.md`](CLINE_INTEGRATION_GUIDE.md), [`CLAUDE_CODE_INTEGRATION.md`](CLAUDE_CODE_INTEGRATION.md), [`CODEX_INTEGRATION.md`](CODEX_INTEGRATION.md).
 
 ### With Claude Desktop
 
@@ -678,13 +693,14 @@ live-memory/
 │       └── admin.py           #   8 tools (tokens + GC + purge + bulk)
 ├── scripts/                   # CLI + Shell + Tests
 ├── waf/                       # Caddy + Coraza WAF
-├── clinerules.md              # 📋 Cline Custom Instructions template (copy + customize)
+├── WORKSPACE_CLINE_RULES.md           # 📋 Cline Custom Instructions template — Live Memory only
+├── WORKSPACE_CLINE_ADVANCE_RULES.md   # 📋 Cline Custom Instructions template — Live Memory + Graph Memory
 ├── DESIGN/live-mem/           # 9 architecture documents
 ├── docker-compose.yml
 ├── Dockerfile
 ├── pyproject.toml             # Dependencies & project config (uv)
 ├── uv.lock                    # uv lockfile
-├── VERSION                    # 2.4.0
+├── VERSION                    # 2.5.0
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -736,4 +752,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.4.0 — Shared working memory for collaborative AI agents*
+*Live Memory v2.5.0 — Shared working memory for collaborative AI agents*

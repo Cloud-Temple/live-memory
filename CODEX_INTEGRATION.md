@@ -196,6 +196,8 @@ Why this project exists, problems solved, user experience.
 
 ## 📝 Step 4 — Give Codex Instructions
 
+> 🔭 **Workspace also connected to Graph Memory?** When the same workspace uses both Live Memory **and** a Graph Memory MCP server (durable semantic index for incidents, RFCs, runbooks, cross-document recall), base your `AGENTS.md` on the advanced rules template [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md) rather than the standard block below. It adds Graph-first lookup, bank compaction discipline, and agent-side ingestion. **Key invariants** (apply regardless of agent): the Live Memory consolidator never ingests anything into Graph Memory; Graph ingestion stays an explicit, scoped agent action started from canonical repository files; never put tokens or endpoints in the rules.
+
 For Codex to automatically use Live Memory, add instructions in a `AGENTS.md` file at the root of your project (Codex automatically loads it as agent-level instructions).
 
 ### 4.1 Recommended `AGENTS.md` Template

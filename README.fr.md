@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -363,6 +363,18 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 ## 🌉 Graph Bridge — Pont vers Graph Memory
 
+> ⚠️ **Note d'architecture (v2.5.0) — Séparation des responsabilités Live Memory + Graph Memory**
+>
+> - **Memory Bank** (Live Memory) = bootstrap compact de session. `activeContext.md` est un instantané volatile du focus, `progress.md` est un journal récent borné. Le consolidateur réécrit et compacte continuellement ces fichiers.
+> - **Graph Memory** = index sémantique durable pour des **documents canoniques stables** (RFC, incidents, runbooks, docs de design, inventaires d'infrastructure).
+> - **Fichiers du dépôt** = autorité finale.
+>
+> **Graph Memory complète la bank, il ne la remplace pas. Graph Memory localise, les fichiers canoniques du dépôt confirment.**
+>
+> En conséquence, **`graph_push` n'est PAS une action de routine** : pousser la bank entière dans le graphe lui apprend du contenu transitoire qu'une compaction ultérieure laissera bloqué en état obsolète. Les flux de routine doivent ingérer **les documents canoniques du dépôt** directement dans Graph Memory côté agent/outillage, en utilisant des clés `source_path` stables. `graph_push` reste disponible pour un bootstrap unique et pour des opérations de debug/migration explicites.
+>
+> En particulier, `activeContext.md` et `progress.md` ne doivent **jamais** finir dans Graph Memory. Une évolution future (suivie dans [`DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md`](DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md)) en fera un garde-fou serveur. Voir [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md) pour le template côté agent.
+
 Live Memory peut pousser sa Memory Bank dans une instance [Graph Memory](https://github.com/Cloud-Temple/graph-memory) pour la mémoire long terme. Le knowledge graph extrait les entités, relations et embeddings des fichiers bank.
 
 ### Workflow
@@ -476,7 +488,7 @@ http://localhost:8080/admin
 
 ## 🔌 Intégration MCP
 
-> 📖 **Guide complet** : voir [CLINE_INTEGRATION_GUIDE.fr.md](CLINE_INTEGRATION_GUIDE.fr.md) pour le guide pas à pas (configuration Cline, custom instructions, workflow, multi-agents, troubleshooting).
+> 📖 **Guide complet** : voir [`CLINE_INTEGRATION_GUIDE.fr.md`](CLINE_INTEGRATION_GUIDE.fr.md) pour le guide pas à pas (configuration Cline, custom instructions, workflow, multi-agents, troubleshooting). Des guides équivalents existent pour [`CLAUDE_CODE_INTEGRATION.fr.md`](CLAUDE_CODE_INTEGRATION.fr.md) et [`CODEX_INTEGRATION.fr.md`](CODEX_INTEGRATION.fr.md).
 
 ### Avec Cline (VS Code / VSCodium)
 
@@ -495,15 +507,18 @@ Dans les paramètres MCP de Cline (`cline_mcp_settings.json`) :
 }
 ```
 
-Pour configurer les **Custom Instructions** de votre agent, copiez le fichier [`clinerules.md`](clinerules.md) dans vos Custom Instructions globales Cline (ou dans un dossier `.clinerules/` à la racine du projet). Vous n'avez qu'**à changer deux valeurs** :
-- Le **nom du serveur MCP** (tel que configuré dans `cline_mcp_settings.json`, ex. `my-live-mem`)
-- Le **nom de votre espace mémoire** (l'ID passé à `space_create`, ex. `mon-projet`)
+Pour configurer les **Custom Instructions** de votre agent, copiez l'un des deux templates de règles workspace dans vos Custom Instructions globales Cline (ou dans un dossier `.clinerules/` à la racine du projet) :
 
-Le nom d'agent est **auto-détecté** depuis le token d'authentification — rien d'autre à configurer.
+| Template                                                                | Quand l'utiliser                                                                                            |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [`WORKSPACE_CLINE_RULES.md`](WORKSPACE_CLINE_RULES.md)                  | Workspaces avec **Live Memory uniquement**.                                                                 |
+| [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md)  | Workspaces également connectés à **Graph Memory** (politique Graph-first, discipline de compaction, ingestion côté agent). |
 
-> 💡 **Template prêt à l'emploi :** [`clinerules.md`](clinerules.md) — copier et personnaliser les 2 valeurs en gras
+Personnalisez quelques placeholders (`{LIVE_MCP_SERVER}`, `{SPACE}`, et pour le template avancé `{GRAPH_MCP_SERVER}` / `{GRAPH_MEMORY_ID}`). Le nom d'agent est **auto-détecté** depuis le token d'authentification — rien d'autre à configurer.
+
+> 💡 **Templates prêts à l'emploi** : [`WORKSPACE_CLINE_RULES.md`](WORKSPACE_CLINE_RULES.md) (Live seul) et [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md) (Live + Graph) — copier et personnaliser les placeholders.
 >
-> 📖 **Guide détaillé :** [Guide d'intégration & Custom Instructions Cline](CLINE_INTEGRATION_GUIDE.fr.md)
+> 📖 **Guides d'intégration détaillés** : [`CLINE_INTEGRATION_GUIDE.fr.md`](CLINE_INTEGRATION_GUIDE.fr.md), [`CLAUDE_CODE_INTEGRATION.fr.md`](CLAUDE_CODE_INTEGRATION.fr.md), [`CODEX_INTEGRATION.fr.md`](CODEX_INTEGRATION.fr.md).
 
 ### Avec Claude Desktop
 
@@ -678,13 +693,14 @@ live-memory/
 │       └── admin.py           #   8 outils (tokens + GC + purge + bulk)
 ├── scripts/                   # CLI + Shell + Tests
 ├── waf/                       # Caddy + Coraza WAF
-├── clinerules.md              # 📋 Template Custom Instructions Cline (copier + personnaliser)
+├── WORKSPACE_CLINE_RULES.md           # 📋 Template Custom Instructions Cline — Live Memory uniquement
+├── WORKSPACE_CLINE_ADVANCE_RULES.md   # 📋 Template Custom Instructions Cline — Live Memory + Graph Memory
 ├── DESIGN/live-mem/           # 9 documents d'architecture
 ├── docker-compose.yml
 ├── Dockerfile
 ├── pyproject.toml             # Dépendances et config projet (uv)
 ├── uv.lock                    # lockfile uv
-├── VERSION                    # 2.4.0
+├── VERSION                    # 2.5.0
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -736,4 +752,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.4.0 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.5.0 — Mémoire de travail partagée pour agents IA collaboratifs*

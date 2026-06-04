@@ -5,6 +5,57 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.5.0] — 2026-06-03
+
+### Added
+
+- **Advanced workspace rules template** (`WORKSPACE_CLINE_ADVANCE_RULES.md`)
+  rewritten as a **generic template** for workspaces connected to **both**
+  Live Memory and Graph Memory. Four placeholders (`{LIVE_MCP_SERVER}`,
+  `{SPACE}`, `{GRAPH_MCP_SERVER}`, `{GRAPH_MEMORY_ID}`); no ontology /
+  entity classification declared on the agent side (Graph Memory server
+  concern); no tokens or endpoints. The `{LIVE_MCP_SERVER}` placeholder
+  was added to disambiguate when two MCP servers expose homonym tools.
+  Now includes an explicit rule **"Never push `activeContext.md` or
+  `progress.md` to Graph Memory"** and a complete responsibility
+  separation table (Memory Bank / Graph Memory / repository files).
+- **Evolution chantier doc** (`DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md`):
+  documents the Live ↔ Graph integration evolution, the doctrinal vague A
+  applied in this release, and proposed waves B (server-side guardrail
+  inside `graph_push`) and C (new `canonical_ingest` config + tool) to be
+  reviewed by codex before implementation.
+- **Live ↔ Graph architecture note** added to README, README.fr, and
+  `DESIGN/live-mem/ARCHITECTURE.md` (§4.4 Graph Push). Codifies the two
+  invariants: *"Graph Memory complements the bank; it does not replace it."*
+  and *"Graph Memory localizes; canonical repository files confirm."*
+
+### Changed
+
+- **`graph_push` MCP tool docstring** clearly marks it as
+  **"Advanced / debug — NOT for routine flows"**, explains why the Memory
+  Bank must not be indexed wholesale into Graph Memory, points to the
+  canonical-repository-document agent-side ingestion pattern, and lists
+  the two acceptable usages (one-off graph bootstrap, explicit debug /
+  migration). Behaviour is **unchanged**: this is doctrinal only — a
+  follow-up release will introduce a server-side guardrail (tracked in
+  `DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md`).
+- **Integration guides** (Cline / Claude Code / Codex, EN + FR) now
+  surface the two workspace rules templates and tell the agent **which
+  one to pick** depending on whether Graph Memory is wired in.
+- **Project metadata**: VERSION bumped to `2.5.0`, README badges, footers,
+  and ARCHITECTURE/Graph-bridge section updated accordingly.
+
+### Notes
+
+- **No runtime behaviour change** in this release. The Live Memory
+  consolidator still updates only the Memory Bank; `graph_push` is
+  unchanged at the code level. v2.5.0 is purely a doctrinal /
+  documentation release that finalises the Live Memory + Graph Memory
+  responsibility separation before the server-side guardrail work
+  scheduled for v2.6.0+.
+
+---
+
 ## [2.4.0] — 2026-05-22
 
 ### Added

@@ -257,6 +257,8 @@ Pourquoi ce projet existe, problèmes résolus, expérience utilisateur.
 
 ## 📝 Étape 5 — Donner ses instructions à Claude Code
 
+> 🔭 **Workspace également connecté à Graph Memory ?** Si le même workspace utilise à la fois Live Memory **et** un serveur MCP Graph Memory (index sémantique durable pour incidents, RFC, runbooks, rappel cross-documents), partez du template avancé [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md) plutôt que du bloc standard ci-dessous pour votre `CLAUDE.md`. Il ajoute la politique Graph-first, la discipline de compaction de la bank et l'ingestion explicite côté agent. **Invariants** (valables quel que soit l'agent) : le consolidateur Live Memory ne pousse jamais rien dans Graph Memory ; l'ingestion Graph reste une action agent explicite et scopée, à partir des fichiers canoniques du dépôt ; ne jamais mettre de tokens ni d'endpoints dans les règles.
+
 Claude Code lit automatiquement les fichiers `CLAUDE.md` au démarrage. Deux emplacements possibles :
 
 | Emplacement                | Portée                                              | Recommandé pour                       |
