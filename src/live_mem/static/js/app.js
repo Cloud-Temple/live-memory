@@ -41,7 +41,9 @@ async function doLogin() {
         hideLogin();
         input.value = '';  // efface le token du DOM dès qu'il n'est plus utile
         fillSpaceSelect(data.spaces || []);
-        startRefresh();  // start auto-refresh (updates space list even before selection)
+        // If the URL carries a valid space, applySpaceFromUrl loads it and
+        // arms the refresh via loadSpace; otherwise arm it here once.
+        if (!(await applySpaceFromUrl())) startRefresh();
     } catch {
         err.textContent = '❌ Server unreachable.';
     } finally {
@@ -52,6 +54,7 @@ async function doLogin() {
 
 async function doLogout() {
     await logout();  // efface le cookie HttpOnly côté serveur
+    setSpaceInUrl('');
     stopRefresh();
     app.spaceId = null; app.info = null; app.notes = []; app.bankFiles = [];
     app.currentBankFile = null; app.agentColors = {};
@@ -71,7 +74,9 @@ async function checkToken() {
         if (r.status === 'ok') {
             hideLogin();
             fillSpaceSelect(r.spaces || []);
-            startRefresh();  // start auto-refresh on page reload with valid cookie
+            // Same as doLogin: avoid arming a second refresh when the URL
+            // already auto-loaded a space.
+            if (!(await applySpaceFromUrl())) startRefresh();
         } else {
             showLogin();
         }
@@ -82,6 +87,38 @@ async function checkToken() {
         }
         showLogin('Server unreachable.');
     }
+}
+
+// ═══════════════ URL STATE ═══════════════
+// Persist the selected space in the `?space=<id>` query string so reloads,
+// new tabs and shared links all land on the same space.
+
+function getSpaceFromUrl() {
+    try { return new URLSearchParams(window.location.search).get('space') || ''; }
+    catch { return ''; }
+}
+
+function setSpaceInUrl(spaceId) {
+    try {
+        const url = new URL(window.location.href);
+        if (spaceId) url.searchParams.set('space', spaceId);
+        else url.searchParams.delete('space');
+        history.replaceState(null, '', url.toString());
+    } catch { /* best-effort */ }
+}
+
+async function applySpaceFromUrl() {
+    // Returns true if a space from the URL was applied and loaded, so callers
+    // can skip arming a second refresh cycle (loadSpace already armed one).
+    const sel = document.getElementById('spaceSelect');
+    const wanted = getSpaceFromUrl();
+    if (!wanted) return false;
+    if ([...sel.options].some(o => o.value === wanted)) {
+        sel.value = wanted;
+        await loadSpace(wanted);
+        return true;
+    }
+    return false;
 }
 
 function fillSpaceSelect(spaces) {
@@ -154,14 +191,21 @@ async function refresh(force = false) {
     await refreshSpaceList();
     await refreshHealthStatus();
 
-    if (!app.spaceId) return;
+    // Capture the target space up-front: if the user switches space (or the
+    // URL auto-loads one) while the calls below are in flight, a late response
+    // must not be rendered into the now-current space's UI.
+    const requestedSpaceId = app.spaceId;
+    if (!requestedSpaceId) return;
 
     try {
         const [notesR, bankR, infoR] = await Promise.all([
-            apiLoadNotes(app.spaceId),
-            apiLoadBankList(app.spaceId),
-            apiLoadSpaceInfo(app.spaceId),
+            apiLoadNotes(requestedSpaceId),
+            apiLoadBankList(requestedSpaceId),
+            apiLoadSpaceInfo(requestedSpaceId),
         ]);
+
+        // Stale-response guard — drop results if the space changed meanwhile.
+        if (app.spaceId !== requestedSpaceId) return;
 
         // Détection changement notes
         const newNotes = notesR.status === 'ok' ? (notesR.notes || []) : app.notes;
@@ -313,6 +357,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Sélection espace → chargement auto
     document.getElementById('spaceSelect').addEventListener('change', function() {
+        setSpaceInUrl(this.value);
         loadSpace(this.value);
     });
 

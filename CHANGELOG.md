@@ -5,6 +5,45 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.5.1] — 2026-06-05
+
+### Added
+
+- **Web UI `/live` — selected space persisted in URL query string.**
+  - The dropdown selection is now reflected in `?space=<space_id>` on the
+    current page via `history.replaceState` — no extra history entry is
+    pushed per change.
+  - On page load (whether via cookie auto-resume or fresh login), if the
+    URL carries `?space=<id>` **and** the space appears in the user's
+    accessible list, the dropdown is pre-selected and the space is loaded
+    automatically.
+  - Enables: refresh-safe selection, multi-tab workflows (one space per
+    tab), and shareable links between devices/teammates.
+  - Logging out clears the query string so a stale `?space=` does not
+    survive across sessions on the same device.
+  - Unknown / unauthorized space IDs in the URL are silently ignored
+    (dropdown stays on `-- Space --`).
+
+### Changed
+
+- `src/live_mem/static/js/app.js` — `fillSpaceSelect` is now paired with a
+  new `applySpaceFromUrl()` helper called once after the initial space list
+  load in both `doLogin` and `checkToken`. The recurring `refreshSpaceList`
+  still preserves the in-memory selection unchanged.
+
+### Fixed
+
+- **No double refresh cycle at startup.** `applySpaceFromUrl()` is now
+  `async` and reports whether it loaded a space; `doLogin` / `checkToken`
+  arm the recurring refresh themselves only when the URL did **not**
+  auto-load a space (otherwise `loadSpace()` already armed it).
+- **Stale-response guard in `refresh()`.** The target `space_id` is captured
+  before the notes/bank/info calls fire and re-checked before the results are
+  applied, so a late response for a space the user already switched away from
+  is dropped instead of rendering into the current space's UI.
+
+---
+
 ## [2.5.0] — 2026-06-03
 
 ### Added
