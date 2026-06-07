@@ -30,6 +30,7 @@
 - [Sécurité](#-sécurité)
 - [Structure du projet](#-structure-du-projet)
 - [Troubleshooting](#-troubleshooting)
+- [Contribuer](#-contribuer)
 
 ---
 
@@ -727,6 +728,33 @@ docker compose logs waf --tail 20
 - Le timeout par défaut est de 600s — augmentez `CONSOLIDATION_TIMEOUT` si besoin
 - `bank_consolidate` retourne un accusé de job async (`running` ou `queued`) avec `next_action="return_to_user_without_polling"` ; appelez-le une seule fois et ne surveillez/pollez pas sauf demande explicite
 - `bank_consolidation_status(job_id)` reste disponible pour des checks de statut manuels uniquement
+
+---
+
+## 🤝 Contribuer
+
+Le développement se pilote **entièrement via GitHub** — issues, branches, pull
+requests, revues de code et statut projet y vivent tous. Cela rend le projet
+facile à **piloter à distance depuis le terminal** avec la CLI `gh` (y compris
+par des agents IA de code) : créer une issue, brancher, ouvrir une PR, relire
+et merger sans jamais quitter la ligne de commande ou l'interface GitHub.
+
+Le workflow complet et obligatoire est documenté dans
+**[`WORKSPACE_WORKFLOW_GIT.md`](WORKSPACE_WORKFLOW_GIT.md)** :
+
+- **Branche + PR uniquement** — aucun merge local dans `main` ; chaque
+  changement arrive via une pull request mergée sur GitHub.
+- **Cycle de vie de l'issue** — auto-assignation, passage du statut Projects à
+  *In Progress*, discussion de conception conservée dans l'issue.
+- **Lien PR ↔ issue** — un mot-clé `Closes #N` dans le **corps** de la PR
+  ferme l'issue automatiquement au merge.
+- **Revues dans le canal PR** — dès qu'une PR est ouverte, la discussion de
+  revue passe dans la PR ; toute conclusion de revue est publiée sur GitHub
+  (`gh pr review` / `gh pr comment`), pas seulement en chat.
+
+Suivre ce fichier garde les historiques d'issues et de PR propres et
+auditables, et permet à un contributeur (ou un agent) de dérouler tout le
+cycle de façon reproductible via `gh`.
 
 ---
 

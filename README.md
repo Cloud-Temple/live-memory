@@ -30,6 +30,7 @@
 - [Security](#-security)
 - [Project Structure](#-project-structure)
 - [Troubleshooting](#-troubleshooting)
+- [Contributing](#-contributing)
 
 ---
 
@@ -727,6 +728,32 @@ docker compose logs waf --tail 20
 - Default timeout is 600s — increase `CONSOLIDATION_TIMEOUT` if needed
 - `bank_consolidate` returns an async job acknowledgement (`running` or `queued`) with `next_action="return_to_user_without_polling"`; call it once and do not watch/poll unless explicitly requested
 - `bank_consolidation_status(job_id)` remains available for manual status checks only
+
+---
+
+## 🤝 Contributing
+
+Development is driven **entirely through GitHub** — issues, branches, pull
+requests, code reviews and project status all live there. This makes the
+project easy to **pilot remotely from the command line** with the `gh` CLI
+(including by AI coding agents): create an issue, branch, open a PR, review
+and merge without ever leaving the terminal or the GitHub UI.
+
+The full, mandatory workflow is documented in
+**[`WORKSPACE_WORKFLOW_GIT.md`](WORKSPACE_WORKFLOW_GIT.md)**:
+
+- **Branch + PR only** — no local merge into `main`; every change lands
+  through a pull request merged on GitHub.
+- **Issue lifecycle** — self-assign, move the Projects status to *In
+  Progress*, keep solution-design discussion in the issue.
+- **PR ↔ issue link** — a `Closes #N` keyword in the PR **body** auto-closes
+  the issue on merge.
+- **PR-channel reviews** — once a PR is open, code-review discussion moves to
+  the PR; every review conclusion is published on GitHub (`gh pr review` /
+  `gh pr comment`), not only in chat.
+
+Following this file keeps the issue and PR histories clean and auditable, and
+lets a contributor (or an agent) drive the whole cycle reproducibly via `gh`.
 
 ---
 
