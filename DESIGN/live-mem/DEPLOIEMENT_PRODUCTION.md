@@ -128,11 +128,26 @@ networks:
 | Route | WAF Coraza | Timeout | Usage |
 |---|---|---|---|
 | `/mcp*` | ❌ (bypass) | Unlimited | Single MCP Streamable HTTP endpoint (POST/GET/DELETE) |
-| `/api/*` | ✅ | 5min | REST API (web interface) |
+| `/api/tool` | ⚠️ (headers/URI only, body not inspected) | 5min | Admin console tool proxy |
+| `/api/*` (other) | ✅ | 5min | REST API (web interface) |
 | `/live`, `/static/*` | ✅ | Standard | Web interface |
 | Everything else | ✅ | Standard | Health (`/health`), etc. |
 
 > **Note v0.5.0**: The former `/sse*` and `/messages/*` routes (SSE transport) have been removed and unified into `/mcp*` (Streamable HTTP).
+
+> **Note v2.5.2 — `/api/tool` request body excluded from CRS inspection.**
+> The admin console proxies tool calls through `POST /api/tool`, whose body
+> carries free-form Markdown (e.g. Memory Bank rules: `<` comparisons,
+> the word `delete`, `**`, backticks). The OWASP CRS flagged these as
+> XSS/SQLi, pushed the anomaly score past the threshold, and Coraza
+> returned an empty-body 403 — surfacing in the UI as `space_create`
+> failing with *"Empty response"*. The endpoint is already gated by an
+> HttpOnly cookie **and** the `write` permission, and only proxies
+> structured `{tool, arguments}` calls, so its **request body** is
+> excluded from CRS inspection (`ctl:requestBodyAccess=Off` scoped to
+> `REQUEST_URI @beginsWith /api/tool`). Rate-limiting, body-size limits,
+> and URI/header inspection (path traversal, scanners) stay active — same
+> trust rationale already applied to `/mcp*`.
 
 ---
 

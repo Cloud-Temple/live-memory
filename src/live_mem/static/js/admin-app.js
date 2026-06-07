@@ -287,11 +287,19 @@ async function renderSpaces(){
     }</tbody></table>`;
 }
 
+function ownerOptionsHtml(){
+    // Suggestions = détenteurs de tokens actifs, noms dédupliqués et triés.
+    const names=[...new Set((cache.tokens||[])
+        .filter(t=>!t.revoked && t.name)
+        .map(t=>t.name))].sort((a,b)=>a.localeCompare(b));
+    return names.map(n=>`<option value="${esc(n)}">`).join('');
+}
+
 function showCreateSpace(){
     showModal('➕ Create Space',`
         <div class="form-group"><label class="form-label">Space ID <span class="req">*</span></label><input class="form-input" data-1p-ignore id="m_space_id" placeholder="my-project"></div>
         <div class="form-group"><label class="form-label">Description <span class="req">*</span></label><input class="form-input" data-1p-ignore id="m_desc"></div>
-        <div class="form-group"><label class="form-label">Owner</label><input class="form-input" data-1p-ignore id="m_owner"></div>
+        <div class="form-group"><label class="form-label">Owner</label><input class="form-input" data-1p-ignore id="m_owner" list="m_owner_list" placeholder="Choisir un détenteur de token ou saisir un nom"><datalist id="m_owner_list">${ownerOptionsHtml()}</datalist></div>
         <div class="form-group"><label class="form-label">Rules (Markdown)</label><textarea class="form-input" id="m_rules" rows="6" placeholder="Leave empty for default rules"></textarea></div>
     `,'Create Space',async()=>{
         const sid=gv('m_space_id'),desc=gv('m_desc');if(!sid||!desc)return false;
