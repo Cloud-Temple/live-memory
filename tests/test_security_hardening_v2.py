@@ -1621,5 +1621,5 @@ def test_sanity_imports_dont_break_existing_code():
     from live_mem.tools import bank, admin, system, graph, backup as tb
     from live_mem.auth import context, middleware
 
-    # Version bumpée à 2.5.0
-    assert live_mem.__version__ == "2.5.0"
+    # Version bumpée à 2.5.2
+    assert live_mem.__version__ == "2.5.2"

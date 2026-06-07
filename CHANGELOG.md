@@ -5,6 +5,55 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.5.2] — 2026-06-07
+
+### Fixed
+
+- **Admin console — space creation no longer fails with "Empty response".**
+  - **Root cause (infrastructure, not application code).** The admin console
+    proxies every tool call through `POST /api/tool`, which is routed
+    **through** the Coraza WAF (OWASP CRS). When creating a space with
+    Markdown rules, that content travels in the request body and trips CRS
+    XSS/SQLi heuristics — notably the `<` characters in the default rules
+    (`activeContext.md < 8 KB`, `< 15 KB`) and the word `delete`
+    (`delete sections superseded…`). The cumulative anomaly score crossed
+    the threshold (5), Coraza returned a **403 with an empty body**, and the
+    web UI surfaced it as `space_create` failing with *"Empty response"*.
+    This is why `space_list` worked but `space_create` (with rules) did not.
+  - **Fix.** `waf/Caddyfile` now excludes the **request body** of
+    `/api/tool` from CRS inspection
+    (`ctl:requestBodyAccess=Off` scoped to `REQUEST_URI @beginsWith
+    /api/tool`). The endpoint is already gated by an HttpOnly cookie **and**
+    the `write` permission and only proxies structured `{tool, arguments}`
+    calls, so this mirrors the trust rationale already applied to `/mcp*`.
+    Rate-limiting, body-size limits, and URI/header inspection (path
+    traversal, scanners) remain active.
+  - ⚠️ **Requires restarting/recreating the WAF container** for the change
+    to take effect (`docker compose restart waf`). The Caddyfile is
+    bind-mounted (`./waf/Caddyfile:/etc/caddy/Caddyfile:ro`), so **no image
+    rebuild is needed** — Caddy re-reads it on restart.
+
+### Added
+
+- **Admin console — Owner field on "Create Space" is now a suggestion list.**
+  - The free-text `Owner` input is paired with a `<datalist>` populated from
+    **active token holders** (names deduplicated and sorted). Free-text entry
+    is still allowed for owners that have no token.
+  - Stored value is the **token name** (consistent with the Owner column
+    rendering). `owner` remains optional and purely informational
+    server-side — it has never been able to cause a creation failure.
+
+### Changed
+
+- `waf/Caddyfile` — new Coraza rule `id:900500` scoping
+  `requestBodyAccess=Off` to `/api/tool`.
+- `src/live_mem/static/js/admin-app.js` — new `ownerOptionsHtml()` helper;
+  `showCreateSpace()` renders the Owner `<datalist>`.
+- `DESIGN/live-mem/DEPLOIEMENT_PRODUCTION.md` — §5 "WAF Routes" documents the
+  `/api/tool` body-inspection exception.
+
+---
+
 ## [2.5.1] — 2026-06-05
 
 ### Added

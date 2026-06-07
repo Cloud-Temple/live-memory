@@ -163,6 +163,24 @@
 
 				SecAction "id:900220,phase:1,pass,nolog,\
 					setvar:'tx.allowed_request_content_type=|application/json|text/plain|multipart/form-data|application/x-www-form-urlencoded|application/octet-stream|'"
+
+				# ---------------------------------------------------------
+				# Exclusion ciblée : console admin authentifiée (/api/tool)
+				# ---------------------------------------------------------
+				# Le corps de POST /api/tool transporte du markdown légitime
+				# (rules de Memory Bank : caractères '<', mot 'delete', '**',
+				# backticks…) que l'OWASP CRS prend pour des attaques XSS/SQLi.
+				# Le score d'anomalie dépasse le seuil → 403 à corps vide, que
+				# l'UI affiche comme "Empty response" (échec de space_create).
+				#
+				# Cet endpoint est déjà protégé : cookie HttpOnly + permission
+				# write obligatoire, et il ne proxifie que des appels d'outils
+				# structurés {tool, arguments}. On désactive donc l'inspection
+				# du CORPS pour ce seul chemin (même logique assumée que /mcp*).
+				# Restent actifs : rate-limiting, limites de taille, inspection
+				# de l'URI et des headers (path traversal, scanners, etc.).
+				SecRule REQUEST_URI "@beginsWith /api/tool" \
+					"id:900500,phase:1,pass,nolog,ctl:requestBodyAccess=Off"
 			`
 		}
 
