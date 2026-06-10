@@ -42,6 +42,8 @@ function renderBankTabs() {
 
 async function selectBank(filename) {
     app.currentBankFile = filename;
+    const requestedSpaceId = app.spaceId;
+    const requestedFilename = filename;
 
     // Mettre à jour les onglets actifs
     document.querySelectorAll('.bank-tab').forEach(t => {
@@ -52,7 +54,8 @@ async function selectBank(filename) {
     el.innerHTML = '<div class="empty-state">Loading…</div>';
 
     try {
-        const r = await apiLoadBankFile(app.spaceId, filename);
+        const r = await apiLoadBankFile(requestedSpaceId, requestedFilename);
+        if (app.spaceId !== requestedSpaceId || app.currentBankFile !== requestedFilename) return;
         if (r.status === 'ok' && r.content) {
             el.innerHTML = `<div class="md-content">${md(r.content)}</div>`;
         } else {
@@ -60,6 +63,7 @@ async function selectBank(filename) {
         }
     } catch (e) {
         if (e.message !== 'Unauthorized') {
+            if (app.spaceId !== requestedSpaceId || app.currentBankFile !== requestedFilename) return;
             el.innerHTML = `<div class="empty-state">❌ ${esc(e.message)}</div>`;
         }
     }
