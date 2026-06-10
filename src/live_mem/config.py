@@ -150,6 +150,12 @@ class Settings(BaseSettings):
     # ─── Response limits ──────────────────────────────────────
     response_max_bytes: int = 512 * 1024  # Max response body size (512 KB)
 
+    # ─── Graph push guardrails ────────────────────────────────
+    # CSV of Memory Bank filenames excluded from graph_push by default.
+    # Operators can override with GRAPH_PUSH_VOLATILE_FILES, or opt in per
+    # call with include_volatile=True (manage/admin only).
+    graph_push_volatile_files: str = "activeContext.md,progress.md"
+
     # ─── Admin console /api/tool (ADM-05 fix) ─────────────
     api_tool_max_body_bytes: int = 1_048_576  # Max request body for /api/tool (1 MB)
 
