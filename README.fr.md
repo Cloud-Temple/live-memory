@@ -696,12 +696,13 @@ live-memory/
 ├── waf/                       # Caddy + Coraza WAF
 ├── WORKSPACE_CLINE_RULES.md           # 📋 Template Custom Instructions Cline — Live Memory uniquement
 ├── WORKSPACE_CLINE_ADVANCE_RULES.md   # 📋 Template Custom Instructions Cline — Live Memory + Graph Memory
+├── RULES/                     # 📜 Modèles de rules Memory Bank (général, livre, médical, avant-vente, product management, pilotage d'entreprise)
 ├── DESIGN/live-mem/           # 9 documents d'architecture
 ├── docker-compose.yml
 ├── Dockerfile
 ├── pyproject.toml             # Dépendances et config projet (uv)
 ├── uv.lock                    # lockfile uv
-├── VERSION                    # 2.5.1
+├── VERSION                    # 2.5.3
 ├── CHANGELOG.md
 └── FAQ.md
 ```
