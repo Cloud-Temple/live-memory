@@ -5,6 +5,40 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.5.3] — 2026-07-01
+
+### Added
+
+- **New RULES template: `RULES/company.steering.memory.bank.md` (Company
+  Steering).** Memory Bank template for an AI agent assisting an executive
+  (CEO/DG) in steering the whole company — finance, sales, business units,
+  legal, HR, risk & compliance.
+  - **11 mandatory files**: `companyBrief`, `governance`, `financeContext`,
+    `salesContext`, `marketIntelligence`, `legalContext`, `hrContext`,
+    `riskCompliance`, `stakeholders`, `activeContext`, `steeringProgress`.
+  - **Dynamic files**: one `bu-[name].md` per business line (e.g. `bu-csp`,
+    `bu-msp`) and one `dossier-[name].md` per strategic initiative, each with
+    a mandated template and a lifecycle (created on first mention, archived
+    with an outcome summary in `steeringProgress.md`).
+  - **Absolute data-reliability rules** injected into the consolidator prompt:
+    figures are never invented or extrapolated and always carry date + source
+    (otherwise flagged `[à confirmer]`); HR data is aggregated only (no
+    individual/personal data); legal exposure is quoted as assessed by
+    counsel, never re-qualified by the LLM.
+  - **Steering-grade conventions**: confidentiality notice (dedicated space,
+    restricted tokens), ADR decision log in `steeringProgress.md`,
+    "deadlines never go stale" rule for certifications, audits, and contract
+    expiries.
+
+### Changed
+
+- `RULES/README.md` / `RULES/README.fr.md` — template tables updated with the
+  new Company Steering entry.
+- `README.md` / `README.fr.md` — repository structure tree now lists the
+  `RULES/` template directory; stale `VERSION` annotation refreshed.
+
+---
+
 ## [2.5.2] — 2026-06-07
 
 ### Fixed
