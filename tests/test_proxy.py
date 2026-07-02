@@ -206,3 +206,99 @@ class TestConsolidatorServiceProxy:
             asyncio.run(_mod.close_consolidator_if_initialized())  # Ne doit pas lever
         finally:
             _mod._consolidator = original
+
+
+# ─────────────────────────────────────────────────────────────
+# LLMaaS health probes — proxy → AsyncOpenAI http_client
+# ─────────────────────────────────────────────────────────────
+
+
+class TestLLMaaSHealthProxy:
+    """Vérifie que les probes LLMaaS passent aussi par PROXY_URL."""
+
+    def _fake_openai_client(self):
+        client = MagicMock()
+        client.chat.completions.create = AsyncMock()
+        client.models.list = AsyncMock(
+            return_value=MagicMock(data=[MagicMock(id="test-model")])
+        )
+        return client
+
+    def test_system_health_closes_owned_proxy_client(self):
+        """system_health doit passer PROXY_URL au client HTTP OpenAI."""
+        settings = _make_settings(
+            proxy_url="http://proxy.example.com:3128",
+            llmaas_api_url="https://api.example.com/v1",
+            llmaas_api_key="sk-test",
+        )
+        client = self._fake_openai_client()
+        http_client = AsyncMock()
+        storage = MagicMock()
+        storage.test_connection = AsyncMock(return_value={"status": "ok"})
+        storage.list_prefixes = AsyncMock(return_value=["space-a/", "_system/"])
+
+        class DummyMCP:
+            def __init__(self):
+                self.tools = {}
+
+            def tool(self, *args, **kwargs):
+                def _decorator(fn):
+                    self.tools[fn.__name__] = fn
+                    return fn
+
+                return _decorator
+
+        with (
+            patch("live_mem.config.get_settings", return_value=settings),
+            patch("live_mem.core.storage.get_storage", return_value=storage),
+            patch("httpx.AsyncClient", return_value=http_client) as mock_httpx_client,
+            patch("openai.AsyncOpenAI", return_value=client) as mock_openai,
+        ):
+            from live_mem.tools.system import register
+
+            mcp = DummyMCP()
+            register(mcp)
+            result = asyncio.run(mcp.tools["system_health"]())
+
+        mock_httpx_client.assert_called_once()
+        assert str(mock_httpx_client.call_args.kwargs["proxy"].url) == settings.proxy_url
+        assert mock_httpx_client.call_args.kwargs["timeout"] == 30
+        assert mock_openai.call_args.kwargs["http_client"] is http_client
+        client.chat.completions.create.assert_awaited_once()
+        http_client.aclose.assert_awaited_once()
+        assert result["status"] == "healthy"
+        assert result["services"]["llmaas"]["status"] == "ok"
+
+    def test_http_health_closes_owned_proxy_client(self):
+        """/health doit passer PROXY_URL au client HTTP OpenAI."""
+        settings = _make_settings(
+            proxy_url="http://proxy.example.com:3128",
+            llmaas_api_url="https://api.example.com/v1",
+            llmaas_api_key="sk-test",
+        )
+        client = self._fake_openai_client()
+        http_client = AsyncMock()
+        storage = MagicMock()
+        storage.test_connection = AsyncMock(return_value={"status": "ok"})
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        with (
+            patch("live_mem.config.get_settings", return_value=settings),
+            patch("live_mem.core.storage.get_storage", return_value=storage),
+            patch("httpx.AsyncClient", return_value=http_client) as mock_httpx_client,
+            patch("openai.AsyncOpenAI", return_value=client) as mock_openai,
+        ):
+            from live_mem.auth.middleware import StaticFilesMiddleware
+
+            asyncio.run(StaticFilesMiddleware(app=AsyncMock())._handle_health(send))
+
+        mock_httpx_client.assert_called_once()
+        assert str(mock_httpx_client.call_args.kwargs["proxy"].url) == settings.proxy_url
+        assert mock_httpx_client.call_args.kwargs["timeout"] == 5
+        assert mock_openai.call_args.kwargs["http_client"] is http_client
+        client.models.list.assert_awaited_once()
+        http_client.aclose.assert_awaited_once()
+        assert sent[0]["status"] == 200
