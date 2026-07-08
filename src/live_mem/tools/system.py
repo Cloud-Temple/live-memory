@@ -66,19 +66,36 @@ def register(mcp: FastMCP) -> int:
         # ── Test LLMaaS ─────────────────────────────────────
         try:
             if settings.llmaas_api_url and settings.llmaas_api_key:
+                import httpx
                 from openai import AsyncOpenAI
 
                 t0 = time.monotonic()
+                # Même pattern que ConsolidatorService : PROXY_URL reste opt-in
+                # et n'affecte que le client HTTP explicitement configuré.
+                proxy_url = settings.proxy_url
+                http_client = (
+                    httpx.AsyncClient(
+                        proxy=httpx.Proxy(url=proxy_url),
+                        timeout=30,
+                    )
+                    if proxy_url
+                    else None
+                )
                 client = AsyncOpenAI(
                     base_url=settings.llmaas_api_url,
                     api_key=settings.llmaas_api_key,
                     timeout=30,
+                    http_client=http_client,
                 )
-                await client.chat.completions.create(
-                    model=settings.llmaas_model,
-                    messages=[{"role": "user", "content": "Réponds OK"}],
-                    max_tokens=5,
-                )
+                try:
+                    await client.chat.completions.create(
+                        model=settings.llmaas_model,
+                        messages=[{"role": "user", "content": "Réponds OK"}],
+                        max_tokens=5,
+                    )
+                finally:
+                    if http_client is not None:
+                        await http_client.aclose()
                 latency = round((time.monotonic() - t0) * 1000, 1)
                 results["llmaas"] = {
                     "status": "ok",
