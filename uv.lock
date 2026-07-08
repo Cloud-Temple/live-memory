@@ -430,12 +430,12 @@ wheels = [
 
 [[package]]
 name = "live-memory"
+version = "2.5.2"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
     { name = "click" },
     { name = "httpx" },
-    { name = "httpx-sse" },
     { name = "mcp", extra = ["cli"] },
     { name = "openai" },
     { name = "prompt-toolkit" },
@@ -454,12 +454,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boto3", specifier = ">=1.34" },
+    { name = "boto3", specifier = ">=1.40" },
     { name = "click", specifier = ">=8.1" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "httpx-sse", specifier = ">=0.4" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.8.0" },
-    { name = "openai", specifier = ">=1.0" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.27.0" },
+    { name = "openai", specifier = ">=1.50" },
     { name = "prompt-toolkit", specifier = ">=3.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
