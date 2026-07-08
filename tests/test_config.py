@@ -143,6 +143,28 @@ class TestConsolidationValidation:
             _make_settings(consolidation_batch_size=0)
 
 
+class TestLlmBudgetCoherence:
+    """Issue #32 — max_tokens must never consume the whole context window."""
+
+    def test_max_tokens_equal_to_window_rejected(self):
+        with pytest.raises(ValueError, match="LLMAAS_MAX_TOKENS"):
+            _make_settings(llmaas_max_tokens=131072, llmaas_context_window=131072)
+
+    def test_max_tokens_above_window_rejected(self):
+        # Incident config shape: output budget bigger than a real backend
+        # window makes every large-prompt call impossible.
+        with pytest.raises(ValueError, match="LLMAAS_MAX_TOKENS"):
+            _make_settings(llmaas_max_tokens=200000, llmaas_context_window=131072)
+
+    def test_defaults_are_coherent(self):
+        s = _make_settings()
+        assert s.llmaas_max_tokens < s.llmaas_context_window
+
+    def test_sane_override_accepted(self):
+        s = _make_settings(llmaas_max_tokens=16384, llmaas_context_window=1048576)
+        assert s.llmaas_max_tokens == 16384
+
+
 class TestTemperatureValidation:
     def test_temperature_out_of_range(self):
         with pytest.raises(ValueError, match="LLMAAS_TEMPERATURE"):

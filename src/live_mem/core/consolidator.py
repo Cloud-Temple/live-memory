@@ -596,6 +596,11 @@ class ConsolidatorService:
         total_prompt_tokens = 0
         total_completion_tokens = 0
         batches_completed = 0
+        # Issue #32 — a failed batch must surface in the final status.
+        # `batch_failure` keeps the upstream error message, `failed_batch`
+        # the 1-based index of the batch that stopped the pipeline.
+        batch_failure: str | None = None
+        failed_batch = 0
         last_synthesis_size = 0
         # Issue #17 — post-pass validation, accumulated over all batches
         validation_unattributed = 0
@@ -677,11 +682,13 @@ class ConsolidatorService:
             # Appeler le LLM
             llm_result = await self._call_llm(messages)
             if llm_result.get("status") == "error":
+                batch_failure = llm_result.get("message", "LLM call failed")
+                failed_batch = batch_idx
                 logger.error(
                     "Batch %d/%d LLM failed: %s — stopping (previous batches OK)",
                     batch_idx,
                     batch_count,
-                    llm_result.get("message"),
+                    batch_failure,
                 )
                 break
 
@@ -698,11 +705,13 @@ class ConsolidatorService:
             )
 
             if write_result.get("status") != "ok":
+                batch_failure = write_result.get("message", "Bank write failed")
+                failed_batch = batch_idx
                 logger.error(
                     "Batch %d/%d write failed: %s — stopping",
                     batch_idx,
                     batch_count,
-                    write_result.get("message"),
+                    batch_failure,
                 )
                 break
 
@@ -812,10 +821,25 @@ class ConsolidatorService:
         bank_objects = await storage.list_objects(f"{space_id}/bank/")
         total_bank = len([o for o in bank_objects if not o["Key"].endswith(".keep")])
 
+        # Issue #32 — the final status must reflect what actually happened.
+        # A batch failure with zero completed batches is an error, not a
+        # success: reporting "ok" here made the queue expose `succeeded`
+        # jobs while 100% of the notes were left unconsolidated.
+        if batch_failure is None:
+            status = "ok"
+            final_phase = "done"
+        elif batches_completed == 0:
+            status = "error"
+            final_phase = "failed"
+        else:
+            status = "partial"
+            final_phase = "failed"
+
         duration = round(time.monotonic() - t0, 1)
         logger.info(
-            "Consolidation done — space=%s agent=%s notes=%d batches=%d/%d "
+            "Consolidation %s — space=%s agent=%s notes=%d batches=%d/%d "
             "created=%d updated=%d tokens=%d duration=%.1fs",
+            status,
             space_id,
             agent_label,
             total_notes,
@@ -828,7 +852,7 @@ class ConsolidatorService:
         )
 
         result = {
-            "status": "ok",
+            "status": status,
             "space_id": space_id,
             "notes_processed": total_notes,
             "bank_files_updated": total_updated,
@@ -845,9 +869,17 @@ class ConsolidatorService:
             "batch_size": batch_size,
             "duration_seconds": duration,
         }
+        if batch_failure is not None:
+            result["failed_batch"] = failed_batch
+            remaining_notes = len(all_notes) - total_notes
+            result["message"] = (
+                f"Batch {failed_batch}/{batch_count} failed: {batch_failure} — "
+                f"{batches_completed} batch(es) applied, "
+                f"{remaining_notes} note(s) left in live/"
+            )
         await emit_progress(
             {
-                "phase": "done",
+                "phase": final_phase,
                 "batch_size": batch_size,
                 "notes_total": len(all_notes),
                 "notes_done": total_notes,

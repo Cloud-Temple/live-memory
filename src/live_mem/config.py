@@ -215,6 +215,16 @@ class Settings(BaseSettings):
                 "and LLMAAS_API_KEY or neither"
             )
 
+        # LLM budget coherence (issue #32) : an output budget that consumes
+        # the whole context window can never produce a valid call — the
+        # backend rejects input + max_tokens > window before inference.
+        if self.llmaas_max_tokens >= self.llmaas_context_window:
+            errors.append(
+                f"LLMAAS_MAX_TOKENS={self.llmaas_max_tokens} must be strictly "
+                f"less than LLMAAS_CONTEXT_WINDOW={self.llmaas_context_window} "
+                "(output budget cannot consume the whole model context window)"
+            )
+
         # Consolidation ranges
         if self.consolidation_timeout < 10:
             errors.append(
