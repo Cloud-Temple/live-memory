@@ -201,7 +201,12 @@ class ConsolidationQueueService:
                     job.result = result
                     job.progress.update(
                         {
-                            "phase": "done",
+                            # Issue #32 — keep the lane phase consistent with
+                            # the real outcome (a failed consolidation must
+                            # not display a "done" phase).
+                            "phase": (
+                                "done" if result.get("status") == "ok" else "failed"
+                            ),
                             "batch_size": result.get(
                                 "batch_size", job.progress.get("batch_size")
                             ),
