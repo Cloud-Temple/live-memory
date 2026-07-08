@@ -1622,4 +1622,4 @@ def test_sanity_imports_dont_break_existing_code():
     from live_mem.auth import context, middleware
 
     # Version bumpée à 2.5.3
-    assert live_mem.__version__ == "2.5.4"
+    assert live_mem.__version__ == "2.6.0"

@@ -5,6 +5,36 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.6.0] — 2026-07-08
+
+### Fixed
+
+- **LLMaaS health probes now honor `PROXY_URL`** (#31, @aelttil). In a
+  proxied deployment, the `/health` endpoint and the `system_health` MCP tool
+  probed LLMaaS **directly**, while every real consolidation call goes through
+  `PROXY_URL`. The health check therefore reported a network path that
+  production traffic never takes — a false "unhealthy" when the proxy is the
+  only egress, or a false "healthy" when only the direct route works. Both
+  probes now build an explicit `httpx.AsyncClient(proxy=...)` when `PROXY_URL`
+  is set (same pattern as `ConsolidatorService`) and close it in a `finally`
+  block. No-proxy behavior is unchanged.
+
+### Changed
+
+- `DESIGN/live-mem/ARCHITECTURE.md` — documents `PROXY_URL` in the optional
+  environment variables and notes that the outbound proxy now covers S3,
+  LLMaaS consolidation, **and** the health probes.
+- `README.md` / `README.fr.md` — version badge bumped to 2.6.0.
+
+### Notes
+
+- Minor bump: this is a server-side behavior change on the outbound network
+  path. It consumes the `2.6.0` slot previously earmarked for the `graph_push`
+  volatile guardrail (Wave B, PR #29); that work moves to the next minor once
+  its blocking review items are resolved.
+
+---
+
 ## [2.5.4] — 2026-07-08
 
 ### Fixed
