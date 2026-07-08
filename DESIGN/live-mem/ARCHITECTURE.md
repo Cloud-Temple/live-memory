@@ -442,8 +442,15 @@ SITE_ADDRESS=:8080
 # ─── Consolidation ───
 CONSOLIDATION_TIMEOUT=600        # LLM timeout in seconds
 CONSOLIDATION_MAX_NOTES=200      # Max notes per consolidation
+
+# ─── Outbound proxy (optional) ───
+# Custom variable (not HTTP_PROXY) injected manually into boto3 (S3) and
+# httpx (LLM). Covers S3, LLMaaS consolidation, AND the health probes
+# (/health endpoint + system_health tool) since v2.6.0. Not applied to
+# Graph Memory connections.
+PROXY_URL=http://10.0.0.1:3128
 ```
 
 ---
 
-*Document updated June 4, 2026 — Live Memory v2.5.0*
+*Document updated July 8, 2026 — Live Memory v2.6.0*
