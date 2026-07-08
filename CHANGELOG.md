@@ -5,6 +5,50 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.5.4] — 2026-07-08
+
+### Fixed
+
+- **Consolidation no longer reports a `succeeded` job when a batch fails**
+  (#32, PR #33). A failed batch (LLM error or bank write error) used to break
+  out of the batch loop while the final result was still built with a
+  hardcoded `"status": "ok"` — the async queue then exposed the job as
+  `succeeded` even with `0/N` batches completed. Uncovered by a production
+  incident where every LLM call was rejected (context-length error) and the
+  failure stayed invisible for 6 days. `consolidate()` now returns:
+  - `ok` — no failure (unchanged contract);
+  - `error` — failure with zero completed batches (nothing was integrated);
+  - `partial` — failure after at least one applied batch (integrated work and
+    metrics are preserved);
+  - failed runs expose `failed_batch` and a `message` embedding the upstream
+    error plus the number of notes left in `live/`. The queue lane `phase`
+    now reflects the real outcome (`done`/`failed`).
+- **Web UI `/live`: stale `selectBank()` responses are ignored** (#24, PR #28,
+  @moul). `selectBank()` captures the requested space and filename before the
+  async load and drops the response — on both the success and error render
+  paths — if the user switched space or bank file meanwhile. Same guard family
+  as the `refresh()` stale-guard introduced in v2.5.1.
+
+### Added
+
+- **Startup guard on the LLM output budget** (#32). Configuration is rejected
+  at startup when `LLMAAS_MAX_TOKENS >= LLMAAS_CONTEXT_WINDOW`: such a budget
+  can never produce a valid call on a large prompt (the backend rejects
+  `input + max_tokens > window` before inference).
+- Adversarial regression tests replaying the incident (first batch rejected
+  with the real 262144 context-length error): `status="error"`, zero metrics,
+  `_meta.json` untouched, no bank write attempted, `failed` job end-to-end
+  through the queue (`tests/test_consolidation_batch_failure.py`, 7 tests) —
+  plus 4 config-guard tests and 2 static UI race-guard tests. Suite:
+  **426 passed + 1 xfailed** (was 413 + 1).
+
+### Changed
+
+- `README.md` / `README.fr.md` — stale version badge (stuck at 2.5.1)
+  refreshed to 2.5.4.
+
+---
+
 ## [2.5.3] — 2026-07-01
 
 ### Added
