@@ -304,6 +304,8 @@ class TokenService:
         name_contains: str = "",
         has_space: str = "",
         include_revoked: bool = True,
+        limit: int = 100,
+        offset: int = 0,
     ) -> dict:
         """
         Liste les tokens (métadonnées seulement, jamais le hash complet).
@@ -311,6 +313,10 @@ class TokenService:
         Filtres optionnels (issue #13) appliqués in-memory sur la liste
         chargée depuis S3. Tous les defaults reproduisent le comportement
         antérieur (rétrocompat stricte).
+
+        La pagination via ``limit``/``offset`` garantit que la réponse
+        reste sous le seuil de troncature du middleware (512 KB) même
+        avec des registres de grande taille.
 
         Args:
             name_contains: Sous-chaîne recherchée dans ``token.name``
@@ -320,10 +326,15 @@ class TokenService:
                 Vide = pas de filtre.
             include_revoked: Si ``False``, exclut les tokens révoqués
                 du résultat. Défaut ``True`` (comportement historique).
+            limit: Nombre max de tokens à retourner (défaut 100, max 1000).
+            offset: Décalage 0-based dans la liste filtrée (défaut 0).
 
         Returns:
-            ``{"status": "ok", "tokens": [...], "total": N, "filters": {...}}``
-            (le bloc ``filters`` n'est ajouté que si au moins un filtre actif).
+            ``{"status": "ok", "tokens": [...], "total": N,
+            "limit": L, "offset": O, "has_more": bool, "filters": {...}}``
+            — ``total`` reflète le nombre de tokens après filtres (avant
+            pagination) ; ``has_more`` indique si une page suivante existe.
+            Le bloc ``filters`` n'est ajouté que si au moins un filtre actif.
         """
         store = await self._load_store()
 
@@ -345,7 +356,7 @@ class TokenService:
 
             tokens_list.append(
                 {
-                    "hash": t.hash,  # Hash complet pour identification
+                    "hash": t.hash,
                     "name": t.name,
                     "email": t.email,
                     "permissions": t.permissions,
@@ -357,7 +368,17 @@ class TokenService:
                 }
             )
 
-        response = {"status": "ok", "tokens": tokens_list, "total": len(tokens_list)}
+        total_filtered = len(tokens_list)
+        page = tokens_list[offset : offset + limit]
+
+        response = {
+            "status": "ok",
+            "tokens": page,
+            "total": total_filtered,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + limit) < total_filtered,
+        }
 
         # Trace des filtres appliqués (utile pour debug / audit)
         active_filters = {}
