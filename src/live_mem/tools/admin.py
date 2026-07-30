@@ -149,21 +149,45 @@ def register(mcp: FastMCP) -> int:
                 ),
             ),
         ] = True,
+        limit: Annotated[
+            int,
+            Field(
+                default=100,
+                ge=1,
+                le=1000,
+                description=(
+                    "Nombre max de tokens à retourner par page (défaut 100, max 1000). "
+                    "Combiner avec `offset` pour paginer sur de grandes listes."
+                ),
+            ),
+        ] = 100,
+        offset: Annotated[
+            int,
+            Field(
+                default=0,
+                ge=0,
+                description="Décalage 0-based pour la pagination (défaut 0).",
+            ),
+        ] = 0,
     ) -> dict:
         """
         Liste les tokens (métadonnées seulement, jamais en clair).
 
         Filtres optionnels (issue #13) appliqués in-memory côté serveur,
         évitant de charger toute la liste côté client juste pour filtrer.
+        Pagination via `limit`/`offset` pour les grandes listes (issue #XX).
 
         Args:
             name_contains: Sous-chaîne dans le nom (case-insensitive).
             has_space: Filtre les tokens autorisant ce space_id.
             include_revoked: Inclure les tokens révoqués (défaut True).
+            limit: Nombre max de tokens par page (défaut 100, max 1000).
+            offset: Décalage 0-based (défaut 0).
 
         Returns:
-            Liste des tokens avec métadonnées. Bloc `filters` ajouté
-            si au moins un filtre est actif.
+            Liste des tokens avec métadonnées. `total` = nombre total
+            après filtres. `has_more` = True si d'autres pages existent.
+            Bloc `filters` ajouté si au moins un filtre est actif.
         """
         from ..auth.context import check_admin_permission
         from ..core.tokens import get_token_service
@@ -177,6 +201,8 @@ def register(mcp: FastMCP) -> int:
                 name_contains=name_contains,
                 has_space=has_space,
                 include_revoked=include_revoked,
+                limit=limit,
+                offset=offset,
             )
         except Exception as e:
             from ..auth.context import safe_error

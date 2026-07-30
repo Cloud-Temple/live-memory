@@ -964,6 +964,115 @@ async def test_list_tokens_combined_filters_are_AND():
 
 
 # =============================================================================
+# Tests — Pagination : list_tokens limit/offset
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_list_tokens_pagination_default_limit():
+    """Sans argument, limit=100 par défaut — has_more=False sur 3 tokens."""
+    svc = TokenService()
+    store = TokensStore(tokens=[
+        _make_token("a", suffix="a" * 64),
+        _make_token("b", suffix="b" * 64),
+        _make_token("c", suffix="c" * 64),
+    ])
+    with patch.object(svc, "_load_store", new=AsyncMock(return_value=store)):
+        result = await svc.list_tokens()
+
+    assert result["status"] == "ok"
+    assert result["total"] == 3
+    assert len(result["tokens"]) == 3
+    assert result["limit"] == 100
+    assert result["offset"] == 0
+    assert result["has_more"] is False
+
+
+@pytest.mark.asyncio
+async def test_list_tokens_pagination_first_page():
+    """limit=2 sur 5 tokens — retourne 2, has_more=True."""
+    svc = TokenService()
+    store = TokensStore(tokens=[
+        _make_token(f"t{i}", suffix=str(i) * 64) for i in range(5)
+    ])
+    with patch.object(svc, "_load_store", new=AsyncMock(return_value=store)):
+        result = await svc.list_tokens(limit=2, offset=0)
+
+    assert result["total"] == 5
+    assert len(result["tokens"]) == 2
+    assert result["has_more"] is True
+    assert result["tokens"][0]["name"] == "t0"
+    assert result["tokens"][1]["name"] == "t1"
+
+
+@pytest.mark.asyncio
+async def test_list_tokens_pagination_second_page():
+    """offset=2, limit=2 sur 5 tokens — retourne t2/t3, has_more=True."""
+    svc = TokenService()
+    store = TokensStore(tokens=[
+        _make_token(f"t{i}", suffix=str(i) * 64) for i in range(5)
+    ])
+    with patch.object(svc, "_load_store", new=AsyncMock(return_value=store)):
+        result = await svc.list_tokens(limit=2, offset=2)
+
+    assert result["total"] == 5
+    assert len(result["tokens"]) == 2
+    assert result["has_more"] is True
+    assert result["tokens"][0]["name"] == "t2"
+    assert result["tokens"][1]["name"] == "t3"
+
+
+@pytest.mark.asyncio
+async def test_list_tokens_pagination_last_page():
+    """offset=4, limit=2 sur 5 tokens — retourne t4 seul, has_more=False."""
+    svc = TokenService()
+    store = TokensStore(tokens=[
+        _make_token(f"t{i}", suffix=str(i) * 64) for i in range(5)
+    ])
+    with patch.object(svc, "_load_store", new=AsyncMock(return_value=store)):
+        result = await svc.list_tokens(limit=2, offset=4)
+
+    assert result["total"] == 5
+    assert len(result["tokens"]) == 1
+    assert result["has_more"] is False
+    assert result["tokens"][0]["name"] == "t4"
+
+
+@pytest.mark.asyncio
+async def test_list_tokens_pagination_offset_beyond_end():
+    """offset > total → tokens vide, has_more=False."""
+    svc = TokenService()
+    store = TokensStore(tokens=[
+        _make_token("only", suffix="1" * 64),
+    ])
+    with patch.object(svc, "_load_store", new=AsyncMock(return_value=store)):
+        result = await svc.list_tokens(limit=10, offset=99)
+
+    assert result["total"] == 1
+    assert result["tokens"] == []
+    assert result["has_more"] is False
+
+
+@pytest.mark.asyncio
+async def test_list_tokens_pagination_respects_filters():
+    """total reflète le nombre après filtres, pas le total global."""
+    svc = TokenService()
+    store = TokensStore(tokens=[
+        _make_token("agent-1", suffix="1" * 64),
+        _make_token("agent-2", suffix="2" * 64),
+        _make_token("ci-bot", suffix="3" * 64),
+        _make_token("agent-3", suffix="4" * 64),
+    ])
+    with patch.object(svc, "_load_store", new=AsyncMock(return_value=store)):
+        result = await svc.list_tokens(name_contains="agent", limit=2, offset=0)
+
+    # 3 tokens matchent "agent", limit=2 → 2 retournés, has_more=True
+    assert result["total"] == 3
+    assert len(result["tokens"]) == 2
+    assert result["has_more"] is True
+
+
+# =============================================================================
 # Tests — Issue #13 : bulk_update_tokens
 # =============================================================================
 
