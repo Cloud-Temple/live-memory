@@ -5,7 +5,7 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [2.7.0] — 2026-08-12
 
 ### Fixed
 
@@ -13,14 +13,17 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reporting success** (#37). The LLM now returns only a short JSON plan made
   of `replace_section` and `delete_section` operations. The server rejects
   non-terminal or invalid responses, applies the complete plan in memory, and
-  verifies a real semantic reduction below 75% of the UTF-8 byte limit before
-  writing. A full-space backup is created first; writes are read back and any
-  mismatch triggers rollback. Reports expose byte sizes, reduction, operation
-  count, reasons, hashes, model result and backup id.
+  verifies a real semantic reduction between 5% of the original logical size
+  and 75% of the UTF-8 byte limit before writing. A full-space backup is
+  created first; writes are read back and any mismatch triggers a rollback
+  attempt. A rollback failure is explicit and retains the backup id for manual
+  restore. Reports expose byte sizes, reduction, operation count, reasons,
+  hashes, model result and backup id.
 - The consolidator understands split families: it reconstructs the logical
   Markdown file, applies surgical edits once, then losslessly re-splits it.
   `create` and `rewrite` are refused on split files. Bank reads reassemble the
-  logical document, while manual write/delete refuse ambiguous split families.
+  logical document, while manual write/delete refuse every marked split family,
+  including a one-part family.
 - All bank mutations now share the per-space consolidation lock. Split target
   collisions and incomplete families fail closed; stale-part deletion and
   rollback failures are reported explicitly.
@@ -41,6 +44,20 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   responses, forbidden plans, real logical reduction, mandatory backup,
   post-write rollback, logical split-file editing, queue visibility, and
   failed-operation observability.
+
+### Changed
+
+- `README.md`, `README.fr.md`, `FAQ.md`, `FAQ.fr.md`, the CLI readme, and the
+  architecture specifications now document semantic LLM compaction, logical
+  UTF-8 byte limits, durable split families, backup/rollback, and shared queue
+  observability.
+
+### Notes
+
+- Minor bump: this release changes server-side compaction semantics and adds
+  asynchronous queue visibility to `bank_compact`. It consumes the `2.7.0`
+  slot previously targeted by the still-blocked `graph_push` volatile
+  guardrail (PR #29), which moves to a later minor release.
 
 ---
 

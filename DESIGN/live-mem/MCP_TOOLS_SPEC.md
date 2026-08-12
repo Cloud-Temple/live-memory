@@ -1,6 +1,6 @@
 # MCP Tools Specification — Live Memory
 
-> **Version**: 2.4.0 | **Date**: 2026-05-22 | **Author**: Cloud Temple
+> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
 
 ---
 
@@ -43,6 +43,7 @@ Every tool returns a `dict` with a `status` field:
 | 🔓     | Public     | No auth required                                  |
 | 🔑     | Read       | Token with `read` permission + space access        |
 | ✏️     | Write      | Token with `write` permission + space access       |
+| 🔧     | Manage     | Token with `manage` permission + space access      |
 | 👑     | Admin      | Token with `admin` permission                      |
 
 ---
@@ -421,6 +422,35 @@ Clients can then iterate and call `bank_consolidate(space_id=…)` per stale spa
 
 ---
 
+### `bank_compact` 🔧
+
+Scans oversized logical bank files or enqueues strict semantic LLM compaction.
+Requires `manage`; `dry_run` defaults to `true`.
+
+```python
+@mcp.tool()
+async def bank_compact(
+    space_id: str,
+    dry_run: bool = True,
+) -> dict:
+```
+
+Dry-run returns logical sizes in UTF-8 bytes and identifies files above
+`BANK_FILE_MAX_SIZE` without invoking the LLM or writing. With
+`dry_run=false`, the tool returns immediately with a `compact_*` job id in the
+same per-space FIFO as consolidation. The job is visible through
+`bank_consolidation_status` and `bank_consolidation_queues`.
+
+The worker obtains a strict JSON section-edit plan from the LLM, validates the
+complete result locally, creates a full-space backup, and persists a verified
+split family when required. Invalid/truncated model output or any pre-write
+validation failure preserves every original. The final result exposes logical
+byte sizes, part counts, hashes, operation reasons, failures, and `backup_id`.
+A persistence failure triggers a rollback attempt; if that also fails, the
+reported backup id is the manual recovery point.
+
+---
+
 ## 5. Graph — Bridge to Graph Memory
 
 ### `graph_connect` ✏️
@@ -632,44 +662,54 @@ async def admin_gc_notes(
 
 ## Complete Matrix — Tools × Permissions
 
-| Tool                 | Read | Write | Admin | Public |
-| -------------------- | :--: | :---: | :---: | :----: |
-| `system_health`      |      |       |       |   ✅   |
-| `system_about`       |      |       |       |   ✅   |
-| `space_create`       |      |  ✅   |       |        |
-| `space_list`         |  ✅  |       |       |        |
-| `space_info`         |  ✅  |       |       |        |
-| `space_rules`        |  ✅  |       |       |        |
-| `space_summary`      |  ✅  |       |       |        |
-| `space_export`       |  ✅  |       |       |        |
-| `space_delete`       |      |       |  ✅   |        |
-| `live_note`          |      |  ✅   |       |        |
-| `live_read`          |  ✅  |       |       |        |
-| `live_search`        |  ✅  |       |       |        |
-| `bank_read`          |  ✅  |       |       |        |
-| `bank_read_all`      |  ✅  |       |       |        |
-| `bank_list`          |  ✅  |       |       |        |
-| `bank_consolidate`   |      |  ✅*  |       |        |
-| `bank_consolidation_status` |  ✅  |       |       |        |
-| `bank_consolidation_queues` |  ✅  |       |       |        |
-| `bank_stale_spaces`  |  ✅  |       |       |        |
-| `graph_connect`      |      |  ✅   |       |        |
-| `graph_push`         |      |  ✅   |       |        |
-| `graph_status`       |  ✅  |       |       |        |
-| `graph_disconnect`   |      |  ✅   |       |        |
-| `backup_create`      |      |  ✅   |       |        |
-| `backup_list`        |  ✅  |       |       |        |
-| `backup_restore`     |      |       |  ✅   |        |
-| `backup_download`    |  ✅  |       |       |        |
-| `backup_delete`      |      |       |  ✅   |        |
-| `admin_create_token` |      |       |  ✅   |        |
-| `admin_list_tokens`  |      |       |  ✅   |        |
-| `admin_revoke_token` |      |       |  ✅   |        |
-| `admin_update_token` |      |       |  ✅   |        |
-| `admin_gc_notes`     |      |       |  ✅   |        |
+| Tool                 | Read | Write | Manage | Admin | Public |
+| -------------------- | :--: | :---: | :----: | :---: | :----: |
+| `system_health`      |      |       |        |       |   ✅   |
+| `system_about`       |      |       |        |       |   ✅   |
+| `system_whoami`      |  ✅  |       |        |       |        |
+| `space_create`       |      |  ✅   |        |       |        |
+| `space_update`       |      |  ✅   |        |       |        |
+| `space_update_rules` |      |       |   ✅   |       |        |
+| `space_list`         |  ✅  |       |        |       |        |
+| `space_info`         |  ✅  |       |        |       |        |
+| `space_rules`        |  ✅  |       |        |       |        |
+| `space_summary`      |  ✅  |       |        |       |        |
+| `space_export`       |  ✅  |       |        |       |        |
+| `space_delete`       |      |       |   ✅   |       |        |
+| `live_note`          |      |  ✅   |        |       |        |
+| `live_read`          |  ✅  |       |        |       |        |
+| `live_search`        |  ✅  |       |        |       |        |
+| `bank_read`          |  ✅  |       |        |       |        |
+| `bank_read_all`      |  ✅  |       |        |       |        |
+| `bank_list`          |  ✅  |       |        |       |        |
+| `bank_consolidate`   |      |  ✅*  |        |       |        |
+| `bank_consolidation_status` |  ✅  |       |        |       |        |
+| `bank_consolidation_queues` |  ✅  |       |        |       |        |
+| `bank_stale_spaces`  |  ✅  |       |        |       |        |
+| `bank_compact`       |      |       |   ✅   |       |        |
+| `bank_repair`        |      |       |   ✅   |       |        |
+| `bank_write`         |      |       |   ✅   |       |        |
+| `bank_delete`        |      |       |   ✅   |       |        |
+| `graph_connect`      |      |  ✅   |        |       |        |
+| `graph_push`         |      |  ✅   |        |       |        |
+| `graph_status`       |  ✅  |       |        |       |        |
+| `graph_disconnect`   |      |  ✅   |        |       |        |
+| `backup_create`      |      |  ✅   |        |       |        |
+| `backup_list`        |  ✅  |       |        |       |        |
+| `backup_restore`     |      |       |   ✅   |       |        |
+| `backup_download`    |  ✅  |       |        |       |        |
+| `backup_delete`      |      |       |   ✅   |       |        |
+| `admin_create_token` |      |       |        |  ✅   |        |
+| `admin_list_tokens`  |      |       |        |  ✅   |        |
+| `admin_revoke_token` |      |       |        |  ✅   |        |
+| `admin_delete_token` |      |       |        |  ✅   |        |
+| `admin_purge_tokens` |      |       |        |  ✅   |        |
+| `admin_update_token` |      |       |        |  ✅   |        |
+| `admin_bulk_update_tokens` |      |       |        |  ✅   |        |
+| `admin_gc_notes`     |      |       |        |  ✅   |        |
 
 \* `bank_consolidate`: write is sufficient for consolidating your own notes (`agent=caller` or `agent=""` auto-detected). Manage/admin required to consolidate ALL notes or another agent's notes (`agent=other`).
 
 ---
 
-*Document updated April 25, 2026 — Live Memory v1.6.0*
+*Document updated August 12, 2026 — Live Memory v2.7.0*

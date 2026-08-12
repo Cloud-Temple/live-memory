@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -296,13 +296,13 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | -------------------- | -------------------------------------------- | --------------------------------------------------------- |
 | `space_create`       | `space_id`, `description`, `rules`, `owner?` | Creates a space with its rules (bank structure)           |
 | `space_update`       | `space_id`, `description?`, `owner?`         | Updates description and/or owner                          |
-| `space_update_rules` | `space_id`, `rules`                          | 📜 Updates space rules (admin only)                      |
+| `space_update_rules` | `space_id`, `rules`                          | 📜 Updates space rules (manage)                          |
 | `space_list`         | —                                            | Lists spaces accessible by current token                  |
 | `space_info`    | `space_id`                                   | Detailed info (notes, bank, consolidation)                |
 | `space_rules`   | `space_id`                                   | Reads immutable space rules                               |
 | `space_summary` | `space_id`                                   | Complete summary: rules + bank + stats (agent startup)    |
 | `space_export`  | `space_id`                                   | tar.gz export in base64                                   |
-| `space_delete`  | `space_id`, `confirm`                        | Deletes the space (⚠️ irreversible, admin required)     |
+| `space_delete`  | `space_id`, `confirm`                        | Deletes the space (⚠️ irreversible, manage required)    |
 
 ### Live (3 tools)
 
@@ -324,9 +324,19 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `bank_consolidation_queues` | `space_ids?`          | Read-only summary of consolidation lanes by space |
 | `bank_stale_spaces` | `min_notes?=5`, `min_age_days?=5`, `space_ids?` | 🚨 Lists spaces with ≥N unconsolidated notes whose oldest is ≥D days old (supervision) |
 | `bank_compact`     | `space_id`, `dry_run?`            | 🔧 Scans or enqueues strict LLM compaction with UTF-8 byte checks, backup, rollback and audit hashes. `dry_run=True` by default (manage) |
-| `bank_repair`      | `space_id`, `dry_run?`            | 🔧 Repairs corrupted filenames (Unicode, parasitic prefixes). `dry_run=True` by default (admin)        |
-| `bank_write`       | `space_id`, `filename`, `content` | ✏️ Writes/replaces a bank file directly — bypasses LLM consolidation (admin)                          |
-| `bank_delete`      | `space_id`, `filename`            | 🗑️ Deletes a bank file + its Unicode duplicates (admin, irreversible)                                |
+| `bank_repair`      | `space_id`, `dry_run?`            | 🔧 Repairs corrupted filenames (Unicode, parasitic prefixes). `dry_run=True` by default (manage)       |
+| `bank_write`       | `space_id`, `filename`, `content` | ✏️ Writes/replaces a bank file directly — bypasses LLM consolidation (manage)                         |
+| `bank_delete`      | `space_id`, `filename`            | 🗑️ Deletes a bank file + its Unicode duplicates (manage, irreversible)                               |
+
+Applied `bank_compact` is asynchronous: it joins the same per-space FIFO as
+consolidation and returns a `job_id`. For each logical file above
+`BANK_FILE_MAX_SIZE`, the LLM returns a strict JSON section-edit plan; the
+server applies and validates that plan locally, in UTF-8 bytes, before any
+write. It creates a full-space backup, verifies persisted content, and attempts
+rollback on failure. If rollback also fails, the job reports the `backup_id`
+needed for manual restore. The compacted logical document is stored as a
+machine-marked split family when needed; reads and later consolidations
+transparently reassemble it.
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory
 
@@ -351,7 +361,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 | Tool                 | Parameters                                                        | Description                                                                                                  |
 | -------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `admin_create_token` | `name`, `permissions`, `space_ids?`, `expires_in_days?`, `email?` | Creates a token (⚠️ displayed only once). Permissions: read, write, admin. Optional email for traceability |
+| `admin_create_token` | `name`, `permissions`, `space_ids?`, `expires_in_days?`, `email?` | Creates a token (⚠️ displayed only once). Permissions: read, write, manage, admin. Optional email for traceability |
 | `admin_list_tokens`  | —                                                                 | Lists active tokens                                                                                          |
 | `admin_revoke_token` | `token_hash`                                                      | Revokes a token (makes it unusable)                                                                          |
 | `admin_delete_token` | `token_hash`                                                      | Physically deletes a token from the registry (⚠️ irreversible)                                             |
@@ -780,4 +790,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.5.1 — Shared working memory for collaborative AI agents*
+*Live Memory v2.7.0 — Shared working memory for collaborative AI agents*

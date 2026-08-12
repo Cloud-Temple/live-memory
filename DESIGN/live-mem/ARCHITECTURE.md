@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: 2.5.0 | **Date**: 2026-06-04 | **Author**: Cloud Temple
+> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -248,7 +248,46 @@ Agent → bank_consolidate("project-alpha", agent="cline-dev")
         8. Updates _meta.json (counters)
 ```
 
-### 4.4 Graph Push (Bridge to Graph Memory)
+### 4.4 Safe Bank Compaction (via LLM)
+
+Compaction is a semantic reduction, not a file truncation or a plain split.
+It operates on logical Markdown files and measures every limit in UTF-8 bytes.
+
+```
+bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
+                                      │
+                                      ▼
+                              Read rules + logical bank
+                                      │
+                                      ▼
+                         LLM returns a short JSON edit plan
+                         (replace_section/delete_section only)
+                                      │
+                                      ▼
+                         Apply and validate the complete plan
+                         - terminal LLM response (`stop`)
+                         - valid JSON, exact headings, H1 preserved
+                         - 5% of original ≤ result ≤ 75% max size
+                                      │
+                                      ▼
+                         Full-space backup, write, readback
+                         and rollback attempt on persistence failure
+                                      │
+                                      ▼
+                         Lossless physical split with markers
+                         (one logical document for readers and
+                         future consolidations)
+```
+
+No storage mutation occurs if one requested file has an invalid plan. A later
+consolidation reconstructs a split family, applies its surgical edits once to
+the logical document, and writes a new split family. Manual compaction jobs are
+observable through `bank_consolidation_status` and
+`bank_consolidation_queues`; automatic pre-consolidation compaction exposes its
+phase on the consolidation job. If both persistence and rollback fail, the job
+reports the restorable `backup_id` and requires manual recovery.
+
+### 4.5 Graph Push (Bridge to Graph Memory)
 
 > ⚠️ **Architecture invariant (v2.5.0) — Live ↔ Graph responsibility separation**
 >
@@ -453,4 +492,4 @@ PROXY_URL=http://10.0.0.1:3128
 
 ---
 
-*Document updated July 8, 2026 — Live Memory v2.6.0*
+*Document updated August 12, 2026 — Live Memory v2.7.0*

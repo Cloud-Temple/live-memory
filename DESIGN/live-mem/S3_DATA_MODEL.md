@@ -1,6 +1,6 @@
 # S3 Data Model — Live Memory
 
-> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
+> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
 
 ---
 
@@ -53,6 +53,7 @@
 │       ├── projectbrief.md               # ← Created and maintained
 │       ├── activeContext.md              # ← by the LLM
 │       ├── progress.md                   # ← according to the rules
+│       ├── progress.part-002.md           # ← optional marked split part
 │       └── ...                           # ← (dynamic names)
 │
 └── {other_space_id}/                     # Another space (same structure)
@@ -196,6 +197,22 @@ Bank files are pure Markdown, **without front-matter**. Their content is entirel
 
 Filenames are **decided by the LLM** based on the rules.
 
+Since v2.7.0, a compacted logical bank file may be stored as a marked split
+family. Part 1 keeps the canonical filename; later parts use
+`{stem}.part-NNN.md`. Every part, including a one-part family, starts with a
+machine-readable comment:
+
+```markdown
+<!-- live-mem-split {"source":"progress.md","part":1,"total":2,"next":"progress.part-002.md"} -->
+```
+
+The marker is storage metadata, not bank content. `bank_read`,
+`bank_read_all`, compaction, and consolidation validate the complete family,
+remove the markers, and reconstruct one logical Markdown document. Missing,
+duplicated, inconsistent, or colliding parts fail closed. Manually named files
+such as `progress-2.md` are ordinary independent files and are never inferred
+as parts.
+
 ---
 
 ## 5. S3 Operations per MCP Tool
@@ -216,6 +233,8 @@ Filenames are **decided by the LLM** based on the rules.
 | `bank_read_all` | LIST `bank/*`, GET all | 1 LIST + N GETs |
 | `bank_list` | LIST `bank/*` | 1 LIST |
 | `bank_consolidate` | GET rules + GET live/* + GET bank/* + PUT bank/* + DELETE live/* + PUT _synthesis | Many |
+| `bank_compact` dry-run | GET meta + rules + bank/* | 1 LIST + N GETs |
+| `bank_compact` apply | GET meta + rules + bank/* + full backup copy + PUT/GET/DELETE bank parts | Many |
 | `graph_connect` | GET+PUT `_meta.json` (add graph_memory config) | 1 GET + 1 PUT |
 | `graph_push` | LIST `bank/*`, GET `bank/*`, GET+PUT `_meta.json` | N GETs + 1 PUT |
 | `graph_status` | GET `_meta.json` | 1 GET |
@@ -252,4 +271,4 @@ S3 provides **strong consistency** for PUT and DELETE followed by GET. No waitin
 
 ---
 
-*Document updated April 25, 2026 — Live Memory v1.6.0*
+*Document updated August 12, 2026 — Live Memory v2.7.0*

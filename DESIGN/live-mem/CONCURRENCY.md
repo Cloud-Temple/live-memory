@@ -1,6 +1,6 @@
 # Multi-Agent Concurrency Management — Live Memory
 
-> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
+> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
 
 ---
 
@@ -31,7 +31,9 @@ The UUID8 suffix (`uuid.uuid4().hex[:8]`) guarantees uniqueness even if two agen
 
 ### 2.2 Bank Files — FIFO QUEUE
 
-Only `bank_consolidate` writes to the bank (agents never write directly). However, two agents could trigger `bank_consolidate` simultaneously.
+Consolidation, applied compaction, and administrative bank maintenance can all
+mutate the bank. Two callers must never update the same logical file family at
+the same time.
 
 **Solution**: an in-memory FIFO queue **per space** plus the existing `asyncio.Lock` **per space** for the actual bank mutation.
 
@@ -49,9 +51,12 @@ async def bank_consolidate(space_id: str, agent: str = "") -> dict:
 - The MCP call returns quickly with `status="running"` or `status="queued"`
 - The response includes `next_action="return_to_user_without_polling"` and `polling.recommended=false`
 - Caller contract: call once, do not watch/poll unless explicitly requested
-- A queued request is processed FIFO for the same `space_id`
+- Consolidation and applied compaction jobs are processed FIFO for the same
+  `space_id`; the job exposes `job_type="consolidate"` or `"compact"`
 - Job status is observable via `bank_consolidation_status(job_id)` and `space_info`, but `bank_consolidation_status` is a manual-only explicit check, not an automatic polling loop
 - Two different spaces can be consolidated in parallel (independent locks)
+- Direct `bank_write`, `bank_delete`, and `bank_repair` mutations acquire the
+  same per-space lock, so they cannot interleave with a queued bank job
 - PR 1 queue durability is `in_memory_best_effort`: jobs are not persisted across process restart
 
 ---
@@ -86,9 +91,17 @@ Updated during consolidation and `graph_push`. Protected by the consolidation lo
 | `bank_read` / `bank_read_all` (parallel reads) | None | Parallel S3 reads | **Zero** |
 | `bank_consolidate` (2 agents, same space) | Overwrite | In-memory FIFO + `asyncio.Lock` per space | 2nd is queued |
 | `bank_consolidate` (2 agents, different spaces) | None | Independent locks | **Zero** |
+| `bank_compact(..., dry_run=False)` | Overwrite / partial split family | Same FIFO + per-space lock | Queued behind the current bank job |
+| `bank_write` / `bank_delete` / `bank_repair` | Interleaved maintenance | Same per-space lock | Short serialization |
 | `admin_create_token` (2 admins) | tokens.json overwrite | Single `asyncio.Lock` for tokens | Serialization (~200ms) |
 | `graph_connect` / `graph_push` | _meta.json update | Sequential (long operations) | **Zero** |
-| `backup_create` (same space) | Read-only of the space | No lock needed (snapshot) | **Zero** |
+| `backup_create` (same space) | Can observe an in-progress bank mutation | No shared lock (known limitation) | Schedule outside bank maintenance |
+
+The backup created internally by compaction is different from a concurrent
+manual `backup_create`: it runs while the compaction worker holds the per-space
+lock and is the safe rollback point. The public backup tool does not currently
+take that lock and must not be scheduled during consolidation, compaction, or
+direct bank maintenance.
 
 ---
 
@@ -127,7 +140,7 @@ S3 has no native locking mechanism. Alternatives add complexity for marginal gai
 The in-memory `asyncio.Lock` is **sufficient** because:
 1. The MCP server is a single process
 2. No multi-instance deployment (one `mcp-service` container)
-3. Critical operations are short (< 1 minute except consolidation)
+3. Critical operations are short (< 1 minute except consolidation and compaction)
 
 ### 4.3 Multi-instance Case (future)
 
@@ -206,9 +219,11 @@ T+5s:  Agent B → graph_push("project-alpha")
 | `bank_read_all` (6 files) | 100-300ms (1 LIST + 6 GETs) | No | None |
 | `bank_consolidate` enqueue | ~50ms | No | Returns `running`/`queued`; caller must not auto-poll |
 | Background consolidation job | 20-60s (LLM + S3 I/O) | Yes (per space) | Serializes bank mutation for the same space |
+| `bank_compact` enqueue | ~50ms | No | Returns `running`/`queued`; status is manually observable |
+| Background compaction job | LLM + backup + S3 I/O | Yes (per space) | Serialized with consolidation and maintenance |
 | `graph_push` (6 files) | 60-180s (MCP Streamable HTTP) | No | None |
 | `admin_create_token` | 100-200ms (1 GET + 1 PUT S3) | Yes (tokens) | Short serialization |
 
 ---
 
-*Document updated April 25, 2026 — Live Memory v1.6.0*
+*Document updated August 12, 2026 — Live Memory v2.7.0*

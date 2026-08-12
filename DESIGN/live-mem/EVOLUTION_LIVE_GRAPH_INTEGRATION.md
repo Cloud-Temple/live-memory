@@ -4,7 +4,7 @@
 > **Auteur** : Cline (Christophe Lesur)
 > **Date** : 2026-06-03
 > **Référence v2.5.0** : `CHANGELOG.md` section [2.5.0]
-> **Documents source** : feedback test LLMaaS (juin 2026), `WORKSPACE_CLINE_ADVANCE_RULES.md`, `src/live_mem/tools/graph.py`, `DESIGN/live-mem/ARCHITECTURE.md` §4.4
+> **Documents source** : feedback test LLMaaS (juin 2026), `WORKSPACE_CLINE_ADVANCE_RULES.md`, `src/live_mem/tools/graph.py`, `DESIGN/live-mem/ARCHITECTURE.md` §4.5
 
 ---
 
@@ -261,8 +261,12 @@ Méthode de review : `codex exec` avec ce document en input. Voir `Annexe A` ci-
 | Vague | Statut       | Cible release | Risque runtime              | Dépendance     |
 | ----- | ------------ | ------------- | --------------------------- | -------------- |
 | A     | ✅ Appliquée | v2.5.0        | Aucun                       | —              |
-| B     | 🟡 À review  | v2.6.0        | Faible si B-Q1.a            | Review codex   |
-| C     | 🟡 À review  | v2.7.0+       | Nul (additif)               | Vague B + codex |
+| B     | 🟡 À review  | post-v2.7.0   | Faible si B-Q1.a            | Review codex   |
+| C     | 🟡 À review  | après vague B | Nul (additif)               | Vague B + codex |
+
+Les créneaux v2.6.0 puis v2.7.0 ont été consommés par des correctifs serveur
+urgents. Cette roadmap ne réserve donc plus de numéro tant que la vague B et
+ses questions ouvertes ne sont pas tranchées.
 
 ---
 
