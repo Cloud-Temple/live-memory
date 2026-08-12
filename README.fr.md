@@ -261,8 +261,8 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `CONSOLIDATION_COOLDOWN_SECONDS` | `60`      | Cooldown anti-spam par space pour `bank_consolidate` (`0` désactive) |
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
-| `COMPACT_THRESHOLD`       | `0.6`             | Déclenchement de l'auto-compaction (0.6 = compacter si bank > 60% du budget) |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Taille max par fichier bank (octets, 15 KB). Au-dessus = candidat à la compaction |
+| `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite physique par fichier en octets UTF-8 |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Taille persistée max par fichier bank physique (octets UTF-8, 15 KB). Les fichiers surdimensionnés sont découpés sans perte avec une cible à 75 % |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
@@ -323,7 +323,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `bank_consolidation_status` | `job_id`                          | Check de statut manuel uniquement pour un job retourné par `bank_consolidate`                                     |
 | `bank_consolidation_queues` | `space_ids?`                      | Résumé read-only des files de consolidation par space                                                             |
 | `bank_stale_spaces`         | `min_notes?=5`, `min_age_days?=5`, `space_ids?` | 🚨 Liste les spaces avec ≥N notes non consolidées dont la plus ancienne a ≥D jours (supervision) |
-| `bank_compact`              | `space_id`, `dry_run?`            | 🔧 Compacte les fichiers bank surdimensionnés via LLM. `dry_run=True` par défaut (admin)                          |
+| `bank_compact`              | `space_id`, `dry_run?`            | 🔧 Découpe sans perte les fichiers bank surdimensionnés en octets UTF-8, avec backup préalable et vérification SHA-256. `dry_run=True` par défaut (manage) |
 | `bank_repair`               | `space_id`, `dry_run?`            | 🔧 Répare les noms de fichiers corrompus (Unicode, préfixes parasites). `dry_run=True` par défaut (admin)         |
 | `bank_write`                | `space_id`, `filename`, `content` | ✏️ Écrit/remplace un fichier bank directement — contourne la consolidation LLM (admin)                           |
 | `bank_delete`               | `space_id`, `filename`            | 🗑️ Supprime un fichier bank + ses doublons Unicode (admin, irréversible)                                         |

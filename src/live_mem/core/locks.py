@@ -9,7 +9,7 @@ Les asyncio.Lock sont donc suffisants pour la concurrence.
 Voir CONCURRENCY.md pour l'analyse complète des risques de concurrence.
 
 Deux types de locks :
-1. Consolidation (un lock par espace) — empêche 2 consolidations simultanées
+1. Bank (un lock par espace) — sérialise consolidation, compaction et maintenance
 2. Tokens (un lock unique) — protège _system/tokens.json
 
 Usage :
@@ -39,7 +39,7 @@ class LockManager:
     """Gestionnaire centralisé des locks asyncio."""
 
     def __init__(self):
-        # Un lock par space_id pour la consolidation.
+        # Un lock par space_id pour toutes les mutations de la bank.
         # defaultdict crée automatiquement un nouveau Lock
         # la première fois qu'on accède à un space_id.
         self._consolidation_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)

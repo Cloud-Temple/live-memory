@@ -10,10 +10,10 @@ Permissions :
     - bank_read_all    🔑 (read)    — Lit toute la bank (démarrage agent)
     - bank_list        🔑 (read)    — Liste les fichiers bank (sans contenu)
     - bank_consolidate ✏️ (write)   — Déclenche la consolidation LLM
-    - bank_consolidation_status 🔑 (read) — Consulte un job de consolidation
+    - bank_consolidation_status 🔑 (read) — Consulte un job bank asynchrone
     - bank_consolidation_queues 🔑 (read) — Résume les lanes de consolidation
     - bank_stale_spaces 🔑 (read)   — Liste les spaces avec trop de notes non consolidées
-    - bank_compact     🔧 (manage)  — Compacte les fichiers bank surdimensionnés via LLM
+    - bank_compact     🔧 (manage)  — Compacte via LLM les fichiers bank surdimensionnés
     - bank_repair      🔧 (manage)  — Répare les noms de fichiers corrompus par le LLM
     - bank_write       🔧 (manage)  — Écrit/remplace un fichier bank directement
     - bank_delete      🔧 (manage)  — Supprime un fichier bank
@@ -137,7 +137,7 @@ def register(mcp: FastMCP) -> int:
         """
         from ..auth.context import check_access
         from ..core.storage import get_storage
-        from ..core.consolidator import _sanitize_filename
+        from ..core.consolidator import _build_compaction_units, _sanitize_filename
 
         try:
             access_err = check_access(space_id)
@@ -145,50 +145,34 @@ def register(mcp: FastMCP) -> int:
                 return access_err
 
             storage = get_storage()
-            key = f"{space_id}/bank/{filename}"
-            content = await storage.get(key)
-
-            if content is None:
-                # Fallback : la clé S3 réelle peut contenir des caractères
-                # Unicode invisibles (bug LLM drift). On scanne les vraies
-                # clés et on cherche par correspondance sanitisée.
-                objects = await storage.list_objects(f"{space_id}/bank/")
-                sanitized_target = _sanitize_filename(filename)
-                matched_key = None
-
-                for obj in objects:
-                    raw_filename = obj["Key"].split("/")[-1]
-                    if _sanitize_filename(raw_filename) == sanitized_target:
-                        matched_key = obj["Key"]
-                        break
-
-                if matched_key:
-                    content = await storage.get(matched_key)
-                    if content is not None:
-                        return {
-                            "status": "ok",
-                            "space_id": space_id,
-                            "filename": filename,
-                            "content": content,
-                            "size": len(content.encode("utf-8")),
-                            "note": (
-                                f"Fichier trouvé via fallback Unicode "
-                                f"(clé S3 réelle: {matched_key.split('/')[-1]!r}). "
-                                f"Utilisez bank_repair pour corriger."
-                            ),
-                        }
-
+            sanitized_target = _sanitize_filename(filename)
+            bank_files = await storage.list_and_get(f"{space_id}/bank/")
+            for unit in _build_compaction_units(space_id, bank_files):
+                member_names = {member["filename"] for member in unit["members"]}
+                if (
+                    sanitized_target != unit["source"]
+                    and sanitized_target not in member_names
+                ):
+                    continue
+                if unit.get("error"):
+                    return {
+                        "status": "error",
+                        "space_id": space_id,
+                        "filename": unit["source"],
+                        "message": unit["error"],
+                    }
                 return {
-                    "status": "not_found",
-                    "message": f"Fichier '{filename}' introuvable dans '{space_id}'",
+                    "status": "ok",
+                    "space_id": space_id,
+                    "filename": unit["source"],
+                    "content": unit["content"],
+                    "size": len(unit["content"].encode("utf-8")),
+                    "parts": len(unit["members"]),
                 }
 
             return {
-                "status": "ok",
-                "space_id": space_id,
-                "filename": filename,
-                "content": content,
-                "size": len(content.encode("utf-8")),
+                "status": "not_found",
+                "message": f"Fichier '{filename}' introuvable dans '{space_id}'",
             }
         except Exception as e:
             from ..auth.context import safe_error
@@ -228,17 +212,31 @@ def register(mcp: FastMCP) -> int:
                     "message": f"Espace '{space_id}' introuvable",
                 }
 
-            # Lire tous les fichiers bank
-            from ..core.storage import bank_relpath
+            # Lire tous les documents logiques de la bank. Les parties
+            # physiques restent un détail de persistance.
+            from ..core.consolidator import _build_compaction_units
 
             bank_data = await storage.list_and_get(f"{space_id}/bank/")
+            units = _build_compaction_units(space_id, bank_data)
+            invalid = [unit for unit in units if unit.get("error")]
+            if invalid:
+                return {
+                    "status": "error",
+                    "space_id": space_id,
+                    "message": "Incomplete or inconsistent split bank family",
+                    "files": [
+                        {"filename": unit["source"], "error": unit["error"]}
+                        for unit in invalid
+                    ],
+                }
             files = [
                 {
-                    "filename": bank_relpath(item["key"], space_id),
-                    "content": item["content"],
-                    "size": item["size"],
+                    "filename": unit["source"],
+                    "content": unit["content"],
+                    "size": len(unit["content"].encode("utf-8")),
+                    "parts": len(unit["members"]),
                 }
-                for item in bank_data
+                for unit in units
             ]
 
             total_size = sum(f["size"] for f in files)
@@ -433,7 +431,7 @@ def register(mcp: FastMCP) -> int:
         ],
     ) -> dict:
         """
-        Consulte le statut d'un job de consolidation en mémoire.
+        Consulte le statut d'un job de consolidation ou compaction en mémoire.
 
         Args:
             job_id: Identifiant retourné par bank_consolidate
@@ -498,9 +496,7 @@ def register(mcp: FastMCP) -> int:
             if token_info is None:
                 return {"status": "error", "message": "Authentification requise"}
 
-            requested_ids = [
-                sid.strip() for sid in space_ids.split(",") if sid.strip()
-            ]
+            requested_ids = [sid.strip() for sid in space_ids.split(",") if sid.strip()]
             denied_spaces = []
 
             if requested_ids:
@@ -632,9 +628,7 @@ def register(mcp: FastMCP) -> int:
             if token_info is None:
                 return {"status": "error", "message": "Authentification requise"}
 
-            requested_ids = [
-                sid.strip() for sid in space_ids.split(",") if sid.strip()
-            ]
+            requested_ids = [sid.strip() for sid in space_ids.split(",") if sid.strip()]
             denied_spaces = []
 
             if requested_ids:
@@ -699,9 +693,7 @@ def register(mcp: FastMCP) -> int:
                     continue
 
                 age_days = (now - oldest_ts).total_seconds() / 86400.0
-                is_stale = (
-                    notes_count >= min_notes and age_days >= float(min_age_days)
-                )
+                is_stale = notes_count >= min_notes and age_days >= float(min_age_days)
                 # Truncate (not round) to 2 decimals so the displayed age never
                 # exceeds the real age. Otherwise "5.0 days, not stale" can
                 # appear when the threshold is 5 — confusing the operator.
@@ -783,7 +775,9 @@ def register(mcp: FastMCP) -> int:
         from ..auth.context import check_access, check_manage_permission
         from ..core.storage import get_storage, bank_relpath
         from ..core.consolidator import _sanitize_filename
+        from ..core.locks import get_lock_manager
 
+        lock = None
         try:
             access_err = check_access(space_id)
             if access_err:
@@ -801,6 +795,11 @@ def register(mcp: FastMCP) -> int:
                     "status": "not_found",
                     "message": f"Espace '{space_id}' introuvable",
                 }
+
+            if not dry_run:
+                candidate_lock = get_lock_manager().consolidation(space_id)
+                await candidate_lock.acquire()
+                lock = candidate_lock
 
             # Lister les vrais fichiers bank sur S3
             objects = await storage.list_objects(f"{space_id}/bank/")
@@ -926,6 +925,9 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
 
             return safe_error(e, "bank")
+        finally:
+            if lock is not None:
+                lock.release()
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
     async def bank_write(
@@ -957,8 +959,10 @@ def register(mcp: FastMCP) -> int:
         """
         from ..auth.context import check_access, check_manage_permission
         from ..core.storage import get_storage
-        from ..core.consolidator import _sanitize_filename
+        from ..core.consolidator import _build_compaction_units, _sanitize_filename
+        from ..core.locks import get_lock_manager
 
+        lock = None
         try:
             access_err = check_access(space_id)
             if access_err:
@@ -999,6 +1003,27 @@ def register(mcp: FastMCP) -> int:
             if post_sanitize_err:
                 return post_sanitize_err
 
+            # Serialize every bank mutation with consolidation/compaction.
+            candidate_lock = get_lock_manager().consolidation(space_id)
+            await candidate_lock.acquire()
+            lock = candidate_lock
+
+            bank_files = await storage.list_and_get(f"{space_id}/bank/")
+            for unit in _build_compaction_units(space_id, bank_files):
+                member_names = {member["filename"] for member in unit["members"]}
+                if sanitized == unit["source"] or sanitized in member_names:
+                    is_split_family = any(
+                        member.get("metadata") for member in unit["members"]
+                    )
+                    if is_split_family or unit.get("error"):
+                        return {
+                            "status": "conflict",
+                            "message": (
+                                "bank_write is refused on a split bank family; "
+                                "restore or migrate the logical document first"
+                            ),
+                        }
+
             # Écrire le fichier avec le nom canonique
             canonical_key = f"{space_id}/bank/{sanitized}"
             existed = await storage.exists(canonical_key)
@@ -1033,6 +1058,9 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
 
             return safe_error(e, "bank")
+        finally:
+            if lock is not None:
+                lock.release()
 
     @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
     async def bank_delete(
@@ -1070,8 +1098,10 @@ def register(mcp: FastMCP) -> int:
         """
         from ..auth.context import check_access, check_manage_permission
         from ..core.storage import get_storage, bank_relpath
-        from ..core.consolidator import _sanitize_filename
+        from ..core.consolidator import _build_compaction_units, _sanitize_filename
+        from ..core.locks import get_lock_manager
 
+        lock = None
         try:
             access_err = check_access(space_id)
             if access_err:
@@ -1103,6 +1133,26 @@ def register(mcp: FastMCP) -> int:
                 }
 
             sanitized = _sanitize_filename(filename)
+
+            candidate_lock = get_lock_manager().consolidation(space_id)
+            await candidate_lock.acquire()
+            lock = candidate_lock
+
+            bank_files = await storage.list_and_get(f"{space_id}/bank/")
+            for unit in _build_compaction_units(space_id, bank_files):
+                member_names = {member["filename"] for member in unit["members"]}
+                if sanitized == unit["source"] or sanitized in member_names:
+                    is_split_family = any(
+                        member.get("metadata") for member in unit["members"]
+                    )
+                    if is_split_family or unit.get("error"):
+                        return {
+                            "status": "conflict",
+                            "message": (
+                                "bank_delete is refused on a split bank family; "
+                                "delete it through an explicit migration"
+                            ),
+                        }
 
             # Trouver toutes les clés S3 qui sanitisent vers ce nom
             # (= le fichier canonique + tous ses doublons)
@@ -1137,6 +1187,9 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
 
             return safe_error(e, "bank")
+        finally:
+            if lock is not None:
+                lock.release()
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
     async def bank_compact(
@@ -1147,37 +1200,41 @@ def register(mcp: FastMCP) -> int:
             bool,
             Field(
                 default=True,
-                description="True = scan seul (rapport sans modification), False = compaction effective via LLM",
+                description="True = scan seul, False = enfile une compaction sémantique LLM",
             ),
         ] = True,
     ) -> dict:
         """
-        Compacte les fichiers bank surdimensionnés via LLM (manage).
+        Compacte via LLM les fichiers bank surdimensionnés (manage).
 
-        Analyse chaque fichier bank et compare sa taille à la limite
-        universelle configurée (BANK_FILE_MAX_SIZE, par défaut 15 KB).
-        Les fichiers dépassant cette limite sont résumés/nettoyés par le LLM.
+        Les tailles sont mesurées en octets UTF-8. Le LLM produit uniquement
+        un plan JSON d'opérations par section ; le serveur l'applique en
+        mémoire et exige une taille logique sous 75 % de la limite. Une
+        réponse tronquée ou invalide est refusée sans écriture.
 
-        Le LLM utilise les rules de l'espace pour comprendre le rôle de
-        chaque fichier et applique des règles de compaction adaptées :
-        fusionne les redondances, supprime les détails obsolètes,
-        résume les entrées anciennes en une ligne par jalon.
+        Avant tout remplacement, un snapshot complet standard de l'espace est
+        créé. Les écritures sont relues et vérifiées ; tout
+        échec déclenche un rollback vers ce backup.
 
         ⚠️ Par défaut dry_run=True : scanne et rapporte sans modifier.
         Passez dry_run=False pour compacter effectivement.
 
-        ⚠️ La compaction est protégée par le lock de consolidation.
-        Si une consolidation est en cours, retourne "conflict".
+        Avec dry_run=False, la compaction rejoint la file par espace des
+        consolidations et retourne immédiatement un job_id observable.
 
         Args:
             space_id: Espace à compacter
             dry_run: True = scan seul, False = compaction effective
 
         Returns:
-            Rapport de compaction avec détails par fichier (taille, ratio, réduction)
+            Rapport en octets UTF-8 avec parties, empreintes et backup_id
         """
-        from ..auth.context import check_access, check_manage_permission
-        from ..core.locks import get_lock_manager
+        from ..auth.context import (
+            check_access,
+            check_manage_permission,
+            get_current_agent_name,
+        )
+        from ..core.consolidation_queue import get_consolidation_queue
         from ..core.consolidator import get_consolidator
 
         try:
@@ -1189,26 +1246,13 @@ def register(mcp: FastMCP) -> int:
             if manage_err:
                 return manage_err
 
-            # Protéger par le lock de consolidation (la compaction
-            # modifie les fichiers bank — incompatible avec une
-            # consolidation simultanée)
             if not dry_run:
-                lock = get_lock_manager().consolidation(space_id)
-                if lock.locked():
-                    return {
-                        "status": "conflict",
-                        "message": (
-                            f"Consolidation en cours pour '{space_id}'. "
-                            "Réessayez dans quelques minutes."
-                        ),
-                    }
-                async with lock:
-                    return await get_consolidator().compact_bank(
-                        space_id, dry_run=False
-                    )
-            else:
-                # Dry-run : pas besoin de lock (lecture seule)
-                return await get_consolidator().compact_bank(space_id, dry_run=True)
+                return await get_consolidation_queue().enqueue_compaction(
+                    space_id=space_id,
+                    requested_by=get_current_agent_name(),
+                )
+
+            return await get_consolidator().compact_bank(space_id, dry_run=True)
 
         except Exception as e:
             from ..auth.context import safe_error

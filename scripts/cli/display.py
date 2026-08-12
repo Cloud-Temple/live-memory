@@ -116,7 +116,15 @@ def show_whoami_result(result: dict):
 
     spaces = result.get("allowed_spaces") or result.get("space_ids") or []
     is_admin = "admin" in (result.get("permissions") or [])
-    spaces_str = ", ".join(spaces) if spaces else ("[dim]all (admin)[/dim]" if is_admin else "[yellow]none (auto-added on creation)[/yellow]")
+    spaces_str = (
+        ", ".join(spaces)
+        if spaces
+        else (
+            "[dim]all (admin)[/dim]"
+            if is_admin
+            else "[yellow]none (auto-added on creation)[/yellow]"
+        )
+    )
 
     lines = [
         f"[bold]Identity:[/bold] [cyan bold]{result.get('client_name', '?')}[/cyan bold]",
@@ -223,9 +231,7 @@ def show_space_updated(result: dict):
     if "owner" in updated:
         panel_content += f"Owner → {result.get('owner', '')}\n"
     panel_content += f"Updated fields: {', '.join(updated)}"
-    console.print(
-        Panel(panel_content, title="✏️ Space Updated", border_style="green")
-    )
+    console.print(Panel(panel_content, title="✏️ Space Updated", border_style="green"))
 
 
 def show_rules_updated(result: dict):
@@ -234,9 +240,7 @@ def show_rules_updated(result: dict):
         f"[bold]{result.get('space_id', '?')}[/bold]\n"
         f"Size: {result.get('rules_size', '?')} bytes"
     )
-    console.print(
-        Panel(panel_content, title="📜 Rules Updated", border_style="green")
-    )
+    console.print(Panel(panel_content, title="📜 Rules Updated", border_style="green"))
 
 
 def show_space_list(result: dict):
@@ -451,21 +455,30 @@ def show_consolidation_result(result: dict):
 
 def show_bank_compact_result(result: dict):
     """Displays the bank_compact result."""
-    dry_run = result.get("dry_run", True)
-    mode_label = (
-        "[yellow]DRY-RUN (no modifications)[/yellow]"
-        if dry_run
-        else "[green]APPLIED[/green]"
-    )
-    files_over = result.get("files_over_limit", 0)
-    border = "yellow" if dry_run else ("green" if files_over == 0 else "cyan")
+    if result.get("status") in {"running", "queued"} and result.get("job_id"):
+        show_consolidation_job(result)
+        return
 
-    size_before = result.get("total_size_before", 0)
-    size_after = result.get("total_size_after", 0)
-    reduction = ""
-    if not dry_run and size_before > 0 and size_after < size_before:
-        pct = round((1 - size_after / size_before) * 100)
-        reduction = f"\n[bold]Reduction  :[/bold] [green]-{pct}%[/green] ({size_before} → {size_after} bytes)"
+    dry_run = result.get("dry_run", True)
+    result_status = result.get("status", "ok")
+    if dry_run:
+        mode_label = "[yellow]DRY-RUN (no modifications)[/yellow]"
+    elif result_status == "ok":
+        mode_label = "[green]APPLIED[/green]"
+    elif result_status == "partial":
+        mode_label = "[yellow]PARTIAL[/yellow]"
+    else:
+        mode_label = "[red]FAILED — inspect error and backup[/red]"
+    files_over = result.get("files_over_limit", 0)
+    border = (
+        "yellow"
+        if dry_run
+        else {"ok": "green", "partial": "yellow"}.get(result_status, "red")
+    )
+
+    size_before = result.get("total_size_bytes_before", 0)
+    size_after = result.get("total_size_bytes_after", size_before)
+    backup = result.get("backup_id")
 
     console.print(
         Panel.fit(
@@ -473,7 +486,9 @@ def show_bank_compact_result(result: dict):
             f"[bold]Mode       :[/bold] {mode_label}\n"
             f"[bold]Files      :[/bold] {result.get('files_total', 0)} total\n"
             f"[bold]Oversized  :[/bold] {files_over}\n"
-            f"[bold]Bank size  :[/bold] {size_before} bytes" + reduction,
+            f"[bold]Compacted  :[/bold] {result.get('files_compacted', 0)}\n"
+            f"[bold]Bank size  :[/bold] {size_before} → {size_after} UTF-8 bytes"
+            + (f"\n[bold]Backup     :[/bold] {backup}" if backup else ""),
             title="📦 Bank Compact",
             border_style=border,
         )
@@ -490,8 +505,8 @@ def show_bank_compact_result(result: dict):
         table.add_column("Status")
 
         for f in files:
-            size = f.get("size", 0)
-            max_size = f.get("max_size", 0)
+            size = f.get("size_bytes", 0)
+            max_size = f.get("max_size_bytes", 0)
             ratio = f.get("ratio", 0)
             over = f.get("over_limit", False)
 
@@ -506,9 +521,8 @@ def show_bank_compact_result(result: dict):
             # Statut
             if not over:
                 status = "✅ OK"
-            elif f.get("compacted_size"):
-                pct = f.get("reduction_pct", 0)
-                status = f"📦 -{pct}% ({f['compacted_size']} bytes)"
+            elif f.get("size_bytes_after") is not None:
+                status = f"✅ compacted to {f['size_bytes_after']} bytes"
             elif f.get("error"):
                 status = f"[red]❌ {f['error']}[/red]"
             else:
@@ -527,7 +541,7 @@ def show_bank_compact_result(result: dict):
         show_success("All bank files are within their size limit!")
     elif dry_run and files_over > 0:
         show_warning(
-            f"{files_over} oversized file(s). Run with --apply to compact."
+            f"{files_over} oversized file(s). Run with --apply to enqueue compaction."
         )
 
 
@@ -644,7 +658,12 @@ def show_consolidation_queues(result: dict):
 
         for s in spaces:
             lane = s.get("lane_state", "idle")
-            lane_color = {"running": "cyan", "queued": "yellow", "idle": "dim", "failed": "red"}.get(lane, "white")
+            lane_color = {
+                "running": "cyan",
+                "queued": "yellow",
+                "idle": "dim",
+                "failed": "red",
+            }.get(lane, "white")
             running = s.get("running_job")
             running_str = running.get("job_id", "—")[:16] if running else "—"
             table.add_row(
@@ -693,7 +712,9 @@ def show_token_list(result: dict):
         expires = t.get("expires_at") or None
         expires = expires[:10] if expires else "never"
         is_admin_token = "admin" in t.get("permissions", [])
-        spaces = ", ".join(t.get("space_ids", [])) or ("all" if is_admin_token else "none")
+        spaces = ", ".join(t.get("space_ids", [])) or (
+            "all" if is_admin_token else "none"
+        )
         name = t.get("name", "?")
         if t.get("revoked"):
             name = f"[dim strikethrough]{name}[/dim strikethrough]"

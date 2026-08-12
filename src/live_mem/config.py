@@ -125,12 +125,9 @@ class Settings(BaseSettings):
 
 
     # ─── Bank Compaction ──────────────────────────────────────
-    # Compaction automatique des fichiers bank avant consolidation
-    # quand le contexte total est trop gros pour le LLM.
-    # Voir DESIGN/live-mem/CONTEXT_COMPACTION.md pour les détails.
-    compact_threshold: float = (
-        0.6  # Ratio input/max_tokens au-delà duquel on compacte (0.6 = 60%)
-    )
+    # Conservé pour compatibilité ; la limite logique par fichier est le
+    # déclencheur déterministe de la compaction.
+    compact_threshold: float = 0.6
     bank_file_max_size: int = (
         15360  # Taille max universelle pour tout fichier bank (bytes)
     )

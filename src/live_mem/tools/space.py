@@ -429,6 +429,7 @@ def register(mcp: FastMCP) -> int:
             Confirmation de suppression avec nombre de fichiers supprimés
         """
         from ..auth.context import check_access, check_manage_permission
+        from ..core.locks import get_lock_manager
         from ..core.space import get_space_service
 
         try:
@@ -451,7 +452,14 @@ def register(mcp: FastMCP) -> int:
                     ),
                 }
 
-            return await get_space_service().delete(space_id)
+            lock = get_lock_manager().consolidation(space_id)
+            if lock.locked():
+                return {
+                    "status": "conflict",
+                    "message": f"Bank mutation in progress for '{space_id}'.",
+                }
+            async with lock:
+                return await get_space_service().delete(space_id)
         except Exception as e:
             from ..auth.context import safe_error
 

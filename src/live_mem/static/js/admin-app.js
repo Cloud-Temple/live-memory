@@ -209,6 +209,16 @@ function jobShort(id){
 function jobProgress(job,lane){
     const p=job?.progress||{};
     const r=job?.result||{};
+    if(job?.job_type==='compact'){
+        const total=p.files_total??r.files_over_limit;
+        const done=p.files_done??r.files_compacted??0;
+        const pct=total?Math.min(100,Math.round((done/total)*100)):0;
+        return `<div class="queue-progress">
+            <div class="queue-progress-top"><span>${esc(p.phase||job.status||'compact')}</span><span>${total!=null?`${done}/${total} files`:'planning'}</span></div>
+            <div class="queue-bar"><span style="width:${pct}%"></span></div>
+            <div class="queue-progress-bottom">${esc(p.current_file||'bank')}</div>
+        </div>`;
+    }
     const batchSize=p.batch_size??r.batch_size??lane?.service_config?.batch_size;
     const bt=p.batches_total??r.batches_total;
     const bd=p.batches_done??r.batches_completed;
@@ -689,7 +699,7 @@ async function renderMaintenance(){
 
 function _ms(){const s=gv('maint_space');if(!s){alert('Select a space first');} return s;}
 async function maintConsolidate(){const s=_ms();if(!s)return;showModal('🧠 Queueing consolidation…','<div class="page-loading">Submitting async consolidation job…</div>',null,null);const r=await callTool('bank_consolidate',{space_id:s});closeModal();showModal('🧠 Consolidation Job',renderPretty('bank_consolidate',r),'Close',()=>true);}
-async function maintCompact(){const s=_ms();if(!s)return;const dry=document.getElementById('mp_dry').checked;showModal('📦 Compacting…','<div class="page-loading">'+(dry?'Scanning…':'Compacting via LLM…')+'</div>',null,null);const r=await callTool('bank_compact',{space_id:s,dry_run:dry});closeModal();showModal('📦 Compact Result',renderPretty('bank_compact',r),'Close',()=>true);}
+async function maintCompact(){const s=_ms();if(!s)return;const dry=document.getElementById('mp_dry').checked;showModal('📦 Compacting…','<div class="page-loading">'+(dry?'Scanning…':'Queueing semantic compaction…')+'</div>',null,null);const r=await callTool('bank_compact',{space_id:s,dry_run:dry});closeModal();showModal('📦 Compact Result',renderPretty('bank_compact',r),'Close',()=>true);}
 async function maintRepair(){const s=_ms();if(!s)return;const dry=document.getElementById('mr_dry').checked;showModal('🔧 Repairing…','<div class="page-loading">'+(dry?'Scanning…':'Applying fixes…')+'</div>',null,null);const r=await callTool('bank_repair',{space_id:s,dry_run:dry});closeModal();showModal('🔧 Repair Result',renderPretty('bank_repair',r),'Close',()=>true);}
 async function maintGc(){const s=gv('maint_space');showModal('🗑️ GC Running…','<div class="page-loading">Scanning orphaned notes…</div>',null,null);const r=await callTool('admin_gc_notes',{space_id:s,max_age_days:parseInt(gv('mg_days'))||7,confirm:document.getElementById('mg_confirm').checked});closeModal();showModal('🗑️ GC Result',renderPretty('admin_gc_notes',r),'Close',()=>true);}
 async function maintPurge(){if(!confirm('Are you sure?'))return;showModal('🧹 Purging…','<div class="page-loading">Deleting tokens…</div>',null,null);const r=await callTool('admin_purge_tokens',{revoked_only:!document.getElementById('mt_all').checked});cache.tokens=[];closeModal();showModal('🧹 Purge Result',renderPretty('admin_purge_tokens',r),'Close',()=>true);}
@@ -751,7 +761,7 @@ const TOOL_TITLES = {
 function renderPretty(tool, data) {
     if (data.status === 'error') return `<div style="color:var(--danger);padding:1rem">❌ ${esc(data.message||'Error')}</div>`;
 
-    if (tool === 'bank_consolidate' || tool === 'bank_consolidation_status') {
+    if (tool === 'bank_consolidate' || tool === 'bank_consolidation_status' || (tool === 'bank_compact' && data.job_id)) {
         return `<div class="pretty-section">
             <div class="pretty-label">Job</div>
             <div class="pretty-table">
@@ -762,7 +772,7 @@ function renderPretty(tool, data) {
                 <div class="pretty-row"><span class="pretty-k">Queue Position</span><span class="pretty-v">${data.queue_position??'—'}</span></div>
                 <div class="pretty-row"><span class="pretty-k">Guarantee</span><span class="pretty-v mono">${esc(data.guarantee||'—')}</span></div>
             </div>
-            <div class="pretty-section"><div class="pretty-label">Batch Progress</div>${jobProgress(data,{service_config:{batch_size:data.progress?.batch_size||data.result?.batch_size}})}</div>
+            <div class="pretty-section"><div class="pretty-label">Progress</div>${jobProgress(data,{service_config:{batch_size:data.progress?.batch_size||data.result?.batch_size}})}</div>
             ${data.message?`<div class="pretty-section"><div class="pretty-label">Message</div><p class="text-muted">${esc(data.message)}</p></div>`:''}
             ${data.error?`<div class="pretty-section"><div class="pretty-label">Error</div><p style="color:var(--danger)">${esc(data.error)}</p></div>`:''}
         </div>`;

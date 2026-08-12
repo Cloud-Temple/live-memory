@@ -664,12 +664,11 @@ def bank_repair_cmd(ctx, space_id, apply, jflag):
 @click.option("--json", "-j", "jflag", is_flag=True)
 @click.pass_context
 def bank_compact_cmd(ctx, space_id, apply, jflag):
-    """📦 Compact oversized bank files via LLM (admin).
+    """📦 Semantically compact oversized bank files (admin).
 
     \b
-    Analyzes each file and compares its size to the configured limit
-    (activeContext.md: 8KB, progress.md: 20KB, others: 15KB).
-    Oversized files are summarized/cleaned by the LLM.
+    Measures logical UTF-8 bytes. Apply mode enqueues a strict LLM edit-plan
+    compaction in the existing per-space bank queue.
 
     \b
     Examples:
@@ -679,9 +678,7 @@ def bank_compact_cmd(ctx, space_id, apply, jflag):
     if not apply:
         console.print("[dim]Dry-run mode — analysis without modifications.[/dim]")
     else:
-        console.print(
-            "[dim]Compaction in progress... (may take several seconds per file)[/dim]"
-        )
+        console.print("[dim]Queueing semantic compaction...[/dim]")
     from .display import show_bank_compact_result
 
     _run_tool(

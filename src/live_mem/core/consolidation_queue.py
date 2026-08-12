@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-In-memory consolidation queue.
+In-memory bank consolidation and compaction queue.
 
 Issue #20: make `bank_consolidate` asynchronous from the caller point of
 view while preserving the existing single-process / per-space lock model.
@@ -50,6 +50,7 @@ class ConsolidationJob:
     space_id: str
     agent: str
     requested_by: str
+    job_type: str = "consolidate"
     requested_at: str = field(default_factory=_now)
     queued_at: str = field(default_factory=_now)
     started_at: str | None = None
@@ -72,7 +73,13 @@ class ConsolidationQueueService:
         self._jobs: dict[str, ConsolidationJob] = {}
         self._max_history = max_history
 
-    async def enqueue(self, space_id: str, agent: str, requested_by: str) -> dict:
+    async def enqueue(
+        self,
+        space_id: str,
+        agent: str,
+        requested_by: str,
+        job_type: str = "consolidate",
+    ) -> dict:
         """
         Add a consolidation job and start the per-space worker if needed.
 
@@ -86,12 +93,15 @@ class ConsolidationQueueService:
                 if existing_id:
                     return self._job_payload(self._jobs[existing_id])
 
-            job_id = f"consol_{uuid.uuid4().hex}"
+            job_id = (
+                f"{'compact' if job_type == 'compact' else 'consol'}_{uuid.uuid4().hex}"
+            )
             job = ConsolidationJob(
                 job_id=job_id,
                 space_id=space_id,
                 agent=agent,
                 requested_by=requested_by,
+                job_type=job_type,
                 progress={
                     "phase": "queued",
                     "batch_size": get_settings().consolidation_batch_size,
@@ -115,6 +125,15 @@ class ConsolidationQueueService:
             self._ensure_worker_locked(space_id)
             return self._job_payload(job)
 
+    async def enqueue_compaction(self, space_id: str, requested_by: str) -> dict:
+        """Enqueue a manual compaction in the existing per-space lane."""
+        return await self.enqueue(
+            space_id=space_id,
+            agent="",
+            requested_by=requested_by,
+            job_type="compact",
+        )
+
     async def get_job(self, job_id: str) -> dict:
         async with self._state_lock:
             job = self._jobs.get(job_id)
@@ -130,7 +149,9 @@ class ConsolidationQueueService:
             active_id = self._active_jobs.get(space_id)
             active = self._jobs.get(active_id) if active_id else None
             queued_ids = list(self._queues.get(space_id, ()))
-            queued_jobs = [self._job_payload(self._jobs[job_id]) for job_id in queued_ids]
+            queued_jobs = [
+                self._job_payload(self._jobs[job_id]) for job_id in queued_ids
+            ]
             latest = [
                 self._job_payload(job)
                 for job in reversed(self._jobs.values())
@@ -187,16 +208,25 @@ class ConsolidationQueueService:
                 job = self._jobs[active_id]
 
             try:
+
                 async def progress_callback(progress: dict) -> None:
                     await self._update_progress(job.job_id, progress)
 
                 async with get_lock_manager().consolidation(space_id):
-                    result = await get_consolidator().consolidate(
-                        space_id,
-                        agent=job.agent,
-                        enforce_cooldown=False,
-                        progress_callback=progress_callback,
-                    )
+                    if job.job_type == "compact":
+                        await progress_callback({"phase": "compacting"})
+                        result = await get_consolidator().compact_bank(
+                            space_id,
+                            dry_run=False,
+                            progress_callback=progress_callback,
+                        )
+                    else:
+                        result = await get_consolidator().consolidate(
+                            space_id,
+                            agent=job.agent,
+                            enforce_cooldown=False,
+                            progress_callback=progress_callback,
+                        )
                 async with self._state_lock:
                     job.result = result
                     job.progress.update(
@@ -226,7 +256,9 @@ class ConsolidationQueueService:
                         }
                     )
                     job.finished_at = _now()
-                    job.status = "succeeded" if result.get("status") == "ok" else "failed"
+                    job.status = (
+                        "succeeded" if result.get("status") == "ok" else "failed"
+                    )
                     if job.status == "failed":
                         job.error = result.get("message", "Consolidation failed")
                     self._finish_active_locked(space_id, job.job_id)
@@ -282,9 +314,22 @@ class ConsolidationQueueService:
             "status": job.status,
             "job_id": job.job_id,
             "space_id": job.space_id,
+            "job_type": job.job_type,
             "agent": job.agent,
-            "scope": "agent" if job.agent else "all_agents",
-            "scope_label": f"Agent: {job.agent}" if job.agent else "All agents",
+            "scope": (
+                "bank"
+                if job.job_type == "compact"
+                else "agent"
+                if job.agent
+                else "all_agents"
+            ),
+            "scope_label": (
+                "Bank compaction"
+                if job.job_type == "compact"
+                else f"Agent: {job.agent}"
+                if job.agent
+                else "All agents"
+            ),
             "requested_by": job.requested_by,
             "queue_position": self._queue_position_locked(job),
             "guarantee": job.guarantee,
@@ -298,14 +343,14 @@ class ConsolidationQueueService:
         }
         if job.status == "running":
             payload["message"] = (
-                "Async consolidation job accepted and running for "
+                f"Async {job.job_type} job accepted and running for "
                 f"space '{job.space_id}'. Do not wait for completion by "
                 "default. Use bank_consolidation_status only for an explicit "
                 "status check."
             )
         elif job.status == "queued":
             payload["message"] = (
-                "Async consolidation job accepted. Another consolidation is "
+                f"Async {job.job_type} job accepted. Another bank job is "
                 f"running for '{job.space_id}'; this job is queued at "
                 f"position {payload['queue_position']}. Do not wait for "
                 "completion by default. Use bank_consolidation_status only "
