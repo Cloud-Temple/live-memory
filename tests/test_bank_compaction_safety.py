@@ -53,18 +53,22 @@ def _oversized_section_markdown() -> str:
     )
 
 
+def _compacted_summary() -> str:
+    return "\n".join(f"Décision structurante conservée {index}." for index in range(20))
+
+
 def _llm_plan_response(
     *,
     filename: str = "progress.md",
     heading: str = "## Historique",
-    compacted: str = "Décisions structurantes conservées.",
+    compacted: str | None = None,
     finish_reason: str = "stop",
     operation_type: str = "replace_section",
 ):
     operation = {
         "type": operation_type,
         "heading": heading,
-        "content": compacted,
+        "content": compacted if compacted is not None else _compacted_summary(),
         "reason": "Fusion des répétitions",
     }
     payload = {
@@ -204,9 +208,7 @@ async def test_apply_uses_llm_plan_reduces_bytes_and_creates_backup():
     persisted = storage.objects["sp/bank/progress.md"]
     metadata, compacted = _parse_split_part("progress.md", persisted)
     assert metadata == {"source": "progress.md", "part": 1, "total": 1}
-    assert compacted == (
-        "# progress.md\n\n## Historique\n\nDécisions structurantes conservées.\n"
-    )
+    assert compacted == f"# progress.md\n\n## Historique\n\n{_compacted_summary()}\n"
     assert _utf8_size(compacted) < _utf8_size(content)
     assert _utf8_size(compacted) <= int(4096 * 0.75)
 
@@ -288,6 +290,25 @@ async def test_forbidden_compaction_operation_is_rejected_atomically():
 
 
 @pytest.mark.asyncio
+async def test_compaction_below_five_percent_safety_floor_is_rejected():
+    content = _oversized_section_markdown()
+    storage = MemoryStorage(
+        {"sp/_meta.json": '{"space_id":"sp"}', "sp/bank/progress.md": content}
+    )
+    service = _service()
+    service._client.chat.completions.create.return_value = _llm_plan_response(
+        compacted="presque tout supprimé"
+    )
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "error"
+    assert "5% safety floor" in result["files"][0]["error"]
+    assert storage.objects["sp/bank/progress.md"] == content
+
+
+@pytest.mark.asyncio
 async def test_logical_split_family_is_compacted_even_when_parts_fit_limit():
     logical = _oversized_section_markdown()
     parts, error = _split_markdown_losslessly("progress.md", logical, 4096)
@@ -349,6 +370,24 @@ async def test_compaction_prompt_includes_rules_beyond_character_2000():
     assert candidate is not None, details
     call = service._client.chat.completions.create.await_args.kwargs
     assert "SENTINELLE_CONSERVATION_ABSOLUE" in call["messages"][1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_output_budget_scales_for_production_35000_byte_limit():
+    content = "# progress.md\n\n## Historique\n" + ("ancienne décision\n" * 3000)
+    service = _service(max_size=35000)
+    service._max_tokens = 16384
+    service._client.chat.completions.create.return_value = _llm_plan_response(
+        compacted="décision synthétisée\n" * 200
+    )
+
+    candidate, details = await service._plan_single_file_compaction(
+        "progress.md", content, 35000, "# Rules"
+    )
+
+    assert candidate is not None, details
+    call = service._client.chat.completions.create.await_args.kwargs
+    assert call["max_tokens"] > 4096
 
 
 @pytest.mark.asyncio
