@@ -135,6 +135,56 @@ async def test_enqueue_first_job_returns_running_and_processes_without_cooldown(
 
 
 @pytest.mark.asyncio
+async def test_compaction_job_is_visible_in_existing_space_lane():
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class CompactingFake:
+        async def compact_bank(
+            self, space_id: str, dry_run: bool = True, progress_callback=None
+        ):
+            started.set()
+            if progress_callback:
+                await progress_callback(
+                    {
+                        "phase": "compacting",
+                        "current_file": "progress.md",
+                        "files_total": 1,
+                        "files_done": 0,
+                    }
+                )
+            await release.wait()
+            return {
+                "status": "ok",
+                "space_id": space_id,
+                "files_compacted": 1,
+                "backup_id": "project/backup",
+            }
+
+    queue = ConsolidationQueueService()
+    with patch(
+        "live_mem.core.consolidation_queue.get_consolidator",
+        return_value=CompactingFake(),
+    ):
+        result = await queue.enqueue_compaction("project", "maintainer")
+        await asyncio.wait_for(started.wait(), timeout=1)
+        summary = await queue.get_space_summary("project")
+        assert result["job_type"] == "compact"
+        assert summary["running_job"]["job_type"] == "compact"
+        assert summary["running_job"]["scope"] == "bank"
+        assert summary["running_job"]["progress"]["phase"] == "compacting"
+        release.set()
+        for _ in range(20):
+            status = await queue.get_job(result["job_id"])
+            if status["status"] == "succeeded":
+                break
+            await asyncio.sleep(0.01)
+
+    assert status["result"]["files_compacted"] == 1
+    assert status["result"]["backup_id"] == "project/backup"
+
+
+@pytest.mark.asyncio
 async def test_same_space_second_request_is_queued_not_conflict_and_fifo():
     fake = FakeConsolidator()
     queue = ConsolidationQueueService()
@@ -343,6 +393,28 @@ async def test_manage_token_can_enqueue_global_scope():
         agent="",
         requested_by="maintainer",
     )
+
+
+@pytest.mark.asyncio
+async def test_bank_compact_apply_enqueues_observable_job():
+    tok = current_token_info.set(_token("maintainer", ["read", "manage"]))
+    try:
+        with patch(
+            "live_mem.core.consolidation_queue.ConsolidationQueueService.enqueue_compaction",
+            new=AsyncMock(
+                return_value={
+                    "status": "running",
+                    "job_id": "compact_1",
+                    "job_type": "compact",
+                }
+            ),
+        ) as enqueue:
+            result = await _bank_tool("bank_compact")(space_id="project", dry_run=False)
+    finally:
+        current_token_info.reset(tok)
+
+    assert result["job_type"] == "compact"
+    enqueue.assert_awaited_once_with(space_id="project", requested_by="maintainer")
 
 
 @pytest.mark.asyncio

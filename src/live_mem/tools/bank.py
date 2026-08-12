@@ -10,10 +10,10 @@ Permissions :
     - bank_read_all    🔑 (read)    — Lit toute la bank (démarrage agent)
     - bank_list        🔑 (read)    — Liste les fichiers bank (sans contenu)
     - bank_consolidate ✏️ (write)   — Déclenche la consolidation LLM
-    - bank_consolidation_status 🔑 (read) — Consulte un job de consolidation
+    - bank_consolidation_status 🔑 (read) — Consulte un job bank asynchrone
     - bank_consolidation_queues 🔑 (read) — Résume les lanes de consolidation
     - bank_stale_spaces 🔑 (read)   — Liste les spaces avec trop de notes non consolidées
-    - bank_compact     🔧 (manage)  — Découpe lossless les fichiers bank surdimensionnés
+    - bank_compact     🔧 (manage)  — Compacte via LLM les fichiers bank surdimensionnés
     - bank_repair      🔧 (manage)  — Répare les noms de fichiers corrompus par le LLM
     - bank_write       🔧 (manage)  — Écrit/remplace un fichier bank directement
     - bank_delete      🔧 (manage)  — Supprime un fichier bank
@@ -149,7 +149,10 @@ def register(mcp: FastMCP) -> int:
             bank_files = await storage.list_and_get(f"{space_id}/bank/")
             for unit in _build_compaction_units(space_id, bank_files):
                 member_names = {member["filename"] for member in unit["members"]}
-                if sanitized_target != unit["source"] and sanitized_target not in member_names:
+                if (
+                    sanitized_target != unit["source"]
+                    and sanitized_target not in member_names
+                ):
                     continue
                 if unit.get("error"):
                     return {
@@ -428,7 +431,7 @@ def register(mcp: FastMCP) -> int:
         ],
     ) -> dict:
         """
-        Consulte le statut d'un job de consolidation en mémoire.
+        Consulte le statut d'un job de consolidation ou compaction en mémoire.
 
         Args:
             job_id: Identifiant retourné par bank_consolidate
@@ -493,9 +496,7 @@ def register(mcp: FastMCP) -> int:
             if token_info is None:
                 return {"status": "error", "message": "Authentification requise"}
 
-            requested_ids = [
-                sid.strip() for sid in space_ids.split(",") if sid.strip()
-            ]
+            requested_ids = [sid.strip() for sid in space_ids.split(",") if sid.strip()]
             denied_spaces = []
 
             if requested_ids:
@@ -627,9 +628,7 @@ def register(mcp: FastMCP) -> int:
             if token_info is None:
                 return {"status": "error", "message": "Authentification requise"}
 
-            requested_ids = [
-                sid.strip() for sid in space_ids.split(",") if sid.strip()
-            ]
+            requested_ids = [sid.strip() for sid in space_ids.split(",") if sid.strip()]
             denied_spaces = []
 
             if requested_ids:
@@ -694,9 +693,7 @@ def register(mcp: FastMCP) -> int:
                     continue
 
                 age_days = (now - oldest_ts).total_seconds() / 86400.0
-                is_stale = (
-                    notes_count >= min_notes and age_days >= float(min_age_days)
-                )
+                is_stale = notes_count >= min_notes and age_days >= float(min_age_days)
                 # Truncate (not round) to 2 decimals so the displayed age never
                 # exceeds the real age. Otherwise "5.0 days, not stale" can
                 # appear when the threshold is 5 — confusing the operator.
@@ -1015,7 +1012,10 @@ def register(mcp: FastMCP) -> int:
             for unit in _build_compaction_units(space_id, bank_files):
                 member_names = {member["filename"] for member in unit["members"]}
                 if sanitized == unit["source"] or sanitized in member_names:
-                    if len(unit["members"]) > 1 or unit.get("error"):
+                    is_split_family = any(
+                        member.get("metadata") for member in unit["members"]
+                    )
+                    if is_split_family or unit.get("error"):
                         return {
                             "status": "conflict",
                             "message": (
@@ -1142,7 +1142,10 @@ def register(mcp: FastMCP) -> int:
             for unit in _build_compaction_units(space_id, bank_files):
                 member_names = {member["filename"] for member in unit["members"]}
                 if sanitized == unit["source"] or sanitized in member_names:
-                    if len(unit["members"]) > 1 or unit.get("error"):
+                    is_split_family = any(
+                        member.get("metadata") for member in unit["members"]
+                    )
+                    if is_split_family or unit.get("error"):
                         return {
                             "status": "conflict",
                             "message": (
@@ -1197,18 +1200,17 @@ def register(mcp: FastMCP) -> int:
             bool,
             Field(
                 default=True,
-                description="True = scan seul, False = découpe mécanique lossless des fichiers surdimensionnés",
+                description="True = scan seul, False = enfile une compaction sémantique LLM",
             ),
         ] = True,
     ) -> dict:
         """
-        Découpe sans perte les fichiers bank surdimensionnés (manage).
+        Compacte via LLM les fichiers bank surdimensionnés (manage).
 
-        Les tailles sont mesurées en octets UTF-8. Chaque fichier physique
-        dépassant BANK_FILE_MAX_SIZE est découpé à la frontière des lignes,
-        avec une cible de 75 % du seuil pour garder de la marge. Aucun LLM
-        n'est appelé et aucune prose n'est réécrite. Une reconstruction
-        exacte et un SHA-256 identique sont exigés avant écriture.
+        Les tailles sont mesurées en octets UTF-8. Le LLM produit uniquement
+        un plan JSON d'opérations par section ; le serveur l'applique en
+        mémoire et exige une taille logique sous 75 % de la limite. Une
+        réponse tronquée ou invalide est refusée sans écriture.
 
         Avant tout remplacement, un snapshot complet standard de l'espace est
         créé. Les écritures sont relues et vérifiées ; tout
@@ -1217,8 +1219,8 @@ def register(mcp: FastMCP) -> int:
         ⚠️ Par défaut dry_run=True : scanne et rapporte sans modifier.
         Passez dry_run=False pour compacter effectivement.
 
-        ⚠️ La compaction est protégée par le lock de consolidation.
-        Si une consolidation est en cours, retourne "conflict".
+        Avec dry_run=False, la compaction rejoint la file par espace des
+        consolidations et retourne immédiatement un job_id observable.
 
         Args:
             space_id: Espace à compacter
@@ -1227,8 +1229,12 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Rapport en octets UTF-8 avec parties, empreintes et backup_id
         """
-        from ..auth.context import check_access, check_manage_permission
-        from ..core.locks import get_lock_manager
+        from ..auth.context import (
+            check_access,
+            check_manage_permission,
+            get_current_agent_name,
+        )
+        from ..core.consolidation_queue import get_consolidation_queue
         from ..core.consolidator import get_consolidator
 
         try:
@@ -1240,26 +1246,13 @@ def register(mcp: FastMCP) -> int:
             if manage_err:
                 return manage_err
 
-            # Protéger par le lock de consolidation (la compaction
-            # modifie les fichiers bank — incompatible avec une
-            # consolidation simultanée)
             if not dry_run:
-                lock = get_lock_manager().consolidation(space_id)
-                if lock.locked():
-                    return {
-                        "status": "conflict",
-                        "message": (
-                            f"Consolidation en cours pour '{space_id}'. "
-                            "Réessayez dans quelques minutes."
-                        ),
-                    }
-                async with lock:
-                    return await get_consolidator().compact_bank(
-                        space_id, dry_run=False
-                    )
-            else:
-                # Dry-run : pas besoin de lock (lecture seule)
-                return await get_consolidator().compact_bank(space_id, dry_run=True)
+                return await get_consolidation_queue().enqueue_compaction(
+                    space_id=space_id,
+                    requested_by=get_current_agent_name(),
+                )
+
+            return await get_consolidator().compact_bank(space_id, dry_run=True)
 
         except Exception as e:
             from ..auth.context import safe_error

@@ -9,14 +9,14 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **`bank_compact` can no longer destroy oversized Memory Bank files while
-  reporting success** (#37). Compaction no longer asks the LLM to rewrite a
-  large file. It performs a lossless mechanical split on line boundaries,
-  measures every limit in UTF-8 bytes, targets 75% of the configured limit,
-  and proves exact reconstruction with SHA-256 before writing. A standard,
-  full-space S3 backup is created first; persisted parts are read back and any
-  mismatch triggers rollback. Reports now expose explicit byte fields,
-  parts, hashes, backup id, and honest `error`/`partial` status.
+- **`bank_compact` can no longer persist a truncated LLM response while
+  reporting success** (#37). The LLM now returns only a short JSON plan made
+  of `replace_section` and `delete_section` operations. The server rejects
+  non-terminal or invalid responses, applies the complete plan in memory, and
+  verifies a real semantic reduction below 75% of the UTF-8 byte limit before
+  writing. A full-space backup is created first; writes are read back and any
+  mismatch triggers rollback. Reports expose byte sizes, reduction, operation
+  count, reasons, hashes, model result and backup id.
 - The consolidator understands split families: it reconstructs the logical
   Markdown file, applies surgical edits once, then losslessly re-splits it.
   `create` and `rewrite` are refused on split files. Bank reads reassemble the
@@ -26,17 +26,21 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   rollback failures are reported explicitly.
 - Existing manually named workaround files (for example `progress-2.md`) are
   not inferred as split parts: they must be explicitly reassembled once before
-  enabling consolidation with this release, then `bank_compact` creates the
-  machine-readable family.
+  enabling consolidation with this release. Automatic split families remain
+  machine-readable and are compacted as one logical document.
+- Manual compaction now uses the existing per-space FIFO. Its queued/running/
+  failed/succeeded state and final audit report are visible through the
+  consolidation status tools.
 - Failed surgical operations now expose `operation_failures` (file, section,
   operation and reason) and make the final consolidation status `partial`
   instead of `ok`.
 
 ### Tests
 
-- Added adversarial coverage for UTF-8 byte drift, exact reconstruction,
-  oversized-line refusal, mandatory backup, post-write rollback, logical
-  split-file editing, and failed-operation observability.
+- Added adversarial coverage for UTF-8 byte drift, truncated/repaired LLM
+  responses, forbidden plans, real logical reduction, mandatory backup,
+  post-write rollback, logical split-file editing, queue visibility, and
+  failed-operation observability.
 
 ---
 

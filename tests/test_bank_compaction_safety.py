@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -28,6 +30,10 @@ from live_mem.tools.space import register as register_space_tools
 def _service(max_size: int = 4096) -> ConsolidatorService:
     service = object.__new__(ConsolidatorService)
     service._bank_file_max_size = max_size
+    service._max_tokens = 4096
+    service._context_window = 131072
+    service._model = "test-model"
+    service._client = AsyncMock()
     return service
 
 
@@ -39,6 +45,45 @@ def _large_french_markdown() -> str:
             f"- Décision vérifiée numéro {index} — aucune donnée ne doit disparaître.\n"
         )
     return "".join(lines)
+
+
+def _oversized_section_markdown() -> str:
+    return "# progress.md\n\n## Historique\n" + (
+        "Décision ancienne et redondante à synthétiser.\n" * 180
+    )
+
+
+def _llm_plan_response(
+    *,
+    filename: str = "progress.md",
+    heading: str = "## Historique",
+    compacted: str = "Décisions structurantes conservées.",
+    finish_reason: str = "stop",
+    operation_type: str = "replace_section",
+):
+    operation = {
+        "type": operation_type,
+        "heading": heading,
+        "content": compacted,
+        "reason": "Fusion des répétitions",
+    }
+    payload = {
+        "file_edits": [
+            {
+                "filename": filename,
+                "action": "edit",
+                "operations": [operation],
+            }
+        ]
+    }
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason=finish_reason,
+                message=SimpleNamespace(content=json.dumps(payload)),
+            )
+        ]
+    )
 
 
 class MemoryStorage:
@@ -126,46 +171,44 @@ def test_split_refuses_to_cut_an_oversized_line():
 
 
 @pytest.mark.asyncio
-async def test_apply_creates_backup_and_never_calls_llm():
-    content = _large_french_markdown()
+async def test_apply_uses_llm_plan_reduces_bytes_and_creates_backup():
+    content = _oversized_section_markdown()
     storage = MemoryStorage(
         {
             "sp/_meta.json": '{"space_id":"sp"}',
-            "sp/rules.md": "# Rules\n",
+            "sp/_rules.md": "# Rules\n",
             "sp/bank/progress.md": content,
         }
     )
     service = _service()
+    service._client.chat.completions.create.return_value = _llm_plan_response()
 
     with patch("live_mem.core.consolidator.get_storage", return_value=storage):
         result = await service.compact_bank("sp", dry_run=False)
 
     assert result["status"] == "ok"
-    assert result["files_split"] == 1
+    assert result["files_compacted"] == 1
     assert result["files_failed"] == 0
     assert result["size_unit"] == "utf-8 bytes"
     assert "backup_id" in result
     backed_up_sources = {source for source, _ in storage.copy_calls}
     assert backed_up_sources == {
         "sp/_meta.json",
-        "sp/rules.md",
+        "sp/_rules.md",
         "sp/bank/progress.md",
     }
     sid, timestamp, error = _parse_backup_id(result["backup_id"])
     assert error is None and sid == "sp" and timestamp is not None
 
-    physical_parts = [
-        (key.removeprefix("sp/bank/"), value)
-        for key, value in sorted(storage.objects.items())
-        if key.startswith("sp/bank/")
-    ]
-    assert len(physical_parts) > 1
-    assert all(_utf8_size(value) <= 4096 for _, value in physical_parts)
-    reconstructed = "".join(
-        _parse_split_part(filename, value)[1]
-        for filename, value in physical_parts
+    service._client.chat.completions.create.assert_awaited_once()
+    persisted = storage.objects["sp/bank/progress.md"]
+    metadata, compacted = _parse_split_part("progress.md", persisted)
+    assert metadata == {"source": "progress.md", "part": 1, "total": 1}
+    assert compacted == (
+        "# progress.md\n\n## Historique\n\nDécisions structurantes conservées.\n"
     )
-    assert reconstructed == content
+    assert _utf8_size(compacted) < _utf8_size(content)
+    assert _utf8_size(compacted) <= int(4096 * 0.75)
 
     for key in [key for key in storage.objects if key.startswith("sp/")]:
         storage.objects.pop(key)
@@ -173,17 +216,149 @@ async def test_apply_creates_backup_and_never_calls_llm():
         restored = await BackupService().restore(result["backup_id"])
     assert restored["status"] == "ok"
     assert storage.objects["sp/_meta.json"] == '{"space_id":"sp"}'
-    assert storage.objects["sp/rules.md"] == "# Rules\n"
+    assert storage.objects["sp/_rules.md"] == "# Rules\n"
     assert storage.objects["sp/bank/progress.md"] == content
 
 
 @pytest.mark.asyncio
+async def test_parseable_truncated_llm_plan_is_never_written():
+    content = _oversized_section_markdown()
+    storage = MemoryStorage(
+        {"sp/_meta.json": '{"space_id":"sp"}', "sp/bank/progress.md": content}
+    )
+    storage.put = AsyncMock(side_effect=storage.put)
+    service = _service()
+    service._client.chat.completions.create.return_value = _llm_plan_response(
+        finish_reason="length"
+    )
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "error"
+    assert "incomplete" in result["files"][0]["error"]
+    storage.put.assert_not_awaited()
+    assert storage.objects["sp/bank/progress.md"] == content
+
+
+@pytest.mark.asyncio
+async def test_repairable_truncated_json_is_rejected_without_write():
+    content = _oversized_section_markdown()
+    storage = MemoryStorage(
+        {"sp/_meta.json": '{"space_id":"sp"}', "sp/bank/progress.md": content}
+    )
+    storage.put = AsyncMock(side_effect=storage.put)
+    service = _service()
+    service._client.chat.completions.create.return_value = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason="stop",
+                message=SimpleNamespace(
+                    content='{"file_edits":[{"filename":"progress.md","action":"edit","operations":[{"type":"replace_section","heading":"## Historique","content":"coupé'
+                ),
+            )
+        ]
+    )
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "error"
+    assert "invalid LLM compaction plan" in result["files"][0]["error"]
+    storage.put.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_forbidden_compaction_operation_is_rejected_atomically():
+    content = _oversized_section_markdown()
+    storage = MemoryStorage(
+        {"sp/_meta.json": '{"space_id":"sp"}', "sp/bank/progress.md": content}
+    )
+    service = _service()
+    service._client.chat.completions.create.return_value = _llm_plan_response(
+        operation_type="append_to_section"
+    )
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "error"
+    assert result["files"][0]["error"] == "plan contains a forbidden operation"
+    assert storage.objects["sp/bank/progress.md"] == content
+
+
+@pytest.mark.asyncio
+async def test_logical_split_family_is_compacted_even_when_parts_fit_limit():
+    logical = _oversized_section_markdown()
+    parts, error = _split_markdown_losslessly("progress.md", logical, 4096)
+    assert error is None and parts is not None and len(parts) > 1
+    assert all(_utf8_size(rendered) <= 4096 for _, rendered in parts)
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            **{f"sp/bank/{name}": value for name, value in parts},
+        }
+    )
+    service = _service()
+    service._client.chat.completions.create.return_value = _llm_plan_response()
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "ok"
+    assert result["files_compacted"] == 1
+    metadata, body = _parse_split_part(
+        "progress.md", storage.objects["sp/bank/progress.md"]
+    )
+    assert metadata == {"source": "progress.md", "part": 1, "total": 1}
+    assert body.startswith("# progress.md")
+    assert not any(
+        "part-" in key for key in storage.objects if key.startswith("sp/bank/")
+    )
+
+
+@pytest.mark.asyncio
+async def test_dry_run_never_calls_llm_or_writes():
+    content = _oversized_section_markdown()
+    storage = MemoryStorage(
+        {"sp/_meta.json": '{"space_id":"sp"}', "sp/bank/progress.md": content}
+    )
+    storage.put = AsyncMock(side_effect=storage.put)
+    service = _service()
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=True)
+
+    assert result["status"] == "ok"
+    assert result["files_over_limit"] == 1
+    service._client.chat.completions.create.assert_not_awaited()
+    storage.put.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_compaction_prompt_includes_rules_beyond_character_2000():
+    content = _oversized_section_markdown()
+    rules = "R" * 2100 + "\nSENTINELLE_CONSERVATION_ABSOLUE"
+    service = _service()
+    service._client.chat.completions.create.return_value = _llm_plan_response()
+
+    candidate, details = await service._plan_single_file_compaction(
+        "progress.md", content, 4096, rules
+    )
+
+    assert candidate is not None, details
+    call = service._client.chat.completions.create.await_args.kwargs
+    assert "SENTINELLE_CONSERVATION_ABSOLUE" in call["messages"][1]["content"]
+
+
+@pytest.mark.asyncio
 async def test_backup_failure_preserves_original_without_any_write():
-    content = _large_french_markdown()
+    content = _oversized_section_markdown()
     storage = MemoryStorage({"sp/bank/progress.md": content})
     storage.fail_copy = True
     storage.put = AsyncMock(side_effect=storage.put)
     service = _service()
+    service._client.chat.completions.create.return_value = _llm_plan_response()
 
     with patch("live_mem.core.consolidator.get_storage", return_value=storage):
         result = await service.compact_bank("sp", dry_run=False)
@@ -196,10 +371,11 @@ async def test_backup_failure_preserves_original_without_any_write():
 
 @pytest.mark.asyncio
 async def test_post_write_verification_failure_rolls_back_original():
-    content = _large_french_markdown()
+    content = _oversized_section_markdown()
     storage = MemoryStorage({"sp/bank/progress.md": content})
     storage.corrupt_reads = True
     service = _service()
+    service._client.chat.completions.create.return_value = _llm_plan_response()
 
     with patch("live_mem.core.consolidator.get_storage", return_value=storage):
         result = await service.compact_bank("sp", dry_run=False)
@@ -344,11 +520,57 @@ async def test_consolidator_reassembles_edits_and_resplits_logical_file():
         if key.startswith("sp/bank/")
     ]
     reconstructed = "".join(
-        _parse_split_part(filename, value)[1]
-        for filename, value in rewritten_parts
+        _parse_split_part(filename, value)[1] for filename, value in rewritten_parts
     )
     assert "new target" in reconstructed
     assert "old target" not in reconstructed
+
+
+@pytest.mark.asyncio
+async def test_one_part_compacted_family_is_resplit_after_later_growth():
+    compacted_body = "# progress.md\n\n## Target\nshort\n"
+    canonical = _split_marker("progress.md", 1, 1) + compacted_body
+    storage = MemoryStorage({"sp/bank/progress.md": canonical})
+    service = _service(max_size=2048)
+    service._deduplicate_content = AsyncMock(
+        side_effect=lambda content, filename: (content, 0)
+    )
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.md",
+                "action": "edit",
+                "operations": [
+                    {
+                        "type": "append_to_section",
+                        "heading": "## Target",
+                        "content": "growth\n" * 400,
+                    }
+                ],
+            }
+        ],
+        "synthesis": "done",
+    }
+
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp", output, bank_files, [], 1, {}, skip_meta=True
+        )
+
+    assert result["operations_failed"] == 0
+    rewritten_parts = [
+        (key.removeprefix("sp/bank/"), value)
+        for key, value in sorted(storage.objects.items())
+        if key.startswith("sp/bank/")
+    ]
+    assert len(rewritten_parts) > 1
+    assert all(_utf8_size(value) <= 2048 for _, value in rewritten_parts)
+    reconstructed = "".join(
+        _parse_split_part(filename, value)[1] for filename, value in rewritten_parts
+    )
+    assert reconstructed.startswith("# progress.md")
+    assert "growth" in reconstructed
 
 
 @pytest.mark.asyncio
@@ -424,9 +646,7 @@ async def test_stale_part_delete_failure_rolls_back_family():
         for unit in _build_compaction_units("sp", bank_files)
         if unit["source"] == "progress.md"
     )
-    replacement, split_error = _split_markdown_losslessly(
-        "progress.md", logical, 4096
-    )
+    replacement, split_error = _split_markdown_losslessly("progress.md", logical, 4096)
     assert split_error is None and replacement is not None
 
     with patch("live_mem.core.consolidator.get_storage", return_value=storage):
@@ -481,9 +701,7 @@ async def test_bank_read_reassembles_a_split_family():
     logical = "# progress.md\n" + "entry\n" * 100
     parts, error = _split_markdown_losslessly("progress.md", logical, 2048)
     assert error is None and parts is not None and len(parts) > 1
-    storage = MemoryStorage(
-        {f"sp/bank/{name}": value for name, value in parts}
-    )
+    storage = MemoryStorage({f"sp/bank/{name}": value for name, value in parts})
 
     with (
         patch("live_mem.auth.context.check_access", return_value=None),

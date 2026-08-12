@@ -183,7 +183,7 @@ class TestCompactBankIfNeeded(unittest.TestCase):
             {"key": "test/bank/activeContext.md", "content": "x" * 5000},
             {"key": "test/bank/progress.md", "content": "x" * 10000},
         ]
-        # Total: 15000 bytes ≈ 3750 tokens < 60000 (60% of 100000)
+        # Chaque fichier logique reste sous la limite de 15360 octets.
         with patch("live_mem.core.consolidator.get_storage"):
             result = asyncio.run(
                 self.svc._compact_bank_if_needed("test", bank_files, "rules")
@@ -197,26 +197,23 @@ class TestCompactBankIfNeeded(unittest.TestCase):
             {"key": "test/bank/activeContext.md", "content": "x" * 50000},
             {"key": "test/bank/progress.md", "content": "x" * 200000},
         ]
-        # Total: 250000 bytes ≈ 62500 tokens > 60000 (60% of 100000)
-
-        mock_storage = MagicMock()
-
-        with patch("live_mem.core.consolidator.get_storage", return_value=mock_storage):
-            self.svc._split_compaction_units = AsyncMock(
-                return_value={
-                    "files_split": 2,
-                    "files_failed": 0,
-                    "physical_size_delta_bytes": 512,
-                    "backup_id": "test/backup",
-                }
-            )
+        self.svc._compact_units_with_llm = AsyncMock(
+            return_value={
+                "files_compacted": 2,
+                "files_failed": 0,
+                "logical_size_delta_bytes": -200000,
+                "backup_id": "test/backup",
+                "reports": {},
+            }
+        )
+        with patch("live_mem.core.consolidator.get_storage"):
             result = asyncio.run(
                 self.svc._compact_bank_if_needed("test", bank_files, "rules")
             )
 
         self.assertTrue(result["compacted"])
         self.assertGreater(result["files_compacted"], 0)
-        self.assertGreaterEqual(result["size_after"], result["size_before"])
+        self.assertLess(result["size_after"], result["size_before"])
 
 
 class TestLosslessSplit(unittest.TestCase):
@@ -290,7 +287,7 @@ class TestCompactBank(unittest.TestCase):
         mock_storage.put.assert_not_called()
 
     def test_apply_mode_writes(self):
-        """En mode apply, les fichiers surdimensionnés sont découpés."""
+        """En mode apply, les fichiers surdimensionnés sont compactés."""
         mock_storage = MagicMock()
         mock_storage.get_json = AsyncMock(return_value={"created_at": "2026-01-01"})
         mock_storage.list_and_get = AsyncMock(
@@ -298,16 +295,17 @@ class TestCompactBank(unittest.TestCase):
                 {"key": "test/bank/activeContext.md", "content": "x" * 50000},
             ]
         )
-        self.svc._split_compaction_units = AsyncMock(
+        mock_storage.get = AsyncMock(return_value="# Rules")
+        self.svc._compact_units_with_llm = AsyncMock(
             return_value={
-                "files_split": 1,
+                "files_compacted": 1,
                 "files_failed": 0,
-                "physical_size_delta_bytes": 128,
+                "logical_size_delta_bytes": -40000,
                 "backup_id": "test/backup",
                 "reports": {
                     "activeContext.md": {
-                        "parts_after": 4,
-                        "largest_part_bytes_after": 12000,
+                        "size_bytes_after": 10000,
+                        "reduction_pct": 80,
                     }
                 },
             }
@@ -319,7 +317,7 @@ class TestCompactBank(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["dry_run"])
         self.assertEqual(result["files_over_limit"], 1)
-        self.assertEqual(result["files_split"], 1)
+        self.assertEqual(result["files_compacted"], 1)
 
     def test_space_not_found(self):
         """Si l'espace n'existe pas, retourne erreur."""

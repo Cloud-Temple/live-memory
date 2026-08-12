@@ -125,8 +125,8 @@ class Settings(BaseSettings):
 
 
     # ─── Bank Compaction ──────────────────────────────────────
-    # Conservé pour compatibilité de configuration. La compaction est
-    # désormais une découpe lossless déclenchée par fichier en octets.
+    # Conservé pour compatibilité ; la limite logique par fichier est le
+    # déclencheur déterministe de la compaction.
     compact_threshold: float = 0.6
     bank_file_max_size: int = (
         15360  # Taille max universelle pour tout fichier bank (bytes)
