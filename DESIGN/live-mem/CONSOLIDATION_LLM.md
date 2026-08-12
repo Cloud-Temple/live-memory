@@ -1,6 +1,6 @@
 # LLM Consolidation Pipeline — Live Memory
 
-> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
+> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
 
 ---
 
@@ -250,6 +250,42 @@ These fields are available in the completed job result when an explicit status c
 ### Unicode Protection (`_sanitize_filename`)
 
 Removes 20 types of invisible Unicode characters and normalizes 10 types of Unicode dashes to the standard ASCII hyphen (U+002D). See `consolidator.py` for the full list.
+
+---
+
+## 3ter. Safe Bank Compaction (v2.7.0)
+
+Compaction uses the LLM for semantic reduction, but never asks it to reproduce
+the full Markdown file. For each oversized logical file, the model must return
+exactly one JSON `file_edit` with an `edit` action and only
+`replace_section`/`delete_section` operations. Space rules guide what must be
+preserved; bank content is explicitly treated as untrusted data and cannot
+alter this response contract.
+
+The compaction response has a stricter parser than normal consolidation:
+
+- `finish_reason` must be `stop`; truncated responses are rejected;
+- JSON must parse as returned, with no extraction or repair;
+- every heading must match exactly once and the principal H1 cannot change;
+- the result must be smaller than the input, at least 5% of its original
+  UTF-8 byte size, and no larger than 75% of `BANK_FILE_MAX_SIZE`;
+- all target files are planned before the first storage mutation; if one plan
+  is invalid, nothing is written.
+
+Once all plans pass, the server creates a standard full-space backup. Each
+logical result is split losslessly on line boundaries into physical objects
+below the byte limit. Every object contains a machine-readable
+`live-mem-split` marker, including a one-part family. Writes are read back and
+verified; a failure triggers an attempt to restore the original family from
+the backup. If that rollback also fails, the result explicitly reports the
+restorable backup id for manual recovery. Reports include logical sizes,
+reduction, operation reasons, SHA-256 hashes, model finish reason, part count,
+and backup id.
+
+Applied manual compaction is a `compact` job in the same per-space FIFO as
+consolidation. Automatic compaction runs inside the consolidation job before
+new notes are applied. Both paths therefore share serialization and status
+observability.
 
 ---
 
@@ -596,4 +632,4 @@ Input: 3 notes, 6 bank files
 
 ---
 
-*Document updated April 25, 2026 — Live Memory v1.6.0*
+*Document updated August 12, 2026 — Live Memory v2.7.0*

@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -261,8 +261,8 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `CONSOLIDATION_COOLDOWN_SECONDS` | `60`      | Cooldown anti-spam par space pour `bank_consolidate` (`0` désactive) |
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
-| `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite physique par fichier en octets UTF-8 |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Taille persistée max par fichier bank physique (octets UTF-8, 15 KB). Les fichiers surdimensionnés sont découpés sans perte avec une cible à 75 % |
+| `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite logique par fichier en octets UTF-8 |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Taille logique max par fichier bank (octets UTF-8, 15 KB). La compaction LLM vise 75 % de cette limite |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
@@ -296,13 +296,13 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | -------------------- | -------------------------------------------- | ------------------------------------------------------------ |
 | `space_create`       | `space_id`, `description`, `rules`, `owner?` | Crée un space avec ses rules (structure de la bank)          |
 | `space_update`       | `space_id`, `description?`, `owner?`         | Met à jour la description et/ou l'owner                      |
-| `space_update_rules` | `space_id`, `rules`                          | 📜 Met à jour les rules du space (admin uniquement)         |
+| `space_update_rules` | `space_id`, `rules`                          | 📜 Met à jour les rules du space (manage)                    |
 | `space_list`         | —                                            | Liste les spaces accessibles par le token courant            |
 | `space_info`         | `space_id`                                   | Infos détaillées (notes, bank, consolidation)                |
 | `space_rules`        | `space_id`                                   | Lit les rules immuables du space                             |
 | `space_summary`      | `space_id`                                   | Résumé complet : rules + bank + stats (démarrage agent)      |
 | `space_export`       | `space_id`                                   | Export tar.gz en base64                                      |
-| `space_delete`       | `space_id`, `confirm`                        | Supprime le space (⚠️ irréversible, admin requis)           |
+| `space_delete`       | `space_id`, `confirm`                        | Supprime le space (⚠️ irréversible, manage requis)          |
 
 ### Live (3 outils)
 
@@ -320,13 +320,24 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `bank_read_all`             | `space_id`                        | Lit toute la bank en une requête (🚀 démarrage agent)                                                            |
 | `bank_list`                 | `space_id`                        | Liste les fichiers bank avec chemins relatifs (sans contenu)                                                      |
 | `bank_consolidate`          | `space_id`, `agent?`              | 🧠 Enfile une consolidation LLM async. Appeler une seule fois ; ne pas surveiller/poller sauf demande explicite   |
-| `bank_consolidation_status` | `job_id`                          | Check de statut manuel uniquement pour un job retourné par `bank_consolidate`                                     |
+| `bank_consolidation_status` | `job_id`                          | Check de statut manuel uniquement pour un job retourné par `bank_consolidate` ou un `bank_compact` appliqué        |
 | `bank_consolidation_queues` | `space_ids?`                      | Résumé read-only des files de consolidation par space                                                             |
 | `bank_stale_spaces`         | `min_notes?=5`, `min_age_days?=5`, `space_ids?` | 🚨 Liste les spaces avec ≥N notes non consolidées dont la plus ancienne a ≥D jours (supervision) |
-| `bank_compact`              | `space_id`, `dry_run?`            | 🔧 Découpe sans perte les fichiers bank surdimensionnés en octets UTF-8, avec backup préalable et vérification SHA-256. `dry_run=True` par défaut (manage) |
-| `bank_repair`               | `space_id`, `dry_run?`            | 🔧 Répare les noms de fichiers corrompus (Unicode, préfixes parasites). `dry_run=True` par défaut (admin)         |
-| `bank_write`                | `space_id`, `filename`, `content` | ✏️ Écrit/remplace un fichier bank directement — contourne la consolidation LLM (admin)                           |
-| `bank_delete`               | `space_id`, `filename`            | 🗑️ Supprime un fichier bank + ses doublons Unicode (admin, irréversible)                                         |
+| `bank_compact`              | `space_id`, `dry_run?`            | 🔧 Scanne ou enfile une compaction LLM stricte avec contrôles UTF-8, backup, rollback et empreintes d'audit. `dry_run=True` par défaut (manage) |
+| `bank_repair`               | `space_id`, `dry_run?`            | 🔧 Répare les noms de fichiers corrompus (Unicode, préfixes parasites). `dry_run=True` par défaut (manage)        |
+| `bank_write`                | `space_id`, `filename`, `content` | ✏️ Écrit/remplace un fichier bank directement — contourne la consolidation LLM (manage)                          |
+| `bank_delete`               | `space_id`, `filename`            | 🗑️ Supprime un fichier bank + ses doublons Unicode (manage, irréversible)                                        |
+
+Un `bank_compact` appliqué est asynchrone : il rejoint la même file FIFO par
+space que la consolidation et retourne un `job_id`. Pour chaque fichier
+logique dépassant `BANK_FILE_MAX_SIZE`, le LLM retourne un plan JSON strict
+d'opérations par section ; le serveur applique et valide ce plan localement,
+en octets UTF-8, avant toute écriture. Il crée un backup complet du space,
+vérifie le contenu persisté et tente un rollback en cas d'échec. Si ce rollback
+échoue aussi, le job expose le `backup_id` nécessaire à une restauration
+manuelle. Le document logique compacté est stocké, si nécessaire, sous forme de
+famille découpée et marquée ; les lectures et consolidations suivantes la
+réassemblent de façon transparente.
 
 ### Graph (4 outils) — 🌉 Pont vers Graph Memory
 
@@ -351,7 +362,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 | Outil                | Paramètres                                                        | Description                                                                                                    |
 | -------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `admin_create_token` | `name`, `permissions`, `space_ids?`, `expires_in_days?`, `email?` | Crée un token (⚠️ affiché une seule fois). Permissions : read, write, admin. Email optionnel pour traçabilité |
+| `admin_create_token` | `name`, `permissions`, `space_ids?`, `expires_in_days?`, `email?` | Crée un token (⚠️ affiché une seule fois). Permissions : read, write, manage, admin. Email optionnel pour traçabilité |
 | `admin_list_tokens`  | —                                                                 | Liste les tokens actifs                                                                                        |
 | `admin_revoke_token` | `token_hash`                                                      | Révoque un token (le rend inutilisable)                                                                        |
 | `admin_delete_token` | `token_hash`                                                      | Supprime physiquement un token du registre (⚠️ irréversible)                                                  |
@@ -781,4 +792,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.5.1 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.7.0 — Mémoire de travail partagée pour agents IA collaboratifs*

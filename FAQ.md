@@ -228,17 +228,32 @@ result is deterministic and independent of clock drift between agents.
 
 When bank files grow too large (> `BANK_FILE_MAX_SIZE`, default 15 KB), they may cause consolidation failures (LLM context window overflow) or slow performance.
 
-`bank_compact` summarizes oversized files via a dedicated LLM call, preserving key decisions and milestones while removing obsolete details.
+`bank_compact` asks the LLM for a strict JSON plan containing only section
+replacements and deletions. The server applies the plan locally and accepts it
+only if the complete response is valid, keeps the main H1, produces a real
+reduction, stays above 5% of the original logical size, and fits below 75% of
+`BANK_FILE_MAX_SIZE`. Sizes are logical UTF-8 bytes, not character counts.
 
 ```bash
 # Scan only (dry-run, default)
 python scripts/mcp_cli.py bank compact my-space
 
-# Apply compaction
+# Apply compaction (asynchronous)
 python scripts/mcp_cli.py bank compact my-space --apply
 ```
 
-**Auto-compaction** is also triggered automatically before consolidation if the bank exceeds `COMPACT_THRESHOLD` (default 60%) of the LLM's output budget.
+Applied compaction returns a `job_id` and uses the consolidation FIFO for the
+space. Its status is available through `bank_consolidation_status`; no polling
+is required unless a manual status check is explicitly requested. Before the
+first write, the server creates a full-space backup, then verifies every write
+and attempts rollback on failure. If rollback also fails, the job reports the
+`backup_id` for manual restoration.
+
+**Auto-compaction** runs before consolidation when a logical bank file exceeds
+`BANK_FILE_MAX_SIZE` (default 15 KB). `COMPACT_THRESHOLD` is retained only for
+configuration compatibility. If storage needs several physical objects, the
+server writes a marked split family that reads and later consolidations treat
+as one logical Markdown file.
 
 ### Can I use an HTTP proxy for outbound connections?
 

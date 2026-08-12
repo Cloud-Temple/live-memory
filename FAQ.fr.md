@@ -229,17 +229,35 @@ drift entre agents.
 
 Quand les fichiers bank deviennent trop volumineux (> `BANK_FILE_MAX_SIZE`, 15 KB par défaut), ils peuvent causer des échecs de consolidation (dépassement du context window LLM) ou des performances dégradées.
 
-`bank_compact` résume les fichiers surdimensionnés via un appel LLM dédié, en préservant les décisions clés et les jalons tout en supprimant les détails obsolètes.
+`bank_compact` demande au LLM un plan JSON strict contenant uniquement des
+remplacements et suppressions de sections. Le serveur applique ce plan
+localement et ne l'accepte que si la réponse complète est valide, conserve le
+H1 principal, produit une réduction réelle, reste au-dessus de 5 % de la taille
+logique d'origine et tient sous 75 % de `BANK_FILE_MAX_SIZE`. Les tailles sont
+des octets UTF-8 logiques, pas un nombre de caractères.
 
 ```bash
 # Scan seul (dry-run, par défaut)
 python scripts/mcp_cli.py bank compact mon-espace
 
-# Appliquer la compaction
+# Appliquer la compaction (asynchrone)
 python scripts/mcp_cli.py bank compact mon-espace --apply
 ```
 
-L'**auto-compaction** est également déclenchée automatiquement avant la consolidation si la bank dépasse `COMPACT_THRESHOLD` (60% par défaut) du budget de sortie du LLM.
+La compaction appliquée retourne un `job_id` et utilise la file FIFO de
+consolidation du space. Son statut est disponible via
+`bank_consolidation_status` ; aucun polling n'est requis sauf demande explicite
+d'un contrôle manuel. Avant la première écriture, le serveur crée un backup
+complet du space, puis vérifie chaque écriture et tente un rollback en cas
+d'échec. Si celui-ci échoue aussi, le job expose le `backup_id` pour une
+restauration manuelle.
+
+L'**auto-compaction** s'exécute avant la consolidation lorsqu'un fichier bank
+logique dépasse `BANK_FILE_MAX_SIZE` (15 KB par défaut). `COMPACT_THRESHOLD`
+est conservé uniquement pour compatibilité de configuration. Si le stockage
+nécessite plusieurs objets physiques, le serveur écrit une famille découpée et
+marquée que les lectures et consolidations suivantes traitent comme un seul
+document Markdown logique.
 
 ### Puis-je utiliser un proxy HTTP pour les connexions sortantes ?
 
