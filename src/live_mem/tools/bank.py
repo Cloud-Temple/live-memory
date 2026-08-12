@@ -13,7 +13,7 @@ Permissions :
     - bank_consolidation_status 🔑 (read) — Consulte un job de consolidation
     - bank_consolidation_queues 🔑 (read) — Résume les lanes de consolidation
     - bank_stale_spaces 🔑 (read)   — Liste les spaces avec trop de notes non consolidées
-    - bank_compact     🔧 (manage)  — Compacte les fichiers bank surdimensionnés via LLM
+    - bank_compact     🔧 (manage)  — Découpe lossless les fichiers bank surdimensionnés
     - bank_repair      🔧 (manage)  — Répare les noms de fichiers corrompus par le LLM
     - bank_write       🔧 (manage)  — Écrit/remplace un fichier bank directement
     - bank_delete      🔧 (manage)  — Supprime un fichier bank
@@ -1147,21 +1147,22 @@ def register(mcp: FastMCP) -> int:
             bool,
             Field(
                 default=True,
-                description="True = scan seul (rapport sans modification), False = compaction effective via LLM",
+                description="True = scan seul, False = découpe mécanique lossless des fichiers surdimensionnés",
             ),
         ] = True,
     ) -> dict:
         """
-        Compacte les fichiers bank surdimensionnés via LLM (manage).
+        Découpe sans perte les fichiers bank surdimensionnés (manage).
 
-        Analyse chaque fichier bank et compare sa taille à la limite
-        universelle configurée (BANK_FILE_MAX_SIZE, par défaut 15 KB).
-        Les fichiers dépassant cette limite sont résumés/nettoyés par le LLM.
+        Les tailles sont mesurées en octets UTF-8. Chaque fichier physique
+        dépassant BANK_FILE_MAX_SIZE est découpé à la frontière des lignes,
+        avec une cible de 75 % du seuil pour garder de la marge. Aucun LLM
+        n'est appelé et aucune prose n'est réécrite. Une reconstruction
+        exacte et un SHA-256 identique sont exigés avant écriture.
 
-        Le LLM utilise les rules de l'espace pour comprendre le rôle de
-        chaque fichier et applique des règles de compaction adaptées :
-        fusionne les redondances, supprime les détails obsolètes,
-        résume les entrées anciennes en une ligne par jalon.
+        Avant tout remplacement, les fichiers concernés sont copiés dans un
+        backup S3 restaurable. Les écritures sont relues et vérifiées ; tout
+        échec déclenche un rollback vers ce backup.
 
         ⚠️ Par défaut dry_run=True : scanne et rapporte sans modifier.
         Passez dry_run=False pour compacter effectivement.
@@ -1174,7 +1175,7 @@ def register(mcp: FastMCP) -> int:
             dry_run: True = scan seul, False = compaction effective
 
         Returns:
-            Rapport de compaction avec détails par fichier (taille, ratio, réduction)
+            Rapport en octets UTF-8 avec parties, empreintes et backup_id
         """
         from ..auth.context import check_access, check_manage_permission
         from ..core.locks import get_lock_manager

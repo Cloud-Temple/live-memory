@@ -262,7 +262,7 @@ The consolidator uses an LLM (OpenAI-compatible API) to transform live notes int
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Optional post-consolidation check for unattributed claims |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Max examples returned by the validation pass |
 | `COMPACT_THRESHOLD`       | `0.6`             | Auto-compaction trigger (0.6 = compact if bank > 60% of budget) |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Max size per bank file (bytes, 15 KB). Above = compaction candidate |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Max persisted size per physical bank file (UTF-8 bytes, 15 KB). Oversized files are losslessly split at 75% of this limit |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Max non-MCP response body size before truncation |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Max request body accepted by `/api/tool` |
 
@@ -323,7 +323,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `bank_consolidation_status` | `job_id`              | Manual-only status check for a job returned by `bank_consolidate` |
 | `bank_consolidation_queues` | `space_ids?`          | Read-only summary of consolidation lanes by space |
 | `bank_stale_spaces` | `min_notes?=5`, `min_age_days?=5`, `space_ids?` | 🚨 Lists spaces with ≥N unconsolidated notes whose oldest is ≥D days old (supervision) |
-| `bank_compact`     | `space_id`, `dry_run?`            | 🔧 Compacts oversized bank files via LLM. `dry_run=True` by default (admin)                            |
+| `bank_compact`     | `space_id`, `dry_run?`            | 🔧 Losslessly splits oversized bank files in UTF-8 bytes, with pre-write backup and SHA-256 verification. `dry_run=True` by default (manage) |
 | `bank_repair`      | `space_id`, `dry_run?`            | 🔧 Repairs corrupted filenames (Unicode, parasitic prefixes). `dry_run=True` by default (admin)        |
 | `bank_write`       | `space_id`, `filename`, `content` | ✏️ Writes/replaces a bank file directly — bypasses LLM consolidation (admin)                          |
 | `bank_delete`      | `space_id`, `filename`            | 🗑️ Deletes a bank file + its Unicode duplicates (admin, irreversible)                                |

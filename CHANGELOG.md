@@ -5,6 +5,33 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **`bank_compact` can no longer destroy oversized Memory Bank files while
+  reporting success** (#37). Compaction no longer asks the LLM to rewrite a
+  large file. It performs a lossless mechanical split on line boundaries,
+  measures every limit in UTF-8 bytes, targets 75% of the configured limit,
+  and proves exact reconstruction with SHA-256 before writing. A restorable
+  per-file S3 backup is created first; persisted parts are read back and any
+  mismatch triggers rollback. Reports now expose explicit byte fields,
+  parts, hashes, backup id, and honest `error`/`partial` status.
+- The consolidator understands split families: it reconstructs the logical
+  Markdown file, applies surgical edits once, then losslessly re-splits it.
+  `create` and `rewrite` are refused on split files.
+- Failed surgical operations now expose `operation_failures` (file, section,
+  operation and reason) and make the final consolidation status `partial`
+  instead of `ok`.
+
+### Tests
+
+- Added adversarial coverage for UTF-8 byte drift, exact reconstruction,
+  oversized-line refusal, mandatory backup, post-write rollback, logical
+  split-file editing, and failed-operation observability.
+
+---
+
 ## [2.6.0] — 2026-07-08
 
 ### Fixed

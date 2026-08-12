@@ -79,7 +79,7 @@ python scripts/mcp_cli.py bank consolidation-queues                  # Résumé 
 python scripts/mcp_cli.py bank stale-spaces                          # 🚨 Spaces ≥5 notes / plus ancienne ≥5 jours
 python scripts/mcp_cli.py bank stale-spaces --min-notes 10 --min-age-days 7 --consolidate  # Déclenche bulk consolidation
 python scripts/mcp_cli.py bank compact my-proj                       # Dry-run des fichiers surdimensionnés
-python scripts/mcp_cli.py bank compact my-proj --apply               # Compaction via LLM (manage)
+python scripts/mcp_cli.py bank compact my-proj --apply               # Découpe lossless en octets UTF-8 (manage)
 python scripts/mcp_cli.py bank repair my-proj                        # Dry-run (Unicode / préfixes parasites)
 python scripts/mcp_cli.py bank repair my-proj --apply                # Applique les fixes (manage)
 python scripts/mcp_cli.py bank write my-proj activeContext.md -f ./ctx.md   # Bypass LLM (manage)

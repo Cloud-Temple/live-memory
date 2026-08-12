@@ -664,12 +664,11 @@ def bank_repair_cmd(ctx, space_id, apply, jflag):
 @click.option("--json", "-j", "jflag", is_flag=True)
 @click.pass_context
 def bank_compact_cmd(ctx, space_id, apply, jflag):
-    """📦 Compact oversized bank files via LLM (admin).
+    """📦 Losslessly split oversized bank files (admin).
 
     \b
-    Analyzes each file and compares its size to the configured limit
-    (activeContext.md: 8KB, progress.md: 20KB, others: 15KB).
-    Oversized files are summarized/cleaned by the LLM.
+    Measures persisted UTF-8 bytes and mechanically splits oversized files
+    on line boundaries. No LLM rewrite is performed.
 
     \b
     Examples:
@@ -680,7 +679,7 @@ def bank_compact_cmd(ctx, space_id, apply, jflag):
         console.print("[dim]Dry-run mode — analysis without modifications.[/dim]")
     else:
         console.print(
-            "[dim]Compaction in progress... (may take several seconds per file)[/dim]"
+            "[dim]Lossless split in progress...[/dim]"
         )
     from .display import show_bank_compact_result
 

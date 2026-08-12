@@ -452,20 +452,25 @@ def show_consolidation_result(result: dict):
 def show_bank_compact_result(result: dict):
     """Displays the bank_compact result."""
     dry_run = result.get("dry_run", True)
-    mode_label = (
-        "[yellow]DRY-RUN (no modifications)[/yellow]"
-        if dry_run
-        else "[green]APPLIED[/green]"
-    )
+    result_status = result.get("status", "ok")
+    if dry_run:
+        mode_label = "[yellow]DRY-RUN (no modifications)[/yellow]"
+    elif result_status == "ok":
+        mode_label = "[green]APPLIED[/green]"
+    elif result_status == "partial":
+        mode_label = "[yellow]PARTIAL[/yellow]"
+    else:
+        mode_label = "[red]FAILED — originals preserved[/red]"
     files_over = result.get("files_over_limit", 0)
-    border = "yellow" if dry_run else ("green" if files_over == 0 else "cyan")
+    border = (
+        "yellow"
+        if dry_run
+        else {"ok": "green", "partial": "yellow"}.get(result_status, "red")
+    )
 
-    size_before = result.get("total_size_before", 0)
-    size_after = result.get("total_size_after", 0)
-    reduction = ""
-    if not dry_run and size_before > 0 and size_after < size_before:
-        pct = round((1 - size_after / size_before) * 100)
-        reduction = f"\n[bold]Reduction  :[/bold] [green]-{pct}%[/green] ({size_before} → {size_after} bytes)"
+    size_before = result.get("total_size_bytes_before", 0)
+    size_after = result.get("total_size_bytes_after", size_before)
+    backup = result.get("backup_id")
 
     console.print(
         Panel.fit(
@@ -473,7 +478,9 @@ def show_bank_compact_result(result: dict):
             f"[bold]Mode       :[/bold] {mode_label}\n"
             f"[bold]Files      :[/bold] {result.get('files_total', 0)} total\n"
             f"[bold]Oversized  :[/bold] {files_over}\n"
-            f"[bold]Bank size  :[/bold] {size_before} bytes" + reduction,
+            f"[bold]Files split:[/bold] {result.get('files_split', 0)}\n"
+            f"[bold]Bank size  :[/bold] {size_before} → {size_after} UTF-8 bytes"
+            + (f"\n[bold]Backup     :[/bold] {backup}" if backup else ""),
             title="📦 Bank Compact",
             border_style=border,
         )
@@ -490,8 +497,8 @@ def show_bank_compact_result(result: dict):
         table.add_column("Status")
 
         for f in files:
-            size = f.get("size", 0)
-            max_size = f.get("max_size", 0)
+            size = f.get("largest_part_bytes", 0)
+            max_size = f.get("max_size_bytes", 0)
             ratio = f.get("ratio", 0)
             over = f.get("over_limit", False)
 
@@ -506,9 +513,8 @@ def show_bank_compact_result(result: dict):
             # Statut
             if not over:
                 status = "✅ OK"
-            elif f.get("compacted_size"):
-                pct = f.get("reduction_pct", 0)
-                status = f"📦 -{pct}% ({f['compacted_size']} bytes)"
+            elif f.get("parts_after"):
+                status = f"📦 split into {f['parts_after']} parts"
             elif f.get("error"):
                 status = f"[red]❌ {f['error']}[/red]"
             else:
@@ -527,7 +533,7 @@ def show_bank_compact_result(result: dict):
         show_success("All bank files are within their size limit!")
     elif dry_run and files_over > 0:
         show_warning(
-            f"{files_over} oversized file(s). Run with --apply to compact."
+            f"{files_over} oversized file(s). Run with --apply to split safely."
         )
 
 

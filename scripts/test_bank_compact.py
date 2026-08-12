@@ -6,7 +6,7 @@ Tests unitaires et E2E pour le bank compaction.
 Tests couverts :
   - _get_max_size_for_file() : limites par type de fichier
   - _compact_bank_if_needed() : seuil de déclenchement, compaction
-  - _compact_single_file() : prompt par type, appel LLM
+  - _split_markdown_losslessly() : découpe en octets UTF-8 sans perte
   - compact_bank() : mode dry_run et mode apply
   - _call_llm() : calcul dynamique du max_tokens
   - E2E : compact_bank sur un vrai espace (nécessite serveur MCP)
@@ -53,6 +53,10 @@ class TestGetMaxSizeForFile(unittest.TestCase):
             settings.bank_file_max_size = 15360
             settings.bank_active_context_max_size = 8192
             settings.bank_progress_max_size = 20480
+            settings.proxy_url = None
+            settings.consolidation_cooldown_seconds = 0
+            settings.consolidation_validation_enabled = False
+            settings.consolidation_validation_max_examples = 20
             mock_settings.return_value = settings
             from live_mem.core.consolidator import ConsolidatorService
 
@@ -102,6 +106,10 @@ class TestDynamicMaxTokens(unittest.TestCase):
             settings.bank_file_max_size = 15360
             settings.bank_active_context_max_size = 8192
             settings.bank_progress_max_size = 20480
+            settings.proxy_url = None
+            settings.consolidation_cooldown_seconds = 0
+            settings.consolidation_validation_enabled = False
+            settings.consolidation_validation_max_examples = 20
             mock_settings.return_value = settings
             from live_mem.core.consolidator import ConsolidatorService
 
@@ -160,6 +168,10 @@ class TestCompactBankIfNeeded(unittest.TestCase):
             settings.bank_file_max_size = 15360
             settings.bank_active_context_max_size = 8192
             settings.bank_progress_max_size = 20480
+            settings.proxy_url = None
+            settings.consolidation_cooldown_seconds = 0
+            settings.consolidation_validation_enabled = False
+            settings.consolidation_validation_max_examples = 20
             mock_settings.return_value = settings
             from live_mem.core.consolidator import ConsolidatorService
 
@@ -188,117 +200,42 @@ class TestCompactBankIfNeeded(unittest.TestCase):
         # Total: 250000 bytes ≈ 62500 tokens > 60000 (60% of 100000)
 
         mock_storage = MagicMock()
-        mock_storage.put = AsyncMock()
 
         with patch("live_mem.core.consolidator.get_storage", return_value=mock_storage):
-            # Mock _compact_single_file pour retourner du contenu réduit
-            self.svc._compact_single_file = AsyncMock(return_value="compacted" * 100)
+            self.svc._split_compaction_units = AsyncMock(
+                return_value={
+                    "files_split": 2,
+                    "files_failed": 0,
+                    "physical_size_delta_bytes": 512,
+                    "backup_id": "test/backup",
+                }
+            )
             result = asyncio.run(
                 self.svc._compact_bank_if_needed("test", bank_files, "rules")
             )
 
         self.assertTrue(result["compacted"])
         self.assertGreater(result["files_compacted"], 0)
-        self.assertLess(result["size_after"], result["size_before"])
+        self.assertGreaterEqual(result["size_after"], result["size_before"])
 
 
-class TestCompactSingleFile(unittest.TestCase):
-    """Test _compact_single_file() : prompts spécifiques par fichier."""
+class TestLosslessSplit(unittest.TestCase):
+    """Tests directs de la découpe mécanique."""
 
-    def setUp(self):
-        with patch("live_mem.core.consolidator.get_settings") as mock_settings:
-            settings = MagicMock()
-            settings.llmaas_api_url = "http://test"
-            settings.llmaas_api_key = "test-key"
-            settings.consolidation_timeout = 60
-            settings.llmaas_model = "test-model"
-            settings.llmaas_context_window = 131072
-            settings.llmaas_max_tokens = 16384
-            settings.llmaas_temperature = 0.3
-            settings.consolidation_max_notes = 500
-            settings.consolidation_batch_size = 5
-            settings.compact_threshold = 0.6
-            settings.bank_file_max_size = 15360
-            settings.bank_active_context_max_size = 8192
-            settings.bank_progress_max_size = 20480
-            mock_settings.return_value = settings
-            from live_mem.core.consolidator import ConsolidatorService
-
-            self.svc = ConsolidatorService()
-
-    def test_active_context_prompt_contains_generic_instructions(self):
-        """Le prompt de compaction contient les instructions génériques et le nom du fichier."""
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[
-            0
-        ].message.content = "# activeContext.md\n\n## Focus\nCompacted"
-        self.svc._client.chat.completions.create = AsyncMock(return_value=mock_response)
-
-        result = asyncio.run(
-            self.svc._compact_single_file(
-                "activeContext.md", "x" * 50000, 15360, "rules"
-            )
+    def test_utf8_bytes_and_reconstruction(self):
+        from live_mem.core.consolidator import (
+            _parse_split_part,
+            _split_markdown_losslessly,
+            _utf8_size,
         )
 
-        self.svc._client.chat.completions.create.assert_called_once()
-        call_args = self.svc._client.chat.completions.create.call_args
-        prompt = call_args.kwargs.get("messages", call_args[1].get("messages", []))[0][
-            "content"
-        ]
-
-        # Vérifier les instructions génériques (v1.4.0+)
-        self.assertIn("redondantes", prompt)
-        self.assertIn("activeContext.md", prompt)
-        self.assertIn("RULES DE RÉFÉRENCE", prompt)
-        self.assertIsNotNone(result)
-
-    def test_progress_prompt_contains_generic_instructions(self):
-        """Le prompt de compaction contient les instructions génériques."""
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "# progress.md\n\nCompacted"
-        self.svc._client.chat.completions.create = AsyncMock(return_value=mock_response)
-
-        result = asyncio.run(
-            self.svc._compact_single_file(
-                "progress.md", "x" * 25000, 15360, "rules"
-            )
-        )
-
-        call_args = self.svc._client.chat.completions.create.call_args
-        prompt = call_args.kwargs.get("messages", call_args[1].get("messages", []))[0][
-            "content"
-        ]
-        self.assertIn("obsolètes", prompt)
-        self.assertIn("jalon", prompt)
-        self.assertIsNotNone(result)
-
-    def test_llm_failure_returns_none(self):
-        """Si le LLM échoue, retourne None."""
-        self.svc._client.chat.completions.create = AsyncMock(
-            side_effect=Exception("LLM down")
-        )
-
-        result = asyncio.run(
-            self.svc._compact_single_file("test.md", "content", 15360, "rules")
-        )
-        self.assertIsNone(result)
-
-    def test_think_tags_cleaned(self):
-        """Les balises <think> sont nettoyées de la réponse."""
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[
-            0
-        ].message.content = "<think>réflexion interne</think>\n# Compacted\n\nContent"
-        self.svc._client.chat.completions.create = AsyncMock(return_value=mock_response)
-
-        result = asyncio.run(
-            self.svc._compact_single_file("test.md", "x" * 20000, 15360, "rules")
-        )
-        self.assertNotIn("<think>", result)
-        self.assertIn("Compacted", result)
+        content = "# test\n" + "".join(f"## Étape {i}\n- donnée préservée\n" for i in range(1000))
+        parts, error = _split_markdown_losslessly("test.md", content, 15360)
+        self.assertIsNone(error)
+        self.assertGreater(len(parts), 1)
+        self.assertTrue(all(_utf8_size(rendered) <= 15360 for _, rendered in parts))
+        rebuilt = "".join(_parse_split_part(name, rendered)[1] for name, rendered in parts)
+        self.assertEqual(rebuilt, content)
 
 
 class TestCompactBank(unittest.TestCase):
@@ -320,6 +257,10 @@ class TestCompactBank(unittest.TestCase):
             settings.bank_file_max_size = 15360
             settings.bank_active_context_max_size = 8192
             settings.bank_progress_max_size = 20480
+            settings.proxy_url = None
+            settings.consolidation_cooldown_seconds = 0
+            settings.consolidation_validation_enabled = False
+            settings.consolidation_validation_max_examples = 20
             mock_settings.return_value = settings
             from live_mem.core.consolidator import ConsolidatorService
 
@@ -349,7 +290,7 @@ class TestCompactBank(unittest.TestCase):
         mock_storage.put.assert_not_called()
 
     def test_apply_mode_writes(self):
-        """En mode apply, les fichiers compactés sont écrits."""
+        """En mode apply, les fichiers surdimensionnés sont découpés."""
         mock_storage = MagicMock()
         mock_storage.get_json = AsyncMock(return_value={"created_at": "2026-01-01"})
         mock_storage.list_and_get = AsyncMock(
@@ -357,11 +298,20 @@ class TestCompactBank(unittest.TestCase):
                 {"key": "test/bank/activeContext.md", "content": "x" * 50000},
             ]
         )
-        mock_storage.get = AsyncMock(return_value="# Rules")
-        mock_storage.put = AsyncMock()
-
-        # Mock _compact_single_file
-        self.svc._compact_single_file = AsyncMock(return_value="compacted" * 50)
+        self.svc._split_compaction_units = AsyncMock(
+            return_value={
+                "files_split": 1,
+                "files_failed": 0,
+                "physical_size_delta_bytes": 128,
+                "backup_id": "test/backup",
+                "reports": {
+                    "activeContext.md": {
+                        "parts_after": 4,
+                        "largest_part_bytes_after": 12000,
+                    }
+                },
+            }
+        )
 
         with patch("live_mem.core.consolidator.get_storage", return_value=mock_storage):
             result = asyncio.run(self.svc.compact_bank("test", dry_run=False))
@@ -369,7 +319,7 @@ class TestCompactBank(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["dry_run"])
         self.assertEqual(result["files_over_limit"], 1)
-        mock_storage.put.assert_called_once()  # 1 fichier écrit
+        self.assertEqual(result["files_split"], 1)
 
     def test_space_not_found(self):
         """Si l'espace n'existe pas, retourne erreur."""
@@ -497,7 +447,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestGetMaxSizeForFile))
     suite.addTests(loader.loadTestsFromTestCase(TestDynamicMaxTokens))
     suite.addTests(loader.loadTestsFromTestCase(TestCompactBankIfNeeded))
-    suite.addTests(loader.loadTestsFromTestCase(TestCompactSingleFile))
+    suite.addTests(loader.loadTestsFromTestCase(TestLosslessSplit))
     suite.addTests(loader.loadTestsFromTestCase(TestCompactBank))
 
     # Tests E2E (optionnel)

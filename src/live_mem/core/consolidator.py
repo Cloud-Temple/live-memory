@@ -22,8 +22,10 @@ Voir CONSOLIDATION_LLM.md pour les détails du pipeline et des prompts.
 import re
 import json
 import time
+import hashlib
 import logging
 import inspect
+import posixpath
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, Optional
 
@@ -55,6 +57,183 @@ _last_consolidation_started: dict[str, float] = {}
 # rewrites légitimes du LLM ne réduisent que rarement de >70%.
 _REWRITE_MIN_RATIO = 0.30
 _REWRITE_MIN_ABSOLUTE_BYTES = 200  # n'évalue le ratio que si l'ancien fichier > 200B
+
+
+# Issue #37 — bank compaction must never ask an LLM to rewrite a large file.
+# Compaction is now a lossless, byte-aware split.  The 75% target leaves
+# headroom for later surgical edits before another split is needed.
+_COMPACTION_TARGET_RATIO = 0.75
+_SPLIT_MARKER_RE = re.compile(r"^<!-- live-mem-split (\{.*\}) -->\n?")
+
+
+def _utf8_size(content: str) -> int:
+    """Return the persisted size of text, in UTF-8 bytes."""
+    return len(content.encode("utf-8"))
+
+
+def _content_sha256(content: str) -> str:
+    """Hash the exact UTF-8 payload used for persistence."""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _split_part_filename(source: str, part: int) -> str:
+    """Return the stable filename for a split part (part 1 is canonical)."""
+    if part == 1:
+        return source
+    stem, ext = posixpath.splitext(source)
+    return f"{stem}.part-{part:03d}{ext or '.md'}"
+
+
+def _split_marker(source: str, part: int, total: int) -> str:
+    """Build a machine-readable Markdown comment linking split parts."""
+    metadata = {
+        "source": source,
+        "part": part,
+        "total": total,
+        "next": _split_part_filename(source, part + 1) if part < total else None,
+    }
+    return (
+        "<!-- live-mem-split "
+        + json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+        + " -->\n"
+    )
+
+
+def _parse_split_part(filename: str, content: str) -> tuple[dict | None, str]:
+    """Parse a split marker and return its metadata plus the untouched body."""
+    match = _SPLIT_MARKER_RE.match(content)
+    if not match:
+        return None, content
+    try:
+        metadata = json.loads(match.group(1))
+        source = _sanitize_filename(str(metadata["source"]))
+        part = int(metadata["part"])
+        total = int(metadata["total"])
+        if part < 1 or total < 1 or part > total:
+            raise ValueError("invalid part numbering")
+        if filename != _split_part_filename(source, part):
+            raise ValueError("filename does not match split marker")
+        metadata = {"source": source, "part": part, "total": total}
+        return metadata, content[match.end() :]
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        logger.warning("Invalid live-mem split marker ignored in %s", filename)
+        return None, content
+
+
+def _split_markdown_losslessly(
+    source: str, content: str, max_size_bytes: int
+) -> tuple[list[tuple[str, str]] | None, str | None]:
+    """Split Markdown on line boundaries and prove exact body reconstruction."""
+    target_bytes = int(max_size_bytes * _COMPACTION_TARGET_RATIO)
+    # Reserve enough room for the marker, including long nested filenames.
+    body_budget = target_bytes - 1024
+    if body_budget <= 0:
+        return None, "max_size_bytes is too small for split metadata"
+
+    lines = content.splitlines(keepends=True)
+    if not lines and content:
+        lines = [content]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_bytes = 0
+    for line in lines:
+        line_bytes = _utf8_size(line)
+        if line_bytes > body_budget:
+            return (
+                None,
+                f"a single line is {line_bytes} bytes and cannot be split safely",
+            )
+        if current and current_bytes + line_bytes > body_budget:
+            chunks.append("".join(current))
+            current = []
+            current_bytes = 0
+        current.append(line)
+        current_bytes += line_bytes
+    if current or not chunks:
+        chunks.append("".join(current))
+
+    total = len(chunks)
+    parts: list[tuple[str, str]] = []
+    for index, body in enumerate(chunks, 1):
+        filename = _split_part_filename(source, index)
+        rendered = _split_marker(source, index, total) + body
+        rendered_bytes = _utf8_size(rendered)
+        if rendered_bytes > max_size_bytes:
+            return (
+                None,
+                f"split part {index} is {rendered_bytes} bytes (max {max_size_bytes})",
+            )
+        parts.append((filename, rendered))
+
+    reconstructed = "".join(_parse_split_part(name, body)[1] for name, body in parts)
+    if reconstructed != content:
+        return None, "lossless reconstruction check failed"
+    return parts, None
+
+
+def _build_compaction_units(space_id: str, bank_files: list[dict]) -> list[dict]:
+    """Group physical bank objects into logical (possibly split) files."""
+    plain: list[dict] = []
+    families: dict[str, list[dict]] = {}
+
+    for bank_file in bank_files:
+        raw_key = bank_file["key"]
+        filename = _sanitize_filename(bank_relpath(raw_key, space_id))
+        content = bank_file.get("content", "")
+        metadata, body = _parse_split_part(filename, content)
+        member = {
+            "filename": filename,
+            "raw_key": raw_key,
+            "content": content,
+            "body": body,
+            "metadata": metadata,
+        }
+        if metadata:
+            families.setdefault(metadata["source"], []).append(member)
+        else:
+            plain.append(member)
+
+    units: list[dict] = []
+    for member in plain:
+        # A canonical file without a marker takes precedence over orphaned
+        # marked parts with the same source; those parts are left untouched.
+        units.append(
+            {
+                "source": member["filename"],
+                "content": member["content"],
+                "members": [member],
+                "parts_before": 1,
+                "largest_part_bytes": _utf8_size(member["content"]),
+                "error": None,
+            }
+        )
+
+    plain_filenames = {member["filename"] for member in plain}
+    for source, members in families.items():
+        if source in plain_filenames:
+            continue
+        members.sort(key=lambda item: item["metadata"]["part"])
+        totals = {item["metadata"]["total"] for item in members}
+        expected_parts = list(range(1, next(iter(totals)) + 1)) if len(totals) == 1 else []
+        actual_parts = [item["metadata"]["part"] for item in members]
+        error = None
+        if len(totals) != 1 or actual_parts != expected_parts:
+            error = "split family is incomplete or has inconsistent metadata"
+        units.append(
+            {
+                "source": source,
+                "content": "".join(item["body"] for item in members),
+                "members": members,
+                "parts_before": len(members),
+                "largest_part_bytes": max(
+                    (_utf8_size(item["content"]) for item in members), default=0
+                ),
+                "error": error,
+            }
+        )
+
+    return sorted(units, key=lambda unit: unit["source"])
 
 
 # ─────────────────────────────────────────────────────────────
@@ -396,6 +575,10 @@ Ces règles sont OBLIGATOIRES et prioritaires sur toute autre considération :
   existant et en ajoutant les détails manquants), au lieu de créer une section dupliquée.
   Ceci est particulièrement important après une compaction où les sections ont été résumées.
 - Identifie le RÔLE de chaque fichier bank à partir des RULES fournies (pas à partir du nom de fichier).
+- Un fichier commençant par `<!-- live-mem-split ... -->` est une partie d'un
+  fichier logique découpé. Cible toujours son nom canonique (`source`) avec
+  une action `edit` : le serveur réassemble puis redécoupe le fichier sans
+  perte. N'utilise jamais `rewrite` sur un fichier découpé.
 - Les headings doivent correspondre EXACTEMENT à ceux du fichier (avec les ## )
 - Si un fichier n'a pas besoin de modification, NE L'INCLUS PAS
 - La synthèse doit être concise mais couvrir les points clés des notes traitées
@@ -565,6 +748,17 @@ class ConsolidatorService:
         compact_result = await self._compact_bank_if_needed(
             space_id, inputs["bank_files"], inputs["rules"]
         )
+        if compact_result.get("files_failed", 0):
+            return {
+                "status": "error",
+                "space_id": space_id,
+                "notes_processed": 0,
+                "message": (
+                    "Pre-consolidation bank split failed; no live note was "
+                    "deleted and original bank files were preserved"
+                ),
+                "compaction": compact_result,
+            }
         if compact_result["compacted"]:
             # Relire la bank compactée depuis S3
             inputs["bank_files"] = await storage.list_and_get(f"{space_id}/bank/")
@@ -592,6 +786,7 @@ class ConsolidatorService:
         total_updated = 0
         total_ops_applied = 0
         total_ops_failed = 0
+        operation_failures: list[dict] = []
         total_tokens = 0
         total_prompt_tokens = 0
         total_completion_tokens = 0
@@ -722,6 +917,7 @@ class ConsolidatorService:
             total_updated += write_result.get("bank_files_updated", 0)
             total_ops_applied += write_result.get("operations_applied", 0)
             total_ops_failed += write_result.get("operations_failed", 0)
+            operation_failures.extend(write_result.get("operation_failures", []))
             total_tokens += write_result.get("llm_tokens_used", 0)
             total_prompt_tokens += write_result.get("llm_prompt_tokens", 0)
             total_completion_tokens += write_result.get("llm_completion_tokens", 0)
@@ -825,7 +1021,7 @@ class ConsolidatorService:
         # A batch failure with zero completed batches is an error, not a
         # success: reporting "ok" here made the queue expose `succeeded`
         # jobs while 100% of the notes were left unconsolidated.
-        if batch_failure is None:
+        if batch_failure is None and total_ops_failed == 0:
             status = "ok"
             final_phase = "done"
         elif batches_completed == 0:
@@ -860,6 +1056,7 @@ class ConsolidatorService:
             "bank_files_unchanged": max(0, total_bank - total_created - total_updated),
             "operations_applied": total_ops_applied,
             "operations_failed": total_ops_failed,
+            "operation_failures": operation_failures,
             "synthesis_size": last_synthesis_size,
             "llm_tokens_used": total_tokens,
             "llm_prompt_tokens": total_prompt_tokens,
@@ -876,6 +1073,11 @@ class ConsolidatorService:
                 f"Batch {failed_batch}/{batch_count} failed: {batch_failure} — "
                 f"{batches_completed} batch(es) applied, "
                 f"{remaining_notes} note(s) left in live/"
+            )
+        elif total_ops_failed:
+            result["message"] = (
+                f"{total_ops_failed} bank edit operation(s) failed; "
+                "see operation_failures for file and section details"
             )
         await emit_progress(
             {
@@ -1343,6 +1545,7 @@ Retourne un JSON avec cette structure exacte :
         # pouvoir nettoyer les anciennes clés S3 contaminées par Unicode.
         bank_index = {}  # sanitized_filename → content
         bank_raw_keys = {}  # sanitized_filename → [liste des clés S3 brutes]
+        split_families: dict[str, list[tuple[int, str]]] = {}
         for bf in bank_files:
             raw_key = bf["key"]
             # Extraire le chemin relatif complet (supporte les sous-dossiers)
@@ -1351,15 +1554,30 @@ Retourne un JSON avec cette structure exacte :
             # Si plusieurs clés S3 sanitisent vers le même nom → doublons !
             # On garde la version la plus récente (dernière dans la liste triée)
             bank_index[sanitized] = bf["content"]
+            split_metadata, _ = _parse_split_part(sanitized, bf["content"])
+            if split_metadata:
+                split_families.setdefault(split_metadata["source"], []).append(
+                    (split_metadata["part"], sanitized)
+                )
             if sanitized not in bank_raw_keys:
                 bank_raw_keys[sanitized] = []
             bank_raw_keys[sanitized].append(raw_key)
+
+        split_family_files = {
+            source: [filename for _, filename in sorted(parts)]
+            for source, parts in split_families.items()
+        }
+        compaction_units_by_source = {
+            unit["source"]: unit
+            for unit in _build_compaction_units(space_id, bank_files)
+        }
 
         files_created = 0
         files_updated = 0
         files_cleaned = 0
         operations_applied = 0
         operations_failed = 0
+        operation_failures: list[dict] = []
 
         async def _cleanup_unicode_duplicates(sanitized_name: str) -> None:
             """Supprime les anciennes clés S3 contaminées par Unicode
@@ -1389,6 +1607,16 @@ Retourne un JSON avec cette structure exacte :
             if action == "create":
                 # Nouveau fichier : écriture complète
                 content = file_edit.get("content", "")
+                if filename in split_family_files:
+                    operations_failed += 1
+                    operation_failures.append(
+                        {
+                            "filename": filename,
+                            "action": "create",
+                            "reason": "create is forbidden on an existing split bank file",
+                        }
+                    )
+                    continue
                 if content:
                     await storage.put(f"{space_id}/bank/{filename}", content)
                     await _cleanup_unicode_duplicates(filename)
@@ -1400,6 +1628,20 @@ Retourne un JSON avec cette structure exacte :
                 content = file_edit.get("content", "")
                 reason = file_edit.get("reason", "non spécifiée")
                 if content:
+                    if filename in split_family_files:
+                        logger.error(
+                            "REWRITE refused for split bank file %s — use surgical edits",
+                            filename,
+                        )
+                        operations_failed += 1
+                        operation_failures.append(
+                            {
+                                "filename": filename,
+                                "action": "rewrite",
+                                "reason": "rewrite is forbidden on a split bank file",
+                            }
+                        )
+                        continue
                     # LM2-13 fix : protection anti-effacement par prompt injection.
                     # Si le rewrite réduit le fichier de plus de (1 - _REWRITE_MIN_RATIO),
                     # c'est suspect (un compact légitime vise rarement >70%). On
@@ -1408,8 +1650,8 @@ Retourne un JSON avec cette structure exacte :
                     # fichier dépasse _REWRITE_MIN_ABSOLUTE_BYTES (sinon le ratio
                     # est trop sensible aux petites variations).
                     old_content = bank_index.get(filename)
-                    old_size = len(old_content) if old_content else 0
-                    new_size = len(content)
+                    old_size = _utf8_size(old_content) if old_content else 0
+                    new_size = _utf8_size(content)
                     if (
                         old_size >= _REWRITE_MIN_ABSOLUTE_BYTES
                         and new_size < old_size * _REWRITE_MIN_RATIO
@@ -1426,6 +1668,13 @@ Retourne un JSON avec cette structure exacte :
                             reason,
                         )
                         operations_failed += 1
+                        operation_failures.append(
+                            {
+                                "filename": filename,
+                                "action": "rewrite",
+                                "reason": "content shrinks below the rewrite safety ratio",
+                            }
+                        )
                         # Skip ce file_edit — le fichier original n'est pas touché
                         continue
 
@@ -1445,18 +1694,112 @@ Retourne un JSON avec cette structure exacte :
                 if not operations:
                     continue
 
-                # Lire le contenu existant
+                # A split family is edited as one logical Markdown document.
+                # This is essential when a section crosses a physical part
+                # boundary: editing one part alone would leave stale content
+                # in the next part.  After the surgical operations, the exact
+                # logical result is split again with the same lossless guard.
+                if filename in split_family_files:
+                    unit = compaction_units_by_source[filename]
+                    existing_content = unit["content"]
+                    updated_content = existing_content
+                    for op in operations:
+                        try:
+                            updated_content = _apply_operation(updated_content, op)
+                            operations_applied += 1
+                        except Exception as e:
+                            operations_failed += 1
+                            operation_failures.append(
+                                {
+                                    "filename": filename,
+                                    "operation": op.get("type", "?"),
+                                    "heading": op.get("heading", ""),
+                                    "reason": str(e),
+                                }
+                            )
+
+                    updated_content, dedup_count = await self._deduplicate_content(
+                        updated_content, filename
+                    )
+                    if updated_content != existing_content:
+                        parts, split_error = _split_markdown_losslessly(
+                            filename,
+                            updated_content,
+                            self._get_max_size_for_file(filename),
+                        )
+                        if split_error or parts is None:
+                            operations_failed += 1
+                            operation_failures.append(
+                                {
+                                    "filename": filename,
+                                    "action": "resplit",
+                                    "reason": split_error or "split failed",
+                                }
+                            )
+                            continue
+                        try:
+                            backup_id = await self._create_compaction_backup(
+                                space_id, [unit]
+                            )
+                            persisted, persist_error = await self._write_split_parts(
+                                space_id, unit, parts, backup_id
+                            )
+                        except Exception as e:
+                            persisted, persist_error = False, str(e)
+                        if not persisted:
+                            operations_failed += 1
+                            operation_failures.append(
+                                {
+                                    "filename": filename,
+                                    "action": "resplit",
+                                    "reason": persist_error or "write failed",
+                                }
+                            )
+                            continue
+                        new_members = []
+                        for part_filename, rendered in parts:
+                            metadata, body = _parse_split_part(
+                                part_filename, rendered
+                            )
+                            new_members.append(
+                                {
+                                    "filename": part_filename,
+                                    "raw_key": f"{space_id}/bank/{part_filename}",
+                                    "content": rendered,
+                                    "body": body,
+                                    "metadata": metadata,
+                                }
+                            )
+                            bank_index[part_filename] = rendered
+                        unit.update(
+                            {
+                                "content": updated_content,
+                                "members": new_members,
+                                "parts_before": len(parts),
+                                "largest_part_bytes": max(
+                                    _utf8_size(rendered) for _, rendered in parts
+                                ),
+                                "error": None,
+                            }
+                        )
+                        split_family_files[filename] = [
+                            part_filename for part_filename, _ in parts
+                        ]
+                        files_updated += 1
+                        logger.info(
+                            "Updated split bank file: %s (%d parts)",
+                            filename,
+                            len(parts),
+                        )
+                    continue
+
                 existing_content = bank_index.get(filename)
                 if existing_content is None:
-                    # Le fichier n'existe pas → le LLM aurait dû utiliser "create"
-                    # On tente quand même en partant de rien
                     logger.warning(
                         "edit sur fichier inexistant '%s', traité comme create",
                         filename,
                     )
                     existing_content = ""
-
-                # Appliquer les opérations une par une
                 updated_content = existing_content
                 for op in operations:
                     try:
@@ -1470,27 +1813,41 @@ Retourne un JSON avec cette structure exacte :
                             str(e),
                         )
                         operations_failed += 1
+                        operation_failures.append(
+                            {
+                                "filename": filename,
+                                "operation": op.get("type", "?"),
+                                "heading": op.get("heading", ""),
+                                "reason": str(e),
+                            }
+                        )
 
-                # Déduplication défensive post-opérations via LLM :
-                # rattrape les doublons résiduels que les opérations
-                # n'ont pas pu corriger (ex: doublons pré-existants)
                 updated_content, dedup_count = await self._deduplicate_content(
                     updated_content, filename
                 )
-
-                # Écrire seulement si le contenu a changé
                 if updated_content != existing_content:
-                    await storage.put(f"{space_id}/bank/{filename}", updated_content)
+                    await storage.put(
+                        f"{space_id}/bank/{filename}", updated_content
+                    )
                     await _cleanup_unicode_duplicates(filename)
+                    bank_index[filename] = updated_content
                     files_updated += 1
                     logger.info(
-                        "Updated bank file: %s (%d operations applied)",
+                        "Updated bank file: %s (%d operations requested)",
                         filename,
                         len(operations),
                     )
             else:
                 logger.warning(
                     "Action inconnue '%s' pour %s, ignorée", action, filename
+                )
+                operations_failed += 1
+                operation_failures.append(
+                    {
+                        "filename": filename,
+                        "action": action,
+                        "reason": "unknown file edit action",
+                    }
                 )
 
         # 4b. Écrire la synthèse résiduelle
@@ -1536,6 +1893,7 @@ Retourne un JSON avec cette structure exacte :
             "bank_files_unchanged": max(0, files_unchanged),
             "operations_applied": operations_applied,
             "operations_failed": operations_failed,
+            "operation_failures": operation_failures,
             "synthesis_size": len(synthesis_content),
             "llm_tokens_used": usage.get("total_tokens", 0),
             "llm_prompt_tokens": usage.get("prompt_tokens", 0),
@@ -1767,13 +2125,7 @@ CONSIGNE : Fusionne ces versions en UNE SEULE version cohérente.
         self, space_id: str, bank_files: list[dict], rules: str
     ) -> dict:
         """
-        Auto-compact de la bank avant consolidation.
-
-        Vérifie si le prompt total (bank + notes estimées) risque de
-        dépasser le seuil configuré. Si oui, compacte chaque fichier
-        bank dépassant sa taille max via un appel LLM dédié.
-
-        Inspiré de l'autoCompact de Claude Code — voir CONTEXT_COMPACTION.md.
+        Split losslessly any oversized physical bank file before consolidation.
 
         Args:
             space_id: Identifiant de l'espace
@@ -1781,19 +2133,26 @@ CONSIGNE : Fusionne ces versions en UNE SEULE version cohérente.
             rules: Rules de l'espace (pour le contexte du LLM)
 
         Returns:
-            Dict avec compacted (bool), files_compacted, size_before, size_after
+            Split metrics. Sizes are always UTF-8 bytes.
         """
-        storage = get_storage()
-
-        # Estimer la taille totale de la bank
-        total_bank_size = sum(len(bf.get("content", "")) for bf in bank_files)
+        total_bank_size = sum(_utf8_size(bf.get("content", "")) for bf in bank_files)
         estimated_bank_tokens = total_bank_size // 4
+        units = _build_compaction_units(space_id, bank_files)
+        oversized = [
+            unit
+            for unit in units
+            if unit["largest_part_bytes"]
+            > self._get_max_size_for_file(unit["source"])
+        ]
 
-        # Vérifier si la compaction est nécessaire
-        # Seuil : la bank seule consomme déjà > compact_threshold du budget
-        if estimated_bank_tokens <= self._max_tokens * self._compact_threshold:
+        # A physical file over the byte limit must be split even when the
+        # aggregate prompt is still below the auto-compaction threshold.
+        if (
+            estimated_bank_tokens <= self._max_tokens * self._compact_threshold
+            and not oversized
+        ):
             logger.debug(
-                "Bank size OK — %d bytes (~%d tokens), threshold %.0f%% of %d",
+                "Bank size OK — %d UTF-8 bytes (~%d tokens), threshold %.0f%% of %d",
                 total_bank_size,
                 estimated_bank_tokens,
                 self._compact_threshold * 100,
@@ -1802,166 +2161,208 @@ CONSIGNE : Fusionne ces versions en UNE SEULE version cohérente.
             return {
                 "compacted": False,
                 "files_compacted": 0,
+                "files_failed": 0,
                 "size_before": total_bank_size,
                 "size_after": total_bank_size,
             }
 
-        logger.warning(
-            "COMPACT — Bank trop grosse : %d bytes (~%d tokens, "
-            "seuil=%.0f%% de %d). Compaction en cours...",
-            total_bank_size,
-            estimated_bank_tokens,
-            self._compact_threshold * 100,
-            self._max_tokens,
-        )
-
-        # Identifier les fichiers à compacter (ceux qui dépassent leur limite)
-        files_compacted = 0
-        size_before = total_bank_size
-        size_after = 0
-
-        for bf in bank_files:
-            raw_key = bf["key"]
-            raw_relpath = bank_relpath(raw_key, space_id)
-            filename = _sanitize_filename(raw_relpath)
-            content = bf.get("content", "")
-            file_size = len(content)
-            max_size = self._get_max_size_for_file(filename)
-
-            if file_size <= max_size:
-                size_after += file_size
-                continue
-
-            # Ce fichier doit être compacté
-            logger.info(
-                "COMPACT %s — %d bytes (max %d), compaction via LLM...",
-                filename,
-                file_size,
-                max_size,
-            )
-
-            compacted = await self._compact_single_file(
-                filename, content, max_size, rules
-            )
-
-            if compacted is not None and len(compacted) < file_size:
-                # Écrire le fichier compacté sur S3
-                await storage.put(f"{space_id}/bank/{filename}", compacted)
-                files_compacted += 1
-                size_after += len(compacted)
-                logger.info(
-                    "COMPACT %s — %d → %d bytes (-%d%%)",
-                    filename,
-                    file_size,
-                    len(compacted),
-                    round((1 - len(compacted) / file_size) * 100),
-                )
-            else:
-                # Compaction échouée ou pas de réduction → garder l'original
-                size_after += file_size
-                logger.warning(
-                    "COMPACT %s — échec ou pas de réduction, fichier conservé",
-                    filename,
-                )
-
+        result = await self._split_compaction_units(space_id, oversized)
         return {
-            "compacted": files_compacted > 0,
-            "files_compacted": files_compacted,
-            "size_before": size_before,
-            "size_after": size_after,
+            "compacted": result["files_split"] > 0,
+            "files_compacted": result["files_split"],
+            "files_failed": result["files_failed"],
+            "size_before": total_bank_size,
+            "size_after": total_bank_size + result["physical_size_delta_bytes"],
+            "backup_id": result.get("backup_id"),
         }
 
-    async def _compact_single_file(
-        self, filename: str, content: str, max_size: int, rules: str
-    ) -> str | None:
-        """
-        Compacte un seul fichier bank via un appel LLM dédié.
-
-        Le LLM reçoit le contenu actuel et doit le résumer/nettoyer
-        pour le ramener sous la taille cible, tout en conservant
-        les informations structurantes.
-
-        Args:
-            filename: Nom du fichier (pour adapter les instructions)
-            content: Contenu Markdown actuel
-            max_size: Taille cible en bytes
-            rules: Rules de l'espace (contexte)
-
-        Returns:
-            Contenu compacté, ou None si l'appel LLM échoue
-        """
-        # Instructions de compaction génériques — les rules de l'espace
-        # définissent la sémantique de chaque fichier, pas le serveur.
-        specific = (
-            "Synthétise le contenu en gardant la structure des sections.\n"
-            "- Fusionne les informations redondantes\n"
-            "- Supprime les détails obsolètes ou trop granulaires\n"
-            "- Conserve les décisions architecturales et les informations structurantes\n"
-            "- Résume les entrées anciennes en une ligne par jalon\n"
-            "- Réfère-toi aux RULES DE RÉFÉRENCE ci-dessus pour comprendre le rôle de ce fichier"
+    async def _create_compaction_backup(
+        self, space_id: str, units: list[dict]
+    ) -> str:
+        """Create a restorable, per-file S3 snapshot before any replacement."""
+        storage = get_storage()
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+        backup_id = f"{space_id}/{timestamp}"
+        prefix = f"_backups/{backup_id}/"
+        seen: set[str] = set()
+        for unit in units:
+            for member in unit["members"]:
+                raw_key = member["raw_key"]
+                if raw_key in seen:
+                    continue
+                seen.add(raw_key)
+                relative = raw_key[len(space_id) + 1 :]
+                await storage.copy_object(raw_key, prefix + relative)
+        logger.info(
+            "COMPACT BACKUP space=%s backup_id=%s files=%d",
+            space_id,
+            backup_id,
+            len(seen),
         )
+        return backup_id
 
-        prompt = f"""Tu reçois un fichier bank "{filename}" qui fait {len(content)} bytes
-(limite : {max_size} bytes). Tu dois le COMPACTER pour le ramener sous cette limite.
+    async def _write_split_parts(
+        self,
+        space_id: str,
+        unit: dict,
+        parts: list[tuple[str, str]],
+        backup_id: str,
+    ) -> tuple[bool, str | None]:
+        """Persist and verify a split family, rolling back on any failure."""
+        storage = get_storage()
+        existing_keys = {member["raw_key"] for member in unit["members"]}
+        target_contents = {
+            f"{space_id}/bank/{filename}": content for filename, content in parts
+        }
+        canonical_key = f"{space_id}/bank/{unit['source']}"
+        ordered_keys = [key for key in target_contents if key != canonical_key]
+        ordered_keys.append(canonical_key)  # Replace the canonical object last.
 
-=== RULES DE RÉFÉRENCE ===
-{rules[:2000]}
-
-=== INSTRUCTIONS SPÉCIFIQUES ===
-{specific}
-
-=== RÈGLES DE COMPACTION ===
-- Garde le heading principal (# titre) et la structure des sections (##, ###)
-- Résume les blocs redondants ou trop détaillés
-- Supprime les éléments terminés/obsolètes
-- Fusionne les entrées similaires
-- Conserve les dates des jalons importants
-- NE PERDS AUCUNE information structurante (décisions, architecture, stack)
-- Objectif : ramener SOUS {max_size} bytes
-
-=== CONTENU ACTUEL ===
-{content}
-
-Retourne UNIQUEMENT le contenu compacté (Markdown pur, pas de JSON, pas de balises, pas d'explication)."""
+        async def rollback() -> None:
+            for key in target_contents:
+                if key not in existing_keys:
+                    await storage.delete(key)
+            for key in existing_keys:
+                relative = key[len(space_id) + 1 :]
+                await storage.copy_object(f"_backups/{backup_id}/{relative}", key)
 
         try:
-            # Estimer le budget de sortie : on veut ~max_size bytes en sortie
-            # + marge pour le formatting. Le contenu max_size / 4 ≈ tokens cibles.
-            output_tokens = max(4096, max_size // 3)
+            for key in ordered_keys:
+                await storage.put(key, target_contents[key])
+            for key, expected in target_contents.items():
+                persisted = await storage.get(key)
+                if persisted != expected:
+                    raise RuntimeError(f"post-write verification failed for {key}")
+            stale_keys = sorted(existing_keys - set(target_contents))
+            if stale_keys:
+                await storage.delete_many(stale_keys)
+            return True, None
+        except Exception as exc:
+            try:
+                await rollback()
+            except Exception:
+                logger.exception(
+                    "COMPACT ROLLBACK FAILED space=%s source=%s backup_id=%s",
+                    space_id,
+                    unit["source"],
+                    backup_id,
+                )
+            return False, str(exc)
 
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=output_tokens,
-                temperature=0.2,  # Basse température pour la compaction
+    async def _split_compaction_units(
+        self, space_id: str, units: list[dict]
+    ) -> dict:
+        """Split oversized logical files after one all-or-nothing backup step."""
+        if not units:
+            return {
+                "files_split": 0,
+                "files_failed": 0,
+                "physical_size_delta_bytes": 0,
+                "reports": {},
+            }
+        try:
+            backup_id = await self._create_compaction_backup(space_id, units)
+        except Exception as exc:
+            logger.error("COMPACT BACKUP FAILED space=%s error=%s", space_id, exc)
+            return {
+                "files_split": 0,
+                "files_failed": len(units),
+                "physical_size_delta_bytes": 0,
+                "backup_error": str(exc),
+                "reports": {
+                    unit["source"]: {"error": "pre-compaction backup failed"}
+                    for unit in units
+                },
+            }
+
+        files_split = 0
+        files_failed = 0
+        physical_delta = 0
+        reports: dict[str, dict] = {}
+        for unit in units:
+            source = unit["source"]
+            max_size = self._get_max_size_for_file(source)
+            before_hash = _content_sha256(unit["content"])
+            if unit.get("error"):
+                files_failed += 1
+                reports[source] = {"error": unit["error"]}
+                continue
+            parts, split_error = _split_markdown_losslessly(
+                source, unit["content"], max_size
+            )
+            if split_error or parts is None:
+                files_failed += 1
+                reports[source] = {"error": split_error or "split failed"}
+                logger.error(
+                    "COMPACT REJECTED space=%s source=%s reason=%s",
+                    space_id,
+                    source,
+                    reports[source]["error"],
+                )
+                continue
+
+            reconstructed = "".join(
+                _parse_split_part(name, rendered)[1] for name, rendered in parts
+            )
+            after_hash = _content_sha256(reconstructed)
+            if after_hash != before_hash:
+                files_failed += 1
+                reports[source] = {"error": "content SHA-256 mismatch before write"}
+                continue
+
+            ok, write_error = await self._write_split_parts(
+                space_id, unit, parts, backup_id
+            )
+            if not ok:
+                files_failed += 1
+                reports[source] = {"error": write_error or "write failed"}
+                continue
+
+            old_physical_size = sum(
+                _utf8_size(member["content"]) for member in unit["members"]
+            )
+            new_physical_size = sum(_utf8_size(content) for _, content in parts)
+            physical_delta += new_physical_size - old_physical_size
+            files_split += 1
+            reports[source] = {
+                "parts_after": len(parts),
+                "largest_part_bytes_after": max(
+                    _utf8_size(content) for _, content in parts
+                ),
+                "content_sha256_before": before_hash,
+                "content_sha256_after": after_hash,
+            }
+            logger.info(
+                "COMPACT SPLIT space=%s source=%s parts=%d→%d "
+                "content_bytes=%d sha256_before=%s sha256_after=%s backup_id=%s",
+                space_id,
+                source,
+                unit["parts_before"],
+                len(parts),
+                _utf8_size(unit["content"]),
+                before_hash,
+                after_hash,
+                backup_id,
             )
 
-            compacted = response.choices[0].message.content or ""
-
-            # Nettoyer : retirer les blocs <think> et les backticks
-            compacted = re.sub(r"<think>.*?</think>", "", compacted, flags=re.DOTALL)
-            compacted = re.sub(r"^```(?:markdown)?\s*", "", compacted.strip())
-            compacted = re.sub(r"\s*```$", "", compacted.strip())
-
-            return compacted
-
-        except Exception as e:
-            logger.error("COMPACT %s FAILED: %s", filename, str(e))
-            return None
+        return {
+            "files_split": files_split,
+            "files_failed": files_failed,
+            "physical_size_delta_bytes": physical_delta,
+            "backup_id": backup_id,
+            "reports": reports,
+        }
 
     async def compact_bank(self, space_id: str, dry_run: bool = True) -> dict:
         """
-        Compaction manuelle de la bank d'un espace (outil MCP standalone).
-
-        En mode dry_run, rapporte les fichiers à compacter et leurs tailles
-        sans modifier quoi que ce soit.
+        Losslessly split oversized bank files (standalone MCP tool).
 
         Args:
             space_id: Identifiant de l'espace
             dry_run: True = scan seul, False = compaction effective
 
         Returns:
-            Rapport de compaction avec détails par fichier
+            Byte-explicit split report with a restorable backup id
         """
         storage = get_storage()
 
@@ -1970,69 +2371,77 @@ Retourne UNIQUEMENT le contenu compacté (Markdown pur, pas de JSON, pas de bali
         if meta is None:
             return {"status": "error", "message": f"Espace '{space_id}' introuvable"}
 
-        # Lire la bank et les rules
+        # Lire la bank
         bank_files = await storage.list_and_get(f"{space_id}/bank/")
-        rules = await storage.get(f"{space_id}/_rules.md") or ""
 
-        # Analyser chaque fichier
-        file_reports = []
-        total_before = 0
-        total_after = 0
-        files_over_limit = 0
-
-        for bf in bank_files:
-            raw_relpath = bank_relpath(bf["key"], space_id)
-            filename = _sanitize_filename(raw_relpath)
-            content = bf.get("content", "")
-            file_size = len(content)
-            max_size = self._get_max_size_for_file(filename)
-            over = file_size > max_size
-
-            total_before += file_size
-
-            report = {
-                "filename": filename,
-                "size": file_size,
-                "max_size": max_size,
-                "over_limit": over,
-                "ratio": round(file_size / max_size, 2) if max_size > 0 else 0,
-            }
-
+        units = _build_compaction_units(space_id, bank_files)
+        total_before = sum(_utf8_size(bf.get("content", "")) for bf in bank_files)
+        file_reports: list[dict] = []
+        oversized: list[dict] = []
+        for unit in units:
+            max_size = self._get_max_size_for_file(unit["source"])
+            over = unit["largest_part_bytes"] > max_size
             if over:
-                files_over_limit += 1
-                if not dry_run:
-                    # Compacter effectivement
-                    compacted = await self._compact_single_file(
-                        filename, content, max_size, rules
-                    )
-                    if compacted is not None and len(compacted) < file_size:
-                        await storage.put(f"{space_id}/bank/{filename}", compacted)
-                        report["compacted_size"] = len(compacted)
-                        report["reduction_pct"] = round(
-                            (1 - len(compacted) / file_size) * 100
-                        )
-                        total_after += len(compacted)
-                    else:
-                        report["compacted_size"] = file_size
-                        report["error"] = "compaction failed or no reduction"
-                        total_after += file_size
-                else:
-                    total_after += file_size
-            else:
-                total_after += file_size
+                oversized.append(unit)
+            file_reports.append(
+                {
+                    "filename": unit["source"],
+                    "size_bytes": _utf8_size(unit["content"]),
+                    "largest_part_bytes": unit["largest_part_bytes"],
+                    "max_size_bytes": max_size,
+                    "size_unit": "utf-8 bytes",
+                    "over_limit": over,
+                    "ratio": (
+                        round(unit["largest_part_bytes"] / max_size, 2)
+                        if max_size > 0
+                        else 0
+                    ),
+                    "parts_before": unit["parts_before"],
+                    **({"error": unit["error"]} if unit.get("error") else {}),
+                }
+            )
 
-            file_reports.append(report)
+        split_result = None
+        if not dry_run and oversized:
+            split_result = await self._split_compaction_units(space_id, oversized)
+            for report in file_reports:
+                details = split_result["reports"].get(report["filename"])
+                if details:
+                    report.update(details)
 
-        return {
-            "status": "ok",
+        files_failed = split_result["files_failed"] if split_result else 0
+        files_split = split_result["files_split"] if split_result else 0
+        if dry_run or not oversized or files_failed == 0:
+            status = "ok"
+        elif files_split > 0:
+            status = "partial"
+        else:
+            status = "error"
+        size_delta = split_result["physical_size_delta_bytes"] if split_result else 0
+
+        result = {
+            "status": status,
             "space_id": space_id,
             "dry_run": dry_run,
             "files_total": len(bank_files),
-            "files_over_limit": files_over_limit,
-            "total_size_before": total_before,
-            "total_size_after": total_after if not dry_run else total_before,
+            "logical_files_total": len(units),
+            "files_over_limit": len(oversized),
+            "files_split": files_split,
+            "files_failed": files_failed,
+            "total_size_bytes_before": total_before,
+            "total_size_bytes_after": total_before + size_delta,
+            "size_unit": "utf-8 bytes",
             "files": file_reports,
         }
+        if split_result and split_result.get("backup_id"):
+            result["backup_id"] = split_result["backup_id"]
+        if split_result and split_result.get("backup_error"):
+            result["message"] = "Pre-compaction backup failed; no file was modified"
+        elif files_failed:
+            result["message"] = (
+                f"{files_failed} file(s) could not be split; originals were preserved"
+            )
+        return result
 
 
 # ─────────────────────────────────────────────────────────────

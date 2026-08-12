@@ -215,6 +215,34 @@ class TestPartialFailure:
         assert meta_key == "sp/_meta.json"
         assert meta["total_notes_processed"] == 2
 
+    async def test_failed_surgical_operation_returns_partial_with_details(self):
+        storage = FakeStorage(_notes(2))
+        svc = _consolidator(batch_size=2)
+        write_result = _ok_write_result(2)
+        write_result["operations_failed"] = 1
+        write_result["operation_failures"] = [
+            {
+                "filename": "progress.md",
+                "operation": "append_to_section",
+                "heading": "## Missing",
+                "reason": "Section non trouvée: ## Missing",
+            }
+        ]
+
+        with patch(
+            "live_mem.core.consolidator.get_storage", return_value=storage
+        ), patch.object(
+            svc, "_call_llm", new=AsyncMock(return_value=_ok_llm_result())
+        ), patch.object(
+            svc, "_write_results", new=AsyncMock(return_value=write_result)
+        ):
+            result = await svc.consolidate("sp", agent="CLR", enforce_cooldown=False)
+
+        assert result["status"] == "partial"
+        assert result["operations_failed"] == 1
+        assert result["operation_failures"] == write_result["operation_failures"]
+        assert "see operation_failures" in result["message"]
+
 
 @pytest.mark.asyncio
 class TestFullSuccessNonRegression:
