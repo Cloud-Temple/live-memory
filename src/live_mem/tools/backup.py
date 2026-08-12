@@ -27,7 +27,9 @@ from pydantic import Field
 # Le space_id doit matcher SPACE_ID_REGEX (déjà validé par check_access),
 # et le timestamp doit matcher le format ISO produit par BackupService.create.
 _SPACE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
-_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$")
+_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:-\d{6})?$"
+)
 
 
 def _parse_backup_id(backup_id: str) -> tuple[str | None, str | None, dict | None]:
@@ -80,7 +82,7 @@ def _parse_backup_id(backup_id: str) -> tuple[str | None, str | None, dict | Non
                 "status": "error",
                 "message": (
                     f"timestamp invalide dans backup_id : '{ts[:32]}' "
-                    "(attendu : YYYY-MM-DDTHH-MM-SS)"
+                    "(attendu : YYYY-MM-DDTHH-MM-SS[-ffffff])"
                 ),
             },
         )
@@ -255,6 +257,7 @@ def register(mcp: FastMCP) -> int:
         """
         from ..auth.context import check_access, check_manage_permission
         from ..core.backup import get_backup_service
+        from ..core.locks import get_lock_manager
 
         try:
             # LM2-09 fix : valider le format backup_id AVANT tout accès S3
@@ -279,7 +282,14 @@ def register(mcp: FastMCP) -> int:
                     "message": "Restauration refusée : confirm=True requis.",
                 }
 
-            return await get_backup_service().restore(backup_id)
+            lock = get_lock_manager().consolidation(space_id)
+            if lock.locked():
+                return {
+                    "status": "conflict",
+                    "message": f"Bank mutation in progress for '{space_id}'.",
+                }
+            async with lock:
+                return await get_backup_service().restore(backup_id)
         except Exception as e:
             from ..auth.context import safe_error
 

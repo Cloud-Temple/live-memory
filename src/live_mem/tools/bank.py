@@ -137,7 +137,7 @@ def register(mcp: FastMCP) -> int:
         """
         from ..auth.context import check_access
         from ..core.storage import get_storage
-        from ..core.consolidator import _sanitize_filename
+        from ..core.consolidator import _build_compaction_units, _sanitize_filename
 
         try:
             access_err = check_access(space_id)
@@ -145,50 +145,31 @@ def register(mcp: FastMCP) -> int:
                 return access_err
 
             storage = get_storage()
-            key = f"{space_id}/bank/{filename}"
-            content = await storage.get(key)
-
-            if content is None:
-                # Fallback : la clé S3 réelle peut contenir des caractères
-                # Unicode invisibles (bug LLM drift). On scanne les vraies
-                # clés et on cherche par correspondance sanitisée.
-                objects = await storage.list_objects(f"{space_id}/bank/")
-                sanitized_target = _sanitize_filename(filename)
-                matched_key = None
-
-                for obj in objects:
-                    raw_filename = obj["Key"].split("/")[-1]
-                    if _sanitize_filename(raw_filename) == sanitized_target:
-                        matched_key = obj["Key"]
-                        break
-
-                if matched_key:
-                    content = await storage.get(matched_key)
-                    if content is not None:
-                        return {
-                            "status": "ok",
-                            "space_id": space_id,
-                            "filename": filename,
-                            "content": content,
-                            "size": len(content.encode("utf-8")),
-                            "note": (
-                                f"Fichier trouvé via fallback Unicode "
-                                f"(clé S3 réelle: {matched_key.split('/')[-1]!r}). "
-                                f"Utilisez bank_repair pour corriger."
-                            ),
-                        }
-
+            sanitized_target = _sanitize_filename(filename)
+            bank_files = await storage.list_and_get(f"{space_id}/bank/")
+            for unit in _build_compaction_units(space_id, bank_files):
+                member_names = {member["filename"] for member in unit["members"]}
+                if sanitized_target != unit["source"] and sanitized_target not in member_names:
+                    continue
+                if unit.get("error"):
+                    return {
+                        "status": "error",
+                        "space_id": space_id,
+                        "filename": unit["source"],
+                        "message": unit["error"],
+                    }
                 return {
-                    "status": "not_found",
-                    "message": f"Fichier '{filename}' introuvable dans '{space_id}'",
+                    "status": "ok",
+                    "space_id": space_id,
+                    "filename": unit["source"],
+                    "content": unit["content"],
+                    "size": len(unit["content"].encode("utf-8")),
+                    "parts": len(unit["members"]),
                 }
 
             return {
-                "status": "ok",
-                "space_id": space_id,
-                "filename": filename,
-                "content": content,
-                "size": len(content.encode("utf-8")),
+                "status": "not_found",
+                "message": f"Fichier '{filename}' introuvable dans '{space_id}'",
             }
         except Exception as e:
             from ..auth.context import safe_error
@@ -228,17 +209,31 @@ def register(mcp: FastMCP) -> int:
                     "message": f"Espace '{space_id}' introuvable",
                 }
 
-            # Lire tous les fichiers bank
-            from ..core.storage import bank_relpath
+            # Lire tous les documents logiques de la bank. Les parties
+            # physiques restent un détail de persistance.
+            from ..core.consolidator import _build_compaction_units
 
             bank_data = await storage.list_and_get(f"{space_id}/bank/")
+            units = _build_compaction_units(space_id, bank_data)
+            invalid = [unit for unit in units if unit.get("error")]
+            if invalid:
+                return {
+                    "status": "error",
+                    "space_id": space_id,
+                    "message": "Incomplete or inconsistent split bank family",
+                    "files": [
+                        {"filename": unit["source"], "error": unit["error"]}
+                        for unit in invalid
+                    ],
+                }
             files = [
                 {
-                    "filename": bank_relpath(item["key"], space_id),
-                    "content": item["content"],
-                    "size": item["size"],
+                    "filename": unit["source"],
+                    "content": unit["content"],
+                    "size": len(unit["content"].encode("utf-8")),
+                    "parts": len(unit["members"]),
                 }
-                for item in bank_data
+                for unit in units
             ]
 
             total_size = sum(f["size"] for f in files)
@@ -783,7 +778,9 @@ def register(mcp: FastMCP) -> int:
         from ..auth.context import check_access, check_manage_permission
         from ..core.storage import get_storage, bank_relpath
         from ..core.consolidator import _sanitize_filename
+        from ..core.locks import get_lock_manager
 
+        lock = None
         try:
             access_err = check_access(space_id)
             if access_err:
@@ -801,6 +798,11 @@ def register(mcp: FastMCP) -> int:
                     "status": "not_found",
                     "message": f"Espace '{space_id}' introuvable",
                 }
+
+            if not dry_run:
+                candidate_lock = get_lock_manager().consolidation(space_id)
+                await candidate_lock.acquire()
+                lock = candidate_lock
 
             # Lister les vrais fichiers bank sur S3
             objects = await storage.list_objects(f"{space_id}/bank/")
@@ -926,6 +928,9 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
 
             return safe_error(e, "bank")
+        finally:
+            if lock is not None:
+                lock.release()
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
     async def bank_write(
@@ -957,8 +962,10 @@ def register(mcp: FastMCP) -> int:
         """
         from ..auth.context import check_access, check_manage_permission
         from ..core.storage import get_storage
-        from ..core.consolidator import _sanitize_filename
+        from ..core.consolidator import _build_compaction_units, _sanitize_filename
+        from ..core.locks import get_lock_manager
 
+        lock = None
         try:
             access_err = check_access(space_id)
             if access_err:
@@ -999,6 +1006,24 @@ def register(mcp: FastMCP) -> int:
             if post_sanitize_err:
                 return post_sanitize_err
 
+            # Serialize every bank mutation with consolidation/compaction.
+            candidate_lock = get_lock_manager().consolidation(space_id)
+            await candidate_lock.acquire()
+            lock = candidate_lock
+
+            bank_files = await storage.list_and_get(f"{space_id}/bank/")
+            for unit in _build_compaction_units(space_id, bank_files):
+                member_names = {member["filename"] for member in unit["members"]}
+                if sanitized == unit["source"] or sanitized in member_names:
+                    if len(unit["members"]) > 1 or unit.get("error"):
+                        return {
+                            "status": "conflict",
+                            "message": (
+                                "bank_write is refused on a split bank family; "
+                                "restore or migrate the logical document first"
+                            ),
+                        }
+
             # Écrire le fichier avec le nom canonique
             canonical_key = f"{space_id}/bank/{sanitized}"
             existed = await storage.exists(canonical_key)
@@ -1033,6 +1058,9 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
 
             return safe_error(e, "bank")
+        finally:
+            if lock is not None:
+                lock.release()
 
     @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
     async def bank_delete(
@@ -1070,8 +1098,10 @@ def register(mcp: FastMCP) -> int:
         """
         from ..auth.context import check_access, check_manage_permission
         from ..core.storage import get_storage, bank_relpath
-        from ..core.consolidator import _sanitize_filename
+        from ..core.consolidator import _build_compaction_units, _sanitize_filename
+        from ..core.locks import get_lock_manager
 
+        lock = None
         try:
             access_err = check_access(space_id)
             if access_err:
@@ -1103,6 +1133,23 @@ def register(mcp: FastMCP) -> int:
                 }
 
             sanitized = _sanitize_filename(filename)
+
+            candidate_lock = get_lock_manager().consolidation(space_id)
+            await candidate_lock.acquire()
+            lock = candidate_lock
+
+            bank_files = await storage.list_and_get(f"{space_id}/bank/")
+            for unit in _build_compaction_units(space_id, bank_files):
+                member_names = {member["filename"] for member in unit["members"]}
+                if sanitized == unit["source"] or sanitized in member_names:
+                    if len(unit["members"]) > 1 or unit.get("error"):
+                        return {
+                            "status": "conflict",
+                            "message": (
+                                "bank_delete is refused on a split bank family; "
+                                "delete it through an explicit migration"
+                            ),
+                        }
 
             # Trouver toutes les clés S3 qui sanitisent vers ce nom
             # (= le fichier canonique + tous ses doublons)
@@ -1137,6 +1184,9 @@ def register(mcp: FastMCP) -> int:
             from ..auth.context import safe_error
 
             return safe_error(e, "bank")
+        finally:
+            if lock is not None:
+                lock.release()
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
     async def bank_compact(
@@ -1160,8 +1210,8 @@ def register(mcp: FastMCP) -> int:
         n'est appelé et aucune prose n'est réécrite. Une reconstruction
         exacte et un SHA-256 identique sont exigés avant écriture.
 
-        Avant tout remplacement, les fichiers concernés sont copiés dans un
-        backup S3 restaurable. Les écritures sont relues et vérifiées ; tout
+        Avant tout remplacement, un snapshot complet standard de l'espace est
+        créé. Les écritures sont relues et vérifiées ; tout
         échec déclenche un rollback vers ce backup.
 
         ⚠️ Par défaut dry_run=True : scanne et rapporte sans modifier.

@@ -3,18 +3,26 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from mcp.server.fastmcp import FastMCP
 
 from live_mem.core.consolidator import (
     ConsolidatorService,
+    _build_compaction_units,
     _content_sha256,
     _parse_split_part,
     _split_markdown_losslessly,
     _split_marker,
     _utf8_size,
 )
+from live_mem.core.backup import BackupService
+from live_mem.core.locks import LockManager
+from live_mem.tools.bank import register as register_bank_tools
+from live_mem.tools.backup import _parse_backup_id
+from live_mem.tools.space import register as register_space_tools
 
 
 def _service(max_size: int = 4096) -> ConsolidatorService:
@@ -40,10 +48,14 @@ class MemoryStorage:
         self.objects = dict(objects)
         self.copy_calls: list[tuple[str, str]] = []
         self.fail_copy = False
+        self.fail_restore = False
         self.corrupt_reads = False
 
     async def get_json(self, key: str):
         return {"space_id": "sp"} if key == "sp/_meta.json" else None
+
+    async def exists(self, key: str):
+        return key in self.objects
 
     async def list_and_get(self, prefix: str):
         return [
@@ -64,6 +76,8 @@ class MemoryStorage:
     async def copy_object(self, source: str, destination: str):
         if self.fail_copy:
             raise RuntimeError("backup unavailable")
+        if self.fail_restore and source.startswith("_backups/"):
+            raise RuntimeError("restore unavailable")
         self.copy_calls.append((source, destination))
         self.objects[destination] = self.objects[source]
 
@@ -114,7 +128,13 @@ def test_split_refuses_to_cut_an_oversized_line():
 @pytest.mark.asyncio
 async def test_apply_creates_backup_and_never_calls_llm():
     content = _large_french_markdown()
-    storage = MemoryStorage({"sp/bank/progress.md": content})
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/rules.md": "# Rules\n",
+            "sp/bank/progress.md": content,
+        }
+    )
     service = _service()
 
     with patch("live_mem.core.consolidator.get_storage", return_value=storage):
@@ -125,7 +145,14 @@ async def test_apply_creates_backup_and_never_calls_llm():
     assert result["files_failed"] == 0
     assert result["size_unit"] == "utf-8 bytes"
     assert "backup_id" in result
-    assert storage.copy_calls, "a restorable snapshot must precede replacement"
+    backed_up_sources = {source for source, _ in storage.copy_calls}
+    assert backed_up_sources == {
+        "sp/_meta.json",
+        "sp/rules.md",
+        "sp/bank/progress.md",
+    }
+    sid, timestamp, error = _parse_backup_id(result["backup_id"])
+    assert error is None and sid == "sp" and timestamp is not None
 
     physical_parts = [
         (key.removeprefix("sp/bank/"), value)
@@ -139,6 +166,15 @@ async def test_apply_creates_backup_and_never_calls_llm():
         for filename, value in physical_parts
     )
     assert reconstructed == content
+
+    for key in [key for key in storage.objects if key.startswith("sp/")]:
+        storage.objects.pop(key)
+    with patch("live_mem.core.backup.get_storage", return_value=storage):
+        restored = await BackupService().restore(result["backup_id"])
+    assert restored["status"] == "ok"
+    assert storage.objects["sp/_meta.json"] == '{"space_id":"sp"}'
+    assert storage.objects["sp/rules.md"] == "# Rules\n"
+    assert storage.objects["sp/bank/progress.md"] == content
 
 
 @pytest.mark.asyncio
@@ -174,6 +210,97 @@ async def test_post_write_verification_failure_rolls_back_original():
 
 
 @pytest.mark.asyncio
+async def test_rollback_failure_is_fatal_and_preserves_live_notes():
+    logical = "# progress.md\n" + "entry\n" * 100
+    parts, error = _split_markdown_losslessly("progress.md", logical, 2048)
+    assert error is None and parts is not None and len(parts) > 1
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/live/note.md": "important note\n",
+            **{f"sp/bank/{name}": value for name, value in parts},
+        }
+    )
+    storage.corrupt_reads = True
+    storage.fail_restore = True
+    service = _service()
+    service._deduplicate_content = AsyncMock(
+        side_effect=lambda content, filename: (content, 0)
+    )
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.md",
+                "action": "edit",
+                "operations": [
+                    {
+                        "type": "append_to_section",
+                        "heading": "# progress.md",
+                        "content": "new entry",
+                    }
+                ],
+            }
+        ],
+        "synthesis": "must not be persisted",
+    }
+    bank_files = await storage.list_and_get("sp/bank/")
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp", output, bank_files, ["sp/live/note.md"], 1, {}, skip_meta=True
+        )
+
+    assert result["status"] == "error"
+    assert result["backup_id"].startswith("sp/")
+    assert storage.objects["sp/live/note.md"] == "important note\n"
+    assert "sp/_synthesis.md" not in storage.objects
+
+
+@pytest.mark.asyncio
+async def test_consolidate_propagates_the_fatal_backup_id():
+    service = _service()
+    service._batch_size = 1
+    service._validation_enabled = False
+    service._collect_inputs = AsyncMock(
+        return_value={
+            "notes": ["note"],
+            "notes_keys": ["sp/live/note.md"],
+            "bank_files": [],
+            "rules": "rules",
+            "synthesis": "",
+        }
+    )
+    service._compact_bank_if_needed = AsyncMock(
+        return_value={"compacted": False, "files_failed": 0}
+    )
+    service._build_prompt = lambda **kwargs: []
+    service._call_llm = AsyncMock(
+        return_value={"status": "ok", "data": {}, "usage": {}}
+    )
+    service._write_results = AsyncMock(
+        return_value={
+            "status": "error",
+            "message": "rollback failed",
+            "backup_id": "sp/2026-08-12T12-00-00-000001",
+            "operations_applied": 1,
+            "operations_failed": 1,
+            "operation_failures": [{"reason": "rollback failed"}],
+            "bank_files_updated": 1,
+            "bank_files_created": 0,
+        }
+    )
+    storage = MemoryStorage({"sp/_meta.json": '{"space_id":"sp"}'})
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.consolidate("sp", enforce_cooldown=False)
+
+    assert result["status"] == "error"
+    assert result["backup_id"] == "sp/2026-08-12T12-00-00-000001"
+    assert result["operations_failed"] == 1
+    assert result["operation_failures"] == [{"reason": "rollback failed"}]
+
+
+@pytest.mark.asyncio
 async def test_consolidator_reassembles_edits_and_resplits_logical_file():
     canonical = _split_marker("progress.md", 1, 2) + "# progress.md\n\n## First\nold\n"
     second = _split_marker("progress.md", 2, 2) + "## Target\nold target\n"
@@ -190,7 +317,7 @@ async def test_consolidator_reassembles_edits_and_resplits_logical_file():
     output = {
         "file_edits": [
             {
-                "filename": "progress.md",
+                "filename": "progress.part-002.md",
                 "action": "edit",
                 "operations": [
                     {
@@ -222,6 +349,270 @@ async def test_consolidator_reassembles_edits_and_resplits_logical_file():
     )
     assert "new target" in reconstructed
     assert "old target" not in reconstructed
+
+
+@pytest.mark.asyncio
+async def test_rewrite_is_refused_when_addressed_to_a_split_part():
+    canonical = _split_marker("progress.md", 1, 2) + "# progress.md\n"
+    second = _split_marker("progress.md", 2, 2) + "## Target\nold\n"
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": canonical,
+            "sp/bank/progress.part-002.md": second,
+        }
+    )
+    service = _service()
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.part-002.md",
+                "action": "rewrite",
+                "content": "# erased\n",
+            }
+        ],
+        "synthesis": "partial",
+    }
+
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp", output, bank_files, [], 1, {}, skip_meta=True
+        )
+
+    assert result["operations_failed"] == 1
+    assert storage.objects["sp/bank/progress.part-002.md"] == second
+
+
+@pytest.mark.asyncio
+async def test_split_refuses_existing_target_outside_family():
+    content = _large_french_markdown()
+    unrelated = "# legitimate document\n"
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/bank/progress.md": content,
+            "sp/bank/progress.part-002.md": unrelated,
+        }
+    )
+    service = _service()
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "error"
+    assert storage.objects["sp/bank/progress.md"] == content
+    assert storage.objects["sp/bank/progress.part-002.md"] == unrelated
+
+
+@pytest.mark.asyncio
+async def test_stale_part_delete_failure_rolls_back_family():
+    logical = "# progress.md\n" + "entry\n" * 100
+    parts, error = _split_markdown_losslessly("progress.md", logical, 2048)
+    assert error is None and parts is not None and len(parts) > 1
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            **{f"sp/bank/{name}": value for name, value in parts},
+        }
+    )
+    original = dict(storage.objects)
+    storage.delete_many = AsyncMock(return_value=0)
+    service = _service(max_size=4096)
+    bank_files = await storage.list_and_get("sp/bank/")
+    unit = next(
+        unit
+        for unit in _build_compaction_units("sp", bank_files)
+        if unit["source"] == "progress.md"
+    )
+    replacement, split_error = _split_markdown_losslessly(
+        "progress.md", logical, 4096
+    )
+    assert split_error is None and replacement is not None
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        backup_id = await service._create_compaction_backup("sp")
+        ok, write_error = await service._write_split_parts(
+            "sp", unit, replacement, backup_id
+        )
+
+    assert ok is False
+    assert "stale split part deletion failed" in str(write_error)
+    for key, value in original.items():
+        assert storage.objects[key] == value
+
+
+@pytest.mark.asyncio
+async def test_incomplete_family_fails_even_below_limit():
+    second = _split_marker("progress.md", 2, 2) + "orphan\n"
+    storage = MemoryStorage({"sp/bank/progress.part-002.md": second})
+    service = _service()
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=True)
+
+    assert result["status"] == "error"
+    assert result["files_failed"] == 1
+
+
+def _bank_tool(name: str):
+    mcp = FastMCP(name="test")
+    register_bank_tools(mcp)
+    tool = mcp._tool_manager._tools[name]
+    for attr in ("fn", "func", "handler", "_fn", "run", "callback"):
+        fn = getattr(tool, attr, None)
+        if callable(fn):
+            return fn
+    raise AssertionError(f"Tool {name} has no callable")
+
+
+def _space_tool(name: str):
+    mcp = FastMCP(name="test")
+    register_space_tools(mcp)
+    tool = mcp._tool_manager._tools[name]
+    for attr in ("fn", "func", "handler", "_fn", "run", "callback"):
+        fn = getattr(tool, attr, None)
+        if callable(fn):
+            return fn
+    raise AssertionError(f"Tool {name} has no callable")
+
+
+@pytest.mark.asyncio
+async def test_bank_read_reassembles_a_split_family():
+    logical = "# progress.md\n" + "entry\n" * 100
+    parts, error = _split_markdown_losslessly("progress.md", logical, 2048)
+    assert error is None and parts is not None and len(parts) > 1
+    storage = MemoryStorage(
+        {f"sp/bank/{name}": value for name, value in parts}
+    )
+
+    with (
+        patch("live_mem.auth.context.check_access", return_value=None),
+        patch("live_mem.core.storage.get_storage", return_value=storage),
+    ):
+        result = await _bank_tool("bank_read")("sp", "progress.md")
+
+    assert result["status"] == "ok"
+    assert result["content"] == logical
+    assert result["parts"] == len(parts)
+
+    storage.objects["sp/_meta.json"] = '{"space_id":"sp"}'
+    with (
+        patch("live_mem.auth.context.check_access", return_value=None),
+        patch("live_mem.core.storage.get_storage", return_value=storage),
+    ):
+        all_result = await _bank_tool("bank_read_all")("sp")
+
+    assert all_result["status"] == "ok"
+    assert all_result["files"] == [
+        {
+            "filename": "progress.md",
+            "content": logical,
+            "size": _utf8_size(logical),
+            "parts": len(parts),
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bank_write_waits_for_the_shared_bank_lock():
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/bank/progress.md": "old\n",
+        }
+    )
+    lock_manager = LockManager()
+    lock = lock_manager.consolidation("sp")
+    await lock.acquire()
+
+    with (
+        patch("live_mem.auth.context.check_access", return_value=None),
+        patch("live_mem.auth.context.check_manage_permission", return_value=None),
+        patch("live_mem.core.storage.get_storage", return_value=storage),
+        patch("live_mem.core.locks.get_lock_manager", return_value=lock_manager),
+    ):
+        task = asyncio.create_task(
+            _bank_tool("bank_write")("sp", "progress.md", "new\n")
+        )
+        await asyncio.sleep(0)
+        assert not task.done()
+        assert storage.objects["sp/bank/progress.md"] == "old\n"
+        lock.release()
+        result = await task
+
+    assert result["status"] == "ok"
+    assert storage.objects["sp/bank/progress.md"] == "new\n"
+
+
+@pytest.mark.asyncio
+async def test_space_delete_refuses_while_the_bank_lock_is_held():
+    lock_manager = LockManager()
+    lock = lock_manager.consolidation("sp")
+    await lock.acquire()
+    space_service = AsyncMock()
+
+    with (
+        patch("live_mem.auth.context.check_access", return_value=None),
+        patch("live_mem.auth.context.check_manage_permission", return_value=None),
+        patch("live_mem.core.locks.get_lock_manager", return_value=lock_manager),
+        patch("live_mem.core.space.get_space_service", return_value=space_service),
+    ):
+        result = await _space_tool("space_delete")("sp", confirm=True)
+
+    lock.release()
+    assert result["status"] == "conflict"
+    space_service.delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bank_write_refuses_a_split_family():
+    logical = "# progress.md\n" + "entry\n" * 100
+    parts, error = _split_markdown_losslessly("progress.md", logical, 2048)
+    assert error is None and parts is not None and len(parts) > 1
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            **{f"sp/bank/{name}": value for name, value in parts},
+        }
+    )
+    lock_manager = LockManager()
+
+    with (
+        patch("live_mem.auth.context.check_access", return_value=None),
+        patch("live_mem.auth.context.check_manage_permission", return_value=None),
+        patch("live_mem.core.storage.get_storage", return_value=storage),
+        patch("live_mem.core.locks.get_lock_manager", return_value=lock_manager),
+    ):
+        result = await _bank_tool("bank_write")("sp", "progress.md", "new\n")
+
+    assert result["status"] == "conflict"
+    assert storage.objects[f"sp/bank/{parts[0][0]}"] == parts[0][1]
+
+    with (
+        patch("live_mem.auth.context.check_access", return_value=None),
+        patch("live_mem.auth.context.check_manage_permission", return_value=None),
+        patch("live_mem.core.storage.get_storage", return_value=storage),
+        patch("live_mem.core.locks.get_lock_manager", return_value=lock_manager),
+    ):
+        delete_result = await _bank_tool("bank_delete")(
+            "sp", "progress.md", confirm=True
+        )
+
+    assert delete_result["status"] == "conflict"
+    assert all(f"sp/bank/{name}" in storage.objects for name, _ in parts)
+
+
+@pytest.mark.asyncio
+async def test_llm_call_refuses_an_unsafe_context_budget():
+    service = _service()
+    service._context_window = 1000
+    service._max_tokens = 500
+    service._client = AsyncMock()
+
+    result = await service._call_llm([{"role": "user", "content": "x" * 4000}])
+
+    assert result["status"] == "error"
+    service._client.chat.completions.create.assert_not_awaited()
 
 
 @pytest.mark.asyncio

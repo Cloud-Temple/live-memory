@@ -261,7 +261,7 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `CONSOLIDATION_COOLDOWN_SECONDS` | `60`      | Cooldown anti-spam par space pour `bank_consolidate` (`0` désactive) |
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
-| `COMPACT_THRESHOLD`       | `0.6`             | Déclenchement de l'auto-compaction (0.6 = compacter si bank > 60% du budget) |
+| `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite physique par fichier en octets UTF-8 |
 | `BANK_FILE_MAX_SIZE`      | `15360`           | Taille persistée max par fichier bank physique (octets UTF-8, 15 KB). Les fichiers surdimensionnés sont découpés sans perte avec une cible à 75 % |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
