@@ -1,6 +1,6 @@
 # LLM Consolidation Pipeline — Live Memory
 
-> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
+> **Version**: 2.7.1 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -69,7 +69,11 @@ The `agent` parameter of `bank_consolidate` controls note filtering. Since issue
 
 Filtering is based on the filename: `{ts}_{agent}_{cat}_{uuid}.md` — the system looks for `_{agent}_` in the filename.
 
-Queued jobs run FIFO per `space_id` under the existing per-space lock. The PR 1 queue is in-memory (`in_memory_best_effort`) and is not durable across server restarts.
+Queued and running jobs use an in-memory FIFO per `space_id` under the existing
+per-space lock. Since v2.7.1, every terminal payload is persisted before its
+terminal status becomes observable and before the lane is released. Completed
+results therefore remain auditable after restart; jobs interrupted while
+queued/running remain best-effort.
 
 ---
 
@@ -182,14 +186,31 @@ operations_failed: {operations_failed}
 {synthesis_content}"""
 await storage.put(f"{space_id}/_synthesis.md", synthesis_md)
 
-# 6c. Update _meta.json (counters)
+# 6c. Compute every fallible metric before the commit
+
+# 6d. Delete processed live notes (LAST operation in the batch)
+await storage.delete_many(notes_keys)
+
+# 6e. After all batches, update _meta.json once
 meta["last_consolidation"] = now
 meta["consolidation_count"] += 1
-meta["total_notes_processed"] += notes_count
-
-# 6d. Delete processed live notes (LAST — atomicity)
-await storage.delete_many(notes_keys)
+meta["total_notes_processed"] += total_notes
 ```
+
+### v2.7.1 failure contract
+
+The whole LLM response is preflighted before the first write: the synthesis
+must be a string, every filename/action is valid and unique, `create` cannot
+overwrite, `rewrite` cannot create, and every surgical edit must apply in
+memory. Bank and synthesis snapshots (plus metadata outside normal batched
+mode) are restored and verified as one unit on any pre-commit failure.
+
+`delete_many` is the batch commit point. A partial deletion triggers source
+restoration from the collected notes and final-state verification. Missing
+sources are exposed as `notes_unrestored`/`notes_lost`, never as processed
+notes. No later fallible batch operation can trigger output rollback after a
+complete deletion. Final meta and audit-read I/O runs after committed batches,
+but its failure never rolls them back: it returns `partial` with their metrics.
 
 ---
 
@@ -277,10 +298,11 @@ logical result is split losslessly on line boundaries into physical objects
 below the byte limit. Every object contains a machine-readable
 `live-mem-split` marker, including a one-part family. Writes are read back and
 verified; a failure triggers an attempt to restore the original family from
-the backup. If that rollback also fails, the result explicitly reports the
-restorable backup id for manual recovery. Reports include logical sizes,
-reduction, operation reasons, SHA-256 hashes, model finish reason, part count,
-and backup id.
+the backup. A multi-file failure restores and exactly verifies only `bank/`,
+so live notes created concurrently after the backup survive. If that rollback
+also fails, the result explicitly reports the restorable backup id for manual
+recovery. Reports include logical sizes, reduction, operation reasons, SHA-256
+hashes, model finish reason, part count, and backup id.
 
 Applied manual compaction is a `compact` job in the same per-space FIFO as
 consolidation. Automatic compaction runs inside the consolidation job before
@@ -632,4 +654,4 @@ Input: 3 notes, 6 bank files
 
 ---
 
-*Document updated August 12, 2026 — Live Memory v2.7.0*
+*Document updated August 13, 2026 — Live Memory v2.7.1*

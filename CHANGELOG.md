@@ -5,6 +5,52 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.7.1] — 2026-08-13
+
+### Fixed
+
+- **Consolidation failures are now atomic and attributable** (#40, PR #41).
+  The complete LLM edit plan, including a textual `synthesis`, is validated
+  before the first mutation. `create` cannot overwrite an existing bank file
+  and `rewrite` requires one. Any operation or storage failure restores and
+  exactly verifies the batch bank/synthesis snapshot (plus metadata outside
+  normal batched mode) before source notes are touched.
+- Partial live-note deletion is no longer accepted as success. Every source
+  note is restored from the collected batch when possible, then re-read;
+  `notes_deleted`, `notes_restored`, `notes_unrestored`, `notes_lost`, and the
+  missing keys remain visible in the failed job result. A lost source is never
+  counted as processed work.
+- A later multi-file compaction persistence failure rolls back every planned
+  bank file. The rollback restores and verifies only `bank/`, preserving live
+  notes created concurrently after the backup; rollback failure remains
+  explicit with the backup id required for manual recovery.
+- No fallible batch operation capable of triggering output rollback remains
+  after the irreversible source-note deletion. Final metadata/audit I/O still
+  runs after committed batches, but its failure never rolls them back: it
+  returns `partial` with their metrics instead of a generic queue error.
+- Terminal consolidation and compaction job payloads are persisted before the
+  terminal state is exposed or the per-space lane is released. Results remain
+  available after a service restart; persistence failure is explicit through
+  `audit_persistence_error`.
+
+### Tests
+
+- Added adversarial coverage for invalid late edit operations, storage failure
+  on a later bank file, `create` overwrite, non-textual synthesis, partial note
+  deletion/restoration, exact rollback keysets, concurrent live-note creation,
+  multi-file compaction rollback, final metadata failure, and terminal-result
+  persistence/restart behavior.
+- Validation: 474 passed, 1 expected failure; independent reviewer GO after
+  four passes and 65 targeted tests.
+
+### Changed
+
+- `README.md`, `README.fr.md`, and the consolidation, concurrency, S3, MCP tool,
+  and architecture specifications document the v2.7.1 atomicity and durable
+  terminal-audit contract.
+
+---
+
 ## [2.7.0] — 2026-08-12
 
 ### Fixed

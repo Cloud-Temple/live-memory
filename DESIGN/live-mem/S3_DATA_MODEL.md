@@ -1,6 +1,6 @@
 # S3 Data Model — Live Memory
 
-> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
+> **Version**: 2.7.1 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -11,6 +11,8 @@
 - **One prefix per space**: `{space_id}/`
 - **System files**: `_system/` for cross-cutting data (tokens, etc.)
 - **Backups**: `_backups/` for snapshots
+- **Terminal job audit**: `_consolidation_jobs/` for completed consolidation
+  and compaction payloads
 
 ---
 
@@ -35,6 +37,9 @@
 │           └── live/
 │               ├── note_001.md
 │               └── ...
+│
+├── _consolidation_jobs/                  # Durable terminal audit payloads
+│   └── {job_id}.json                     # succeeded/failed result + metrics
 │
 ├── {space_id}/                           # A memory space
 │   ├── _meta.json                        # Space metadata
@@ -99,6 +104,14 @@ Registry of all authentication tokens.
 ```
 
 **Concurrency**: Protected by a dedicated `asyncio.Lock` (`LockManager.tokens`).
+
+### 3.2 `_consolidation_jobs/{job_id}.json`
+
+Complete terminal payload for a consolidation or applied compaction job. It
+is written before the terminal state becomes observable and before the
+per-space FIFO lane is released. The payload includes `space_id`; status reads
+reapply normal read authorization for that space. Queued/running jobs are not
+stored here and remain process-local.
 
 ---
 
@@ -232,9 +245,9 @@ as parts.
 | `bank_read` | GET `bank/{filename}` | 1 GET |
 | `bank_read_all` | LIST `bank/*`, GET all | 1 LIST + N GETs |
 | `bank_list` | LIST `bank/*` | 1 LIST |
-| `bank_consolidate` | GET rules + GET live/* + GET bank/* + PUT bank/* + DELETE live/* + PUT _synthesis | Many |
+| `bank_consolidate` | GET rules + GET live/* + GET bank/* + PUT bank/* + DELETE live/* + PUT _synthesis + PUT terminal job audit | Many |
 | `bank_compact` dry-run | GET meta + rules + bank/* | 1 LIST + N GETs |
-| `bank_compact` apply | GET meta + rules + bank/* + full backup copy + PUT/GET/DELETE bank parts | Many |
+| `bank_compact` apply | GET meta + rules + bank/* + full backup copy + PUT/GET/DELETE bank parts + PUT terminal job audit | Many |
 | `graph_connect` | GET+PUT `_meta.json` (add graph_memory config) | 1 GET + 1 PUT |
 | `graph_push` | LIST `bank/*`, GET `bank/*`, GET+PUT `_meta.json` | N GETs + 1 PUT |
 | `graph_status` | GET `_meta.json` | 1 GET |
@@ -271,4 +284,4 @@ S3 provides **strong consistency** for PUT and DELETE followed by GET. No waitin
 
 ---
 
-*Document updated August 12, 2026 — Live Memory v2.7.0*
+*Document updated August 13, 2026 — Live Memory v2.7.1*

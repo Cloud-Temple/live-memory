@@ -1,6 +1,6 @@
 # MCP Tools Specification — Live Memory
 
-> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
+> **Version**: 2.7.1 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -314,7 +314,8 @@ async def bank_consolidate(
 **⚠️ Restrictions**:
 - Only one consolidation mutates a space's bank at a time (global per-space lock)
 - Same-space requests are serialized FIFO instead of rejected with `conflict`
-- The PR 1 queue is in-memory only (`guarantee="in_memory_best_effort"`)
+- Queued/running state is in-memory (`guarantee="in_memory_best_effort"`);
+  terminal results are durably persisted before lane release
 - The response explicitly sets `next_action="return_to_user_without_polling"`
 - `polling.recommended=false`; `bank_consolidation_status` is manual-only for explicit status checks
 - If no live notes exist, the background job result is `{"status": "ok", "notes_processed": 0, "message": "No new notes to consolidate"}`
@@ -343,14 +344,19 @@ async def bank_consolidate(
 
 ### `bank_consolidation_status` 🔑
 
-Returns the in-memory status for a consolidation job.
+Returns the live in-memory status or a persisted terminal result for a
+consolidation/compaction job.
 
 ```python
 @mcp.tool()
 async def bank_consolidation_status(job_id: str) -> dict:
 ```
 
-Returns `queued`, `running`, `succeeded`, `failed`, or `not_found`. The caller must have read access to the job's `space_id`. This tool is for explicit manual status checks only; clients must not call it automatically after every `bank_consolidate`.
+Returns `queued`, `running`, `succeeded`, `failed`, or `not_found`. Terminal
+payloads survive service restart; interrupted queued/running jobs do not. The
+caller must have read access to the job's `space_id`. This tool is for explicit
+manual status checks only; clients must not call it automatically after every
+`bank_consolidate`.
 
 ---
 
@@ -446,8 +452,10 @@ complete result locally, creates a full-space backup, and persists a verified
 split family when required. Invalid/truncated model output or any pre-write
 validation failure preserves every original. The final result exposes logical
 byte sizes, part counts, hashes, operation reasons, failures, and `backup_id`.
-A persistence failure triggers a rollback attempt; if that also fails, the
-reported backup id is the manual recovery point.
+A persistence failure triggers an all-planned-files rollback limited to
+`bank/`; exact keys and contents are verified, while concurrent `live/` notes
+remain untouched. If rollback also fails, the reported backup id is the manual
+recovery point.
 
 ---
 
@@ -712,4 +720,4 @@ async def admin_gc_notes(
 
 ---
 
-*Document updated August 12, 2026 — Live Memory v2.7.0*
+*Document updated August 13, 2026 — Live Memory v2.7.1*

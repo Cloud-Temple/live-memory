@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.7.1-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -338,6 +338,19 @@ vérifie le contenu persisté et tente un rollback en cas d'échec. Si ce rollba
 manuelle. Le document logique compacté est stocké, si nécessaire, sous forme de
 famille découpée et marquée ; les lectures et consolidations suivantes la
 réassemblent de façon transparente.
+
+Depuis la v2.7.1, la consolidation valide l'intégralité du plan d'édition LLM
+avant la première écriture. La bank et la synthèse (ainsi que les métadonnées
+hors du mode batch normal) sont restaurées et vérifiées comme un seul lot en
+cas d'échec ; les notes sources ne sont supprimées qu'après toutes les
+opérations faillibles de ce lot. Les I/O finales de métadonnées et d'audit ont
+lieu après les lots commités, mais ne peuvent que retourner `partial` et ne les
+annulent jamais. Une suppression partielle expose les métriques vérifiées de
+restauration et de perte. Le rollback d'une compaction multi-fichier ne
+restaure que `bank/`, sans pouvoir
+supprimer une note live concurrente. Les résultats terminaux des jobs sont
+persistés pour l'audit après redémarrage ; les jobs actifs/en attente restent
+dans une FIFO en mémoire.
 
 ### Graph (4 outils) — 🌉 Pont vers Graph Memory
 
@@ -792,4 +805,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.7.0 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.7.1 — Mémoire de travail partagée pour agents IA collaboratifs*
