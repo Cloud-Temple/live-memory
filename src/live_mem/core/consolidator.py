@@ -928,15 +928,57 @@ class ConsolidatorService:
 
             # Appliquer les éditions (bank + synthesis + delete notes)
             # skip_meta=True : on mettra à jour le meta une seule fois à la fin
-            write_result = await self._write_results(
-                space_id=space_id,
-                llm_output=llm_result["data"],
-                bank_files=current_bank,
-                notes_keys=batch_keys,
-                notes_count=len(batch_notes),
-                usage=llm_result.get("usage", {}),
-                skip_meta=True,
-            )
+            try:
+                write_result = await self._write_results(
+                    space_id=space_id,
+                    llm_output=llm_result["data"],
+                    bank_files=current_bank,
+                    notes_keys=batch_keys,
+                    notes_count=len(batch_notes),
+                    usage=llm_result.get("usage", {}),
+                    skip_meta=True,
+                    notes=batch_notes,
+                )
+            except Exception:
+                logger.exception(
+                    "Batch %d/%d mutation raised; rolling back", batch_idx, batch_count
+                )
+                try:
+                    await self._restore_consolidation_outputs(
+                        space_id=space_id,
+                        bank_snapshot={
+                            bf["key"]: bf.get("content", "") for bf in current_bank
+                        },
+                        synthesis_before=current_synthesis,
+                        meta_before=None,
+                        restore_meta=False,
+                    )
+                    rollback_error = None
+                except Exception as rollback_exc:
+                    rollback_error = str(rollback_exc)
+                write_result = {
+                    "status": "error",
+                    "space_id": space_id,
+                    "notes_processed": 0,
+                    "operations_applied": 0,
+                    "operations_failed": 1,
+                    "operation_failures": [
+                        {
+                            "filename": "bank/",
+                            "action": "batch_mutation",
+                            "reason": "storage mutation raised an exception",
+                        }
+                    ],
+                    "message": (
+                        "Consolidation batch mutation failed; live notes were "
+                        "preserved"
+                        + (
+                            f"; batch rollback failed: {rollback_error}"
+                            if rollback_error
+                            else "; batch outputs were rolled back"
+                        )
+                    ),
+                }
 
             if write_result.get("status") != "ok":
                 failed_write_result = write_result
@@ -1039,25 +1081,50 @@ class ConsolidatorService:
 
         # ── Étape 4 : Mettre à jour le meta (une seule fois) ─
 
+        finalization_failures: list[str] = []
+        metrics_incomplete = False
         if total_notes > 0:
-            now = datetime.now(timezone.utc).isoformat()
-            meta = await storage.get_json(f"{space_id}/_meta.json") or {}
-            meta["last_consolidation"] = now
-            meta["consolidation_count"] = meta.get("consolidation_count", 0) + 1
-            meta["total_notes_processed"] = (
-                meta.get("total_notes_processed", 0) + total_notes
-            )
-            await storage.put_json(f"{space_id}/_meta.json", meta)
+            try:
+                now = datetime.now(timezone.utc).isoformat()
+                meta = await storage.get_json(f"{space_id}/_meta.json") or {}
+                meta["last_consolidation"] = now
+                meta["consolidation_count"] = meta.get("consolidation_count", 0) + 1
+                meta["total_notes_processed"] = (
+                    meta.get("total_notes_processed", 0) + total_notes
+                )
+                await storage.put_json(f"{space_id}/_meta.json", meta)
+            except Exception:
+                logger.exception(
+                    "Final consolidation metadata update failed — space=%s",
+                    space_id,
+                )
+                finalization_failures.append("metadata update failed")
 
         # Compter les fichiers bank finaux
-        bank_objects = await storage.list_objects(f"{space_id}/bank/")
-        total_bank = len([o for o in bank_objects if not o["Key"].endswith(".keep")])
+        try:
+            bank_objects = await storage.list_objects(f"{space_id}/bank/")
+            total_bank = len(
+                [o for o in bank_objects if not o["Key"].endswith(".keep")]
+            )
+        except Exception:
+            logger.exception(
+                "Final consolidation bank metrics read failed — space=%s", space_id
+            )
+            # The completed batches are already committed. Preserve their
+            # exact mutation metrics and mark only the derived count unknown.
+            total_bank = total_created + total_updated
+            metrics_incomplete = True
+            finalization_failures.append("final bank metrics read failed")
 
         # Issue #32 — the final status must reflect what actually happened.
         # A batch failure with zero completed batches is an error, not a
         # success: reporting "ok" here made the queue expose `succeeded`
         # jobs while 100% of the notes were left unconsolidated.
-        if batch_failure is None and total_ops_failed == 0:
+        if (
+            batch_failure is None
+            and total_ops_failed == 0
+            and not finalization_failures
+        ):
             status = "ok"
             final_phase = "done"
         elif batches_completed == 0:
@@ -1102,13 +1169,27 @@ class ConsolidatorService:
             "batch_size": batch_size,
             "duration_seconds": duration,
         }
+        if finalization_failures:
+            result["finalization_error"] = "; ".join(finalization_failures)
+            result["metrics_incomplete"] = metrics_incomplete
         if batch_failure is not None:
             result["failed_batch"] = failed_batch
             remaining_notes = len(all_notes) - total_notes
+            failed_notes_lost = (
+                failed_write_result.get("notes_lost", 0)
+                if failed_write_result
+                else 0
+            )
+            notes_left = max(0, remaining_notes - failed_notes_lost)
+            notes_state = (
+                "verified in live/"
+                if failed_write_result and "notes_deleted" in failed_write_result
+                else "left in live/"
+            )
             result["message"] = (
                 f"Batch {failed_batch}/{batch_count} failed: {batch_failure} — "
                 f"{batches_completed} batch(es) applied, "
-                f"{remaining_notes} note(s) left in live/"
+                f"{notes_left} note(s) {notes_state}"
             )
             if failed_write_result:
                 result["operations_applied"] += failed_write_result.get(
@@ -1128,6 +1209,31 @@ class ConsolidatorService:
                 )
                 if failed_write_result.get("backup_id"):
                     result["backup_id"] = failed_write_result["backup_id"]
+                for metric in (
+                    "notes_deleted",
+                    "notes_restored",
+                    "notes_unrestored",
+                    "notes_lost",
+                    "notes_unrestored_keys",
+                ):
+                    if metric in failed_write_result:
+                        result[metric] = failed_write_result[metric]
+                if failed_write_result.get("notes_lost", 0):
+                    result["message"] += (
+                        f"; {failed_write_result['notes_lost']} source note(s) "
+                        "could not be restored"
+                    )
+            if finalization_failures:
+                result["message"] += (
+                    "; committed batch metrics were preserved, but finalization "
+                    f"failed: {result['finalization_error']}"
+                )
+        elif finalization_failures:
+            result["message"] = (
+                f"{batches_completed} batch(es) and {total_notes} note(s) were "
+                "committed, but consolidation finalization failed: "
+                f"{result['finalization_error']}; committed metrics were preserved"
+            )
         elif total_ops_failed:
             result["message"] = (
                 f"{total_ops_failed} bank edit operation(s) failed; "
@@ -1573,6 +1679,55 @@ Retourne un JSON avec cette structure exacte :
 
         return {"status": "error", "message": "LLM failed after retries"}
 
+    async def _restore_consolidation_outputs(
+        self,
+        space_id: str,
+        bank_snapshot: dict[str, str],
+        synthesis_before: str | None,
+        meta_before: dict | None,
+        restore_meta: bool,
+    ) -> None:
+        """Restore and exactly verify every output owned by one batch."""
+        storage = get_storage()
+        bank_prefix = f"{space_id}/bank/"
+        synthesis_key = f"{space_id}/_synthesis.md"
+        meta_key = f"{space_id}/_meta.json"
+
+        current_bank = await storage.list_objects(bank_prefix)
+        for obj in current_bank:
+            if obj["Key"] not in bank_snapshot:
+                await storage.delete(obj["Key"])
+        for key, content in bank_snapshot.items():
+            await storage.put(key, content)
+
+        if synthesis_before is None:
+            await storage.delete(synthesis_key)
+        else:
+            await storage.put(synthesis_key, synthesis_before)
+
+        if restore_meta:
+            if meta_before is None:
+                await storage.delete(meta_key)
+            else:
+                await storage.put_json(meta_key, meta_before)
+
+        restored_keys = {
+            obj["Key"] for obj in await storage.list_objects(bank_prefix)
+        }
+        expected_keys = set(bank_snapshot)
+        if restored_keys != expected_keys:
+            raise RuntimeError(
+                "batch rollback keyset verification failed "
+                f"(expected={sorted(expected_keys)}, actual={sorted(restored_keys)})"
+            )
+        for key, content in bank_snapshot.items():
+            if await storage.get(key) != content:
+                raise RuntimeError(f"batch rollback verification failed for {key}")
+        if await storage.get(synthesis_key) != synthesis_before:
+            raise RuntimeError("batch synthesis rollback verification failed")
+        if restore_meta and await storage.get_json(meta_key) != meta_before:
+            raise RuntimeError("batch metadata rollback verification failed")
+
     async def _write_results(
         self,
         space_id: str,
@@ -1582,6 +1737,7 @@ Retourne un JSON avec cette structure exacte :
         notes_count: int,
         usage: dict,
         skip_meta: bool = False,
+        notes: list[dict] | None = None,
     ) -> dict:
         """
         Applique les éditions LLM et écrit les résultats sur S3.
@@ -1602,6 +1758,25 @@ Retourne un JSON avec cette structure exacte :
             Métriques de consolidation
         """
         storage = get_storage()
+        bank_snapshot = {bf["key"]: bf.get("content", "") for bf in bank_files}
+        synthesis_key = f"{space_id}/_synthesis.md"
+        synthesis_before = await storage.get(synthesis_key)
+        meta_key = f"{space_id}/_meta.json"
+        meta_before = await storage.get_json(meta_key) if not skip_meta else None
+        synthesis_content = llm_output.get("synthesis")
+        synthesis_size = (
+            len(synthesis_content) if isinstance(synthesis_content, str) else 0
+        )
+
+        async def restore_batch_outputs() -> None:
+            """Restore bank/synthesis/meta after a failed batch commit."""
+            await self._restore_consolidation_outputs(
+                space_id=space_id,
+                bank_snapshot=bank_snapshot,
+                synthesis_before=synthesis_before,
+                meta_before=meta_before,
+                restore_meta=not skip_meta,
+            )
 
         # Construire un index des fichiers bank existants par filename SANITISÉ.
         # On sanitise les clés pour matcher avec les filenames du LLM (qui sont
@@ -1640,6 +1815,197 @@ Retourne un JSON avec cette structure exacte :
             unit["source"]: unit
             for unit in _build_compaction_units(space_id, bank_files)
         }
+
+        # Issue #40 — validate the complete LLM edit plan before the first
+        # storage mutation.  Previously a valid first edit could be written,
+        # a later edit could fail, and every source note was still deleted.
+        preflight_failures: list[dict] = []
+        if not isinstance(synthesis_content, str):
+            preflight_failures.append(
+                {
+                    "filename": "_synthesis.md",
+                    "action": "write",
+                    "reason": "synthesis must be a string",
+                }
+            )
+        preflight_processed: set[str] = set()
+        for file_edit in llm_output.get("file_edits", []):
+            filename = _sanitize_filename(file_edit.get("filename", ""))
+            action = file_edit.get("action", "edit")
+            if not filename:
+                preflight_failures.append(
+                    {
+                        "filename": "",
+                        "action": action,
+                        "reason": "file edit has no filename",
+                    }
+                )
+                continue
+
+            split_source = split_member_to_source.get(filename)
+            if split_source and action in {"create", "rewrite"}:
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "action": action,
+                        "reason": f"{action} is forbidden on a split bank file",
+                    }
+                )
+                continue
+            if split_source:
+                filename = split_source
+
+            if filename in preflight_processed:
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "action": action,
+                        "reason": "duplicate file edit in one consolidation result",
+                    }
+                )
+                continue
+            preflight_processed.add(filename)
+
+            if action not in {"create", "rewrite", "edit"}:
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "action": action,
+                        "reason": "unknown file edit action",
+                    }
+                )
+                continue
+            if action in {"create", "rewrite"} and not file_edit.get("content"):
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "action": action,
+                        "reason": f"{action} has no content",
+                    }
+                )
+                continue
+            if action == "create" and filename in split_family_files:
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "action": action,
+                        "reason": "create is forbidden on an existing split bank file",
+                    }
+                )
+                continue
+            if action == "create" and filename in bank_index:
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "action": action,
+                        "reason": "create is forbidden on an existing bank file",
+                    }
+                )
+                continue
+            if action == "rewrite":
+                if filename in split_family_files:
+                    preflight_failures.append(
+                        {
+                            "filename": filename,
+                            "action": action,
+                            "reason": "rewrite is forbidden on a split bank file",
+                        }
+                    )
+                    continue
+                old_content = bank_index.get(filename)
+                if old_content is None:
+                    preflight_failures.append(
+                        {
+                            "filename": filename,
+                            "action": action,
+                            "reason": "rewrite requires an existing bank file",
+                        }
+                    )
+                    continue
+                old_size = _utf8_size(old_content) if old_content else 0
+                new_size = _utf8_size(file_edit.get("content", ""))
+                if (
+                    old_size >= _REWRITE_MIN_ABSOLUTE_BYTES
+                    and new_size < old_size * _REWRITE_MIN_RATIO
+                ):
+                    preflight_failures.append(
+                        {
+                            "filename": filename,
+                            "action": action,
+                            "reason": "content shrinks below the rewrite safety ratio",
+                        }
+                    )
+                continue
+            if action != "edit":
+                continue
+
+            operations = file_edit.get("operations", [])
+            if not operations:
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "action": "edit",
+                        "reason": "edit has no operations",
+                    }
+                )
+                continue
+            unit = compaction_units_by_source.get(filename)
+            if filename in split_family_files and (not unit or unit.get("error")):
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "action": "edit",
+                        "reason": (unit or {}).get(
+                            "error", "split family cannot be reconstructed"
+                        ),
+                    }
+                )
+                continue
+            candidate = unit["content"] if unit else bank_index.get(filename, "")
+            failed = False
+            for operation in operations:
+                try:
+                    candidate = _apply_operation(candidate, operation)
+                except Exception as exc:
+                    preflight_failures.append(
+                        {
+                            "filename": filename,
+                            "operation": operation.get("type", "?"),
+                            "heading": operation.get("heading", ""),
+                            "reason": str(exc),
+                        }
+                    )
+                    failed = True
+            if not failed and filename in split_family_files:
+                _, split_error = _split_markdown_losslessly(
+                    filename,
+                    candidate,
+                    self._get_max_size_for_file(filename),
+                )
+                if split_error:
+                    preflight_failures.append(
+                        {
+                            "filename": filename,
+                            "action": "resplit",
+                            "reason": split_error,
+                        }
+                    )
+
+        if preflight_failures:
+            return {
+                "status": "error",
+                "space_id": space_id,
+                "notes_processed": 0,
+                "bank_files_updated": 0,
+                "bank_files_created": 0,
+                "operations_applied": 0,
+                "operations_failed": len(preflight_failures),
+                "operation_failures": preflight_failures,
+                "message": (
+                    "Consolidation edit plan failed preflight; bank, synthesis "
+                    "and live notes were preserved"
+                ),
+            }
 
         files_created = 0
         files_updated = 0
@@ -1746,6 +2112,16 @@ Retourne un JSON avec cette structure exacte :
                         }
                     )
                     continue
+                if filename in bank_index:
+                    operations_failed += 1
+                    operation_failures.append(
+                        {
+                            "filename": filename,
+                            "action": "create",
+                            "reason": "create is forbidden on an existing bank file",
+                        }
+                    )
+                    continue
                 if content:
                     await storage.put(f"{space_id}/bank/{filename}", content)
                     await _cleanup_unicode_duplicates(filename)
@@ -1757,6 +2133,16 @@ Retourne un JSON avec cette structure exacte :
                 content = file_edit.get("content", "")
                 reason = file_edit.get("reason", "non spécifiée")
                 if content:
+                    if filename not in bank_index:
+                        operations_failed += 1
+                        operation_failures.append(
+                            {
+                                "filename": filename,
+                                "action": "rewrite",
+                                "reason": "rewrite requires an existing bank file",
+                            }
+                        )
+                        continue
                     if filename in split_family_files:
                         logger.error(
                             "REWRITE refused for split bank file %s — use surgical edits",
@@ -1994,24 +2380,76 @@ Retourne un JSON avec cette structure exacte :
                 )
 
         if fatal_write_error:
+            try:
+                await restore_batch_outputs()
+                batch_rollback_error = None
+            except Exception as exc:
+                batch_rollback_error = str(exc)
             return {
                 "status": "error",
                 "space_id": space_id,
                 "notes_processed": 0,
-                "bank_files_updated": files_updated,
-                "bank_files_created": files_created,
-                "operations_applied": operations_applied,
+                "bank_files_updated": (
+                    files_updated if batch_rollback_error else 0
+                ),
+                "bank_files_created": (
+                    files_created if batch_rollback_error else 0
+                ),
+                "operations_applied": (
+                    operations_applied if batch_rollback_error else 0
+                ),
+                "operations_rolled_back": (
+                    0 if batch_rollback_error else operations_applied
+                ),
                 "operations_failed": operations_failed,
                 "operation_failures": operation_failures,
                 "backup_id": compaction_backup_id,
                 "message": (
-                    "A bank write and its rollback failed; live notes were "
-                    "preserved and the reported backup must be restored"
+                    "A bank write failed; live notes were preserved"
+                    + (
+                        f"; batch rollback failed: {batch_rollback_error}; "
+                        "the reported backup must be restored"
+                        if batch_rollback_error
+                        else "; batch outputs were rolled back"
+                    )
+                ),
+            }
+
+        if operations_failed:
+            try:
+                await restore_batch_outputs()
+                batch_rollback_error = None
+            except Exception as exc:
+                batch_rollback_error = str(exc)
+            return {
+                "status": "error",
+                "space_id": space_id,
+                "notes_processed": 0,
+                "bank_files_updated": 0
+                if batch_rollback_error is None
+                else files_updated,
+                "bank_files_created": 0
+                if batch_rollback_error is None
+                else files_created,
+                "operations_applied": 0
+                if batch_rollback_error is None
+                else operations_applied,
+                "operations_rolled_back": (
+                    operations_applied if batch_rollback_error is None else 0
+                ),
+                "operations_failed": operations_failed,
+                "operation_failures": operation_failures,
+                "message": (
+                    "Consolidation bank mutation failed; live notes were preserved"
+                    + (
+                        f"; batch rollback failed: {batch_rollback_error}"
+                        if batch_rollback_error
+                        else "; batch outputs were rolled back"
+                    )
                 ),
             }
 
         # 4b. Écrire la synthèse résiduelle
-        synthesis_content = llm_output.get("synthesis", "")
         now = datetime.now(timezone.utc).isoformat()
         synthesis_md = (
             f"---\n"
@@ -2036,13 +2474,108 @@ Retourne un JSON avec cette structure exacte :
             )
             await storage.put_json(f"{space_id}/_meta.json", meta)
 
-        # 4d. Supprimer les notes live traitées (EN DERNIER)
-        await storage.delete_many(notes_keys)
-
-        # Compter les fichiers bank inchangés
+        # Compute every derived metric before the irreversible source-note
+        # commit below. There must be no fallible storage I/O after a complete
+        # delete_many: otherwise the caller could roll back bank outputs after
+        # the source notes have already disappeared.
         bank_objects = await storage.list_objects(f"{space_id}/bank/")
         total_bank = len([o for o in bank_objects if not o["Key"].endswith(".keep")])
         files_unchanged = total_bank - files_created - files_updated
+
+        # 4d. Supprimer les notes live traitées (EN DERNIER).  A partial
+        # deletion is not success: restore every source note from the batch so
+        # the operator can retry and attribute the failed consolidation.
+        try:
+            notes_deleted = await storage.delete_many(notes_keys)
+        except Exception as exc:
+            logger.error("Live note deletion failed — space=%s: %s", space_id, exc)
+            notes_deleted = 0
+
+        if notes_deleted != len(notes_keys):
+            restore_failures: list[str] = []
+            for note in notes or []:
+                key = note.get("key", "")
+                if not key:
+                    continue
+                try:
+                    await storage.put(key, note.get("content", ""))
+                except Exception as exc:
+                    restore_failures.append(f"{key}: {exc}")
+
+            # Count the final verified state, not successful write attempts.
+            # A failed put may still leave the original note intact; conversely,
+            # a storage backend may acknowledge a write that is not observable.
+            expected_notes = {
+                note.get("key", ""): note.get("content", "")
+                for note in notes or []
+                if note.get("key")
+            }
+            notes_unrestored_keys: list[str] = []
+            for key, expected_content in expected_notes.items():
+                try:
+                    if await storage.get(key) != expected_content:
+                        notes_unrestored_keys.append(key)
+                except Exception:
+                    notes_unrestored_keys.append(key)
+            notes_restored = len(expected_notes) - len(notes_unrestored_keys)
+            notes_unrestored = len(notes_unrestored_keys)
+            failure = {
+                "filename": "live/",
+                "action": "delete_notes",
+                "reason": (
+                    f"partial live note deletion: {notes_deleted}/{len(notes_keys)}"
+                ),
+            }
+            operation_failures.append(failure)
+            try:
+                await restore_batch_outputs()
+                batch_rollback_error = None
+            except Exception as exc:
+                batch_rollback_error = str(exc)
+            return {
+                "status": "error",
+                "space_id": space_id,
+                # The bank/synthesis outputs were rolled back. Missing source
+                # notes are loss, never successfully processed notes.
+                "notes_processed": 0,
+                "notes_deleted": notes_deleted,
+                "notes_restored": notes_restored,
+                "notes_unrestored": notes_unrestored,
+                "notes_lost": notes_unrestored,
+                "notes_unrestored_keys": notes_unrestored_keys,
+                "bank_files_updated": 0
+                if batch_rollback_error is None
+                else files_updated,
+                "bank_files_created": 0
+                if batch_rollback_error is None
+                else files_created,
+                "operations_applied": 0
+                if batch_rollback_error is None
+                else operations_applied,
+                "operations_rolled_back": (
+                    operations_applied if batch_rollback_error is None else 0
+                ),
+                "operations_failed": operations_failed + 1,
+                "operation_failures": operation_failures,
+                "synthesis_size": synthesis_size,
+                "llm_tokens_used": usage.get("total_tokens", 0),
+                "llm_prompt_tokens": usage.get("prompt_tokens", 0),
+                "llm_completion_tokens": usage.get("completion_tokens", 0),
+                "message": (
+                    f"partial live note deletion: {notes_deleted}/{len(notes_keys)}; "
+                    f"verified {notes_restored}/{len(expected_notes)} source notes"
+                    + (
+                        "; restore failures: " + "; ".join(restore_failures)
+                        if restore_failures
+                        else ""
+                    )
+                    + (
+                        f"; batch rollback failed: {batch_rollback_error}"
+                        if batch_rollback_error
+                        else "; batch outputs rolled back"
+                    )
+                ),
+            }
 
         return {
             "status": "ok",
@@ -2054,7 +2587,7 @@ Retourne un JSON avec cette structure exacte :
             "operations_applied": operations_applied,
             "operations_failed": operations_failed,
             "operation_failures": operation_failures,
-            "synthesis_size": len(synthesis_content),
+            "synthesis_size": synthesis_size,
             "llm_tokens_used": usage.get("total_tokens", 0),
             "llm_prompt_tokens": usage.get("prompt_tokens", 0),
             "llm_completion_tokens": usage.get("completion_tokens", 0),
@@ -2521,6 +3054,57 @@ Contenu actuel :
         )
         return backup_id
 
+    async def _restore_compaction_backup(self, space_id: str, backup_id: str) -> None:
+        """Restore and verify only bank objects from the space backup.
+
+        Live notes do not take the consolidation lock. Restoring the complete
+        space would therefore delete notes legitimately created after the
+        backup was taken.
+        """
+        storage = get_storage()
+        backup_prefix = f"_backups/{backup_id}/bank/"
+        backup_objects = await storage.list_objects(backup_prefix)
+        if not backup_objects:
+            raise RuntimeError("compaction bank backup is empty")
+
+        backup_by_relative = {
+            obj["Key"][len(backup_prefix) :]: obj["Key"] for obj in backup_objects
+        }
+        bank_prefix = f"{space_id}/bank/"
+        current_objects = await storage.list_objects(bank_prefix)
+        for obj in current_objects:
+            current_key = obj["Key"]
+            relative = current_key[len(bank_prefix) :]
+            if relative not in backup_by_relative:
+                await storage.delete(current_key)
+
+        for relative, backup_key in backup_by_relative.items():
+            current_key = f"{bank_prefix}{relative}"
+            await storage.copy_object(backup_key, current_key)
+            if await storage.get(current_key) != await storage.get(backup_key):
+                raise RuntimeError(
+                    f"global rollback verification failed for {current_key}"
+                )
+
+        restored_keys = {
+            obj["Key"] for obj in await storage.list_objects(bank_prefix)
+        }
+        expected_keys = {
+            f"{bank_prefix}{relative}" for relative in backup_by_relative
+        }
+        if restored_keys != expected_keys:
+            raise RuntimeError(
+                "global rollback keyset verification failed "
+                f"(expected={sorted(expected_keys)}, actual={sorted(restored_keys)})"
+            )
+
+        logger.warning(
+            "COMPACT BANK ROLLBACK space=%s backup_id=%s files=%d",
+            space_id,
+            backup_id,
+            len(backup_by_relative),
+        )
+
     async def _write_split_parts(
         self,
         space_id: str,
@@ -2667,38 +3251,43 @@ Contenu actuel :
         files_failed = 0
         logical_delta = 0
         reports = {}
+        failed_source: str | None = None
+        failed_reason: str | None = None
         for unit, candidate, plan_details in plans:
             source = unit["source"]
             max_size = self._get_max_size_for_file(source)
             before_hash = _content_sha256(unit["content"])
             parts, split_error = _split_markdown_losslessly(source, candidate, max_size)
             if split_error or parts is None:
-                files_failed += 1
-                reports[source] = {"error": split_error or "split failed"}
+                failed_source = source
+                failed_reason = split_error or "split failed"
+                reports[source] = {"error": failed_reason}
                 logger.error(
                     "COMPACT REJECTED space=%s source=%s reason=%s",
                     space_id,
                     source,
                     reports[source]["error"],
                 )
-                continue
+                break
 
             reconstructed = "".join(
                 _parse_split_part(name, rendered)[1] for name, rendered in parts
             )
             after_hash = _content_sha256(reconstructed)
             if reconstructed != candidate:
-                files_failed += 1
-                reports[source] = {"error": "candidate reconstruction mismatch"}
-                continue
+                failed_source = source
+                failed_reason = "candidate reconstruction mismatch"
+                reports[source] = {"error": failed_reason}
+                break
 
             ok, write_error = await self._write_split_parts(
                 space_id, unit, parts, backup_id
             )
             if not ok:
-                files_failed += 1
-                reports[source] = {"error": write_error or "write failed"}
-                continue
+                failed_source = source
+                failed_reason = write_error or "write failed"
+                reports[source] = {"error": failed_reason}
+                break
 
             before_size = _utf8_size(unit["content"])
             after_size = _utf8_size(candidate)
@@ -2729,6 +3318,32 @@ Contenu actuel :
                 after_hash,
                 backup_id,
             )
+
+        if failed_source is not None:
+            try:
+                await self._restore_compaction_backup(space_id, backup_id)
+                rollback_error = None
+            except Exception as exc:
+                rollback_error = str(exc)
+                logger.exception(
+                    "COMPACT GLOBAL ROLLBACK FAILED space=%s backup_id=%s",
+                    space_id,
+                    backup_id,
+                )
+            base_error = (
+                f"global rollback after {failed_source} failed: {failed_reason}"
+            )
+            if rollback_error:
+                base_error += f"; global rollback failed: {rollback_error}"
+            else:
+                base_error += "; global rollback completed"
+            return {
+                "files_compacted": 0,
+                "files_failed": len(units),
+                "logical_size_delta_bytes": 0,
+                "backup_id": backup_id,
+                "reports": {unit["source"]: {"error": base_error} for unit in units},
+            }
 
         return {
             "files_compacted": files_compacted,

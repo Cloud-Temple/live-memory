@@ -64,6 +64,19 @@ class FakeConsolidator:
         }
 
 
+class JobStorage:
+    """Durable job-result stand-in shared across queue instances."""
+
+    def __init__(self):
+        self.objects: dict[str, dict] = {}
+
+    async def put_json(self, key: str, value: dict):
+        self.objects[key] = value
+
+    async def get_json(self, key: str):
+        return self.objects.get(key)
+
+
 def _token(name: str, permissions: list[str]) -> dict:
     return {
         "client_name": name,
@@ -93,7 +106,11 @@ def _assert_no_auto_polling_contract(payload: dict) -> None:
 @pytest.fixture(autouse=True)
 def reset_queue():
     reset_consolidation_queue_for_tests()
-    yield
+    with patch(
+        "live_mem.core.consolidation_queue.get_storage",
+        return_value=JobStorage(),
+    ):
+        yield
     reset_consolidation_queue_for_tests()
 
 
@@ -321,6 +338,91 @@ async def test_failed_job_status_exposes_error():
     assert status["status"] == "failed"
     assert status["error"] == "LLM unavailable"
     assert status["result"]["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_terminal_job_result_survives_queue_restart():
+    class PartialConsolidator:
+        async def consolidate(
+            self, space_id, agent="", enforce_cooldown=True, progress_callback=None
+        ):
+            return {
+                "status": "partial",
+                "space_id": space_id,
+                "notes_processed": 0,
+                "operations_failed": 1,
+                "operation_failures": [
+                    {
+                        "filename": "progress.md",
+                        "heading": "## Missing",
+                        "reason": "section absent",
+                    }
+                ],
+                "message": "one operation failed",
+            }
+
+    storage = JobStorage()
+    first_queue = ConsolidationQueueService()
+    with (
+        patch(
+            "live_mem.core.consolidation_queue.get_consolidator",
+            return_value=PartialConsolidator(),
+        ),
+        patch("live_mem.core.consolidation_queue.get_storage", return_value=storage),
+    ):
+        job = await first_queue.enqueue("project", "agent-a", "agent-a")
+        for _ in range(20):
+            status = await first_queue.get_job(job["job_id"])
+            if status["status"] == "failed":
+                break
+            await asyncio.sleep(0.01)
+
+        restarted_queue = ConsolidationQueueService()
+        restored = await restarted_queue.get_job(job["job_id"])
+
+    assert restored["status"] == "failed"
+    assert restored["space_id"] == "project"
+    assert restored["queue_position"] == 0
+    assert restored["result"]["status"] == "partial"
+    assert restored["result"]["operation_failures"][0]["heading"] == "## Missing"
+
+
+@pytest.mark.asyncio
+async def test_terminal_persistence_failure_is_observable_before_lane_release():
+    class ImmediateConsolidator:
+        async def consolidate(
+            self, space_id, agent="", enforce_cooldown=True, progress_callback=None
+        ):
+            return {"status": "ok", "space_id": space_id, "notes_processed": 1}
+
+    class FailingJobStorage(JobStorage):
+        async def put_json(self, key: str, value: dict):
+            raise RuntimeError("audit store unavailable")
+
+    storage = FailingJobStorage()
+    queue = ConsolidationQueueService()
+    with (
+        patch(
+            "live_mem.core.consolidation_queue.get_consolidator",
+            return_value=ImmediateConsolidator(),
+        ),
+        patch("live_mem.core.consolidation_queue.get_storage", return_value=storage),
+    ):
+        job = await queue.enqueue("project", "agent-a", "agent-a")
+        for _ in range(20):
+            status = await queue.get_job(job["job_id"])
+            if status["status"] == "failed":
+                break
+            await asyncio.sleep(0.01)
+
+        summary = await queue.get_space_summary("project")
+        restarted = await ConsolidationQueueService().get_job(job["job_id"])
+
+    assert status["status"] == "failed"
+    assert status["error"] == "Terminal result persistence failed"
+    assert status["result"]["audit_persistence_error"] is True
+    assert summary["running_job"] is None
+    assert restarted["status"] == "not_found"
 
 
 @pytest.mark.asyncio

@@ -16,13 +16,14 @@ import asyncio
 import logging
 import uuid
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any
 
 from ..config import get_settings
 from .consolidator import get_consolidator
 from .locks import get_lock_manager
+from .storage import get_storage
 
 logger = logging.getLogger("live_mem.consolidation_queue")
 
@@ -38,6 +39,7 @@ NO_AUTO_POLLING_CONTRACT = {
         "only if an explicit status check is needed."
     ),
 }
+PERSISTED_JOB_PREFIX = "_consolidation_jobs/"
 
 
 def _now() -> str:
@@ -137,12 +139,89 @@ class ConsolidationQueueService:
     async def get_job(self, job_id: str) -> dict:
         async with self._state_lock:
             job = self._jobs.get(job_id)
-            if not job:
-                return {
-                    "status": "not_found",
-                    "message": f"Consolidation job '{job_id}' introuvable",
-                }
-            return self._job_payload(job)
+            if job:
+                return self._job_payload(job)
+
+        # Issue #40 — terminal results must remain attributable after a
+        # service restart.  The in-memory queue is still best-effort for jobs
+        # that were running, but completed payloads are durable.
+        persisted = await get_storage().get_json(f"{PERSISTED_JOB_PREFIX}{job_id}.json")
+        if isinstance(persisted, dict) and persisted.get("job_id") == job_id:
+            return persisted
+        return {
+            "status": "not_found",
+            "message": f"Consolidation job '{job_id}' introuvable",
+        }
+
+    async def _persist_terminal_payload(self, payload: dict) -> None:
+        """Persist the complete terminal payload for post-restart audit."""
+        await get_storage().put_json(
+            f"{PERSISTED_JOB_PREFIX}{payload['job_id']}.json", payload
+        )
+
+    async def _finalize_job(
+        self,
+        space_id: str,
+        job: ConsolidationJob,
+        result: dict[str, Any],
+        error: str | None = None,
+    ) -> None:
+        """Persist a terminal result before exposing it or releasing its lane."""
+        succeeded = result.get("status") == "ok" and error is None
+        progress = {
+            **job.progress,
+            "phase": "done" if succeeded else "failed",
+            "batch_size": result.get("batch_size", job.progress.get("batch_size")),
+            "notes_total": result.get(
+                "notes_processed", job.progress.get("notes_total")
+            ),
+            "notes_done": result.get(
+                "notes_processed", job.progress.get("notes_done")
+            ),
+            "batches_total": result.get(
+                "batches_total", job.progress.get("batches_total")
+            ),
+            "batches_done": result.get(
+                "batches_completed", job.progress.get("batches_done")
+            ),
+        }
+        terminal_job = replace(
+            job,
+            status="succeeded" if succeeded else "failed",
+            result=result,
+            error=None if succeeded else error or result.get("message", "Consolidation failed"),
+            finished_at=_now(),
+            progress=progress,
+        )
+        payload = self._job_payload(terminal_job)
+        payload["queue_position"] = 0
+
+        try:
+            await self._persist_terminal_payload(payload)
+        except Exception:
+            logger.exception(
+                "Terminal consolidation result persistence failed — job=%s",
+                job.job_id,
+            )
+            failed_result = {
+                **result,
+                "audit_persistence_error": True,
+            }
+            terminal_job = replace(
+                terminal_job,
+                status="failed",
+                result=failed_result,
+                error="Terminal result persistence failed",
+                progress={**progress, "phase": "failed"},
+            )
+
+        async with self._state_lock:
+            job.status = terminal_job.status
+            job.result = terminal_job.result
+            job.error = terminal_job.error
+            job.finished_at = terminal_job.finished_at
+            job.progress = terminal_job.progress
+            self._finish_active_locked(space_id, job.job_id)
 
     async def get_space_summary(self, space_id: str) -> dict:
         async with self._state_lock:
@@ -227,49 +306,15 @@ class ConsolidationQueueService:
                             enforce_cooldown=False,
                             progress_callback=progress_callback,
                         )
-                async with self._state_lock:
-                    job.result = result
-                    job.progress.update(
-                        {
-                            # Issue #32 — keep the lane phase consistent with
-                            # the real outcome (a failed consolidation must
-                            # not display a "done" phase).
-                            "phase": (
-                                "done" if result.get("status") == "ok" else "failed"
-                            ),
-                            "batch_size": result.get(
-                                "batch_size", job.progress.get("batch_size")
-                            ),
-                            "notes_total": result.get(
-                                "notes_processed", job.progress.get("notes_total")
-                            ),
-                            "notes_done": result.get(
-                                "notes_processed", job.progress.get("notes_done")
-                            ),
-                            "batches_total": result.get(
-                                "batches_total", job.progress.get("batches_total")
-                            ),
-                            "batches_done": result.get(
-                                "batches_completed",
-                                job.progress.get("batches_done"),
-                            ),
-                        }
-                    )
-                    job.finished_at = _now()
-                    job.status = (
-                        "succeeded" if result.get("status") == "ok" else "failed"
-                    )
-                    if job.status == "failed":
-                        job.error = result.get("message", "Consolidation failed")
-                    self._finish_active_locked(space_id, job.job_id)
-            except Exception as e:
+                await self._finalize_job(space_id, job, result)
+            except Exception:
                 logger.exception("Consolidation job failed — job=%s", job.job_id)
-                async with self._state_lock:
-                    job.status = "failed"
-                    job.error = str(e)
-                    job.result = {"status": "error", "message": str(e)}
-                    job.finished_at = _now()
-                    self._finish_active_locked(space_id, job.job_id)
+                await self._finalize_job(
+                    space_id,
+                    job,
+                    {"status": "error", "message": "Consolidation job failed"},
+                    error="Consolidation job failed",
+                )
 
     async def _update_progress(self, job_id: str, progress: dict[str, Any]) -> None:
         async with self._state_lock:
@@ -307,9 +352,7 @@ class ConsolidationQueueService:
         except ValueError:
             return 0
 
-    def _job_payload(self, job: ConsolidationJob | None) -> dict | None:
-        if job is None:
-            return None
+    def _job_payload(self, job: ConsolidationJob) -> dict:
         payload = {
             "status": job.status,
             "job_id": job.job_id,
