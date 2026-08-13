@@ -449,13 +449,20 @@ same per-space FIFO as consolidation. The job is visible through
 
 The worker obtains a strict JSON section-edit plan from the LLM, validates the
 complete result locally, creates a full-space backup, and persists a verified
-split family when required. Invalid/truncated model output or any pre-write
-validation failure preserves every original. The final result exposes logical
-byte sizes, part counts, hashes, operation reasons, failures, and `backup_id`.
+split family when required. The 75% size target is advisory: any safe,
+non-empty reduction is accepted and reports `target_met` and the overage. A
+`length` response gets one bounded larger-budget retry. Invalid plans preserve
+their own originals without discarding valid plans for other files. The final
+result exposes logical byte sizes, part counts, hashes, operation reasons,
+failures, targets, and `backup_id`.
 A persistence failure triggers an all-planned-files rollback limited to
 `bank/`; exact keys and contents are verified, while concurrent `live/` notes
 remain untouched. If rollback also fails, the reported backup id is the manual
 recovery point.
+
+Automatic compaction planning failure does not block `bank_consolidate` while
+the bank remains coherent. Invalid split families and failed write rollbacks
+remain blocking.
 
 ---
 

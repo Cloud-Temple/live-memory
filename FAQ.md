@@ -231,8 +231,10 @@ When bank files grow too large (> `BANK_FILE_MAX_SIZE`, default 15 KB), they may
 `bank_compact` asks the LLM for a strict JSON plan containing only section
 replacements and deletions. The server applies the plan locally and accepts it
 only if the complete response is valid, keeps the main H1, produces a real
-reduction, stays above 5% of the original logical size, and fits below 75% of
-`BANK_FILE_MAX_SIZE`. Sizes are logical UTF-8 bytes, not character counts.
+reduction, and stays above 5% of the original logical size. 75% of
+`BANK_FILE_MAX_SIZE` is an advisory target, not a success condition; safe
+compacted results above the target are accepted and split losslessly. Sizes are logical UTF-8
+bytes, not character counts.
 
 ```bash
 # Scan only (dry-run, default)

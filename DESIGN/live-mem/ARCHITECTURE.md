@@ -281,7 +281,8 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                          Apply and validate the complete plan
                          - terminal LLM response (`stop`)
                          - valid JSON, exact headings, H1 preserved
-                         - 5% of original ≤ result ≤ 75% max size
+                         - result is smaller and stays above 5% of original
+                         - 75% max size is an advisory target (`target_met`)
                                       │
                                       ▼
                          Full-space backup, write, readback
@@ -293,8 +294,9 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                          future consolidations)
 ```
 
-No storage mutation occurs if one requested file has an invalid plan. A later
-consolidation reconstructs a split family, applies its surgical edits once to
+An invalid plan never mutates its file, but does not discard valid reductions
+planned for other files. A later consolidation reconstructs a split family,
+applies its surgical edits once to
 the logical document, and writes a new split family. Manual compaction jobs are
 observable through `bank_consolidation_status` and
 `bank_consolidation_queues`; automatic pre-consolidation compaction exposes its
@@ -305,6 +307,11 @@ The bank-only rollback is deliberate: `live_note` does not take the
 consolidation lock, so restoring the full space could delete a note created
 after the backup. Multi-file rollback verifies the exact final bank keyset and
 content before it is reported as successful.
+
+Pre-consolidation compaction is non-blocking while bank coherence is proven:
+rejected/truncated LLM plans keep their originals and note consolidation
+continues. Inconsistent split metadata and failed write rollback remain hard
+failures.
 
 ### 4.5 Graph Push (Bridge to Graph Memory)
 

@@ -262,7 +262,7 @@ The consolidator uses an LLM (OpenAI-compatible API) to transform live notes int
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Optional post-consolidation check for unattributed claims |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Max examples returned by the validation pass |
 | `COMPACT_THRESHOLD`       | `0.6`             | Legacy compatibility setting; compaction follows the logical UTF-8 byte limit per file |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Max logical size per bank file (UTF-8 bytes, 15 KB). LLM compaction targets 75% of this limit |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | UTF-8 byte threshold for semantic compaction and max physical split-part size. The LLM aims for 75%; missing that target is not a failure |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Max non-MCP response body size before truncation |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Max request body accepted by `/api/tool` |
 
@@ -332,7 +332,10 @@ Applied `bank_compact` is asynchronous: it joins the same per-space FIFO as
 consolidation and returns a `job_id`. For each logical file above
 `BANK_FILE_MAX_SIZE`, the LLM returns a strict JSON section-edit plan; the
 server applies and validates that plan locally, in UTF-8 bytes, before any
-write. It creates a full-space backup, verifies persisted content, and attempts
+write. The 75% target guides the LLM and is reported through `target_met`; it
+is not a success condition. Any non-empty safe reduction is accepted and
+losslessly split into physical parts below the byte limit. The server creates
+a full-space backup, verifies persisted content, and attempts
 rollback on failure. If rollback also fails, the job reports the `backup_id`
 needed for manual restore. The compacted logical document is stored as a
 machine-marked split family when needed; reads and later consolidations
@@ -348,6 +351,12 @@ restoration/loss metrics.
 Multi-file compaction restores only `bank/`, so a live note created
 concurrently is never removed by rollback. Terminal job results are persisted
 for post-restart audit; active/queued jobs remain an in-memory FIFO.
+
+Automatic pre-consolidation compaction is maintenance, not a gate: an invalid
+or truncated LLM plan leaves that file unchanged and consolidation continues
+with the coherent bank. Valid reductions from other files are still applied.
+Only an inconsistent split family or a failed write rollback blocks
+`bank_consolidate`.
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory
 

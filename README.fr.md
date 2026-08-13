@@ -262,7 +262,7 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
 | `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite logique par fichier en octets UTF-8 |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Taille logique max par fichier bank (octets UTF-8, 15 KB). La compaction LLM vise 75 % de cette limite |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Seuil en octets UTF-8 de compaction sémantique et taille max d'une partie physique. Le LLM vise 75 % ; manquer cette cible n'est pas un échec |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
@@ -332,7 +332,10 @@ Un `bank_compact` appliqué est asynchrone : il rejoint la même file FIFO par
 space que la consolidation et retourne un `job_id`. Pour chaque fichier
 logique dépassant `BANK_FILE_MAX_SIZE`, le LLM retourne un plan JSON strict
 d'opérations par section ; le serveur applique et valide ce plan localement,
-en octets UTF-8, avant toute écriture. Il crée un backup complet du space,
+en octets UTF-8, avant toute écriture. La cible de 75 % guide le LLM et est
+exposée par `target_met` ; ce n'est pas une condition de succès. Toute
+réduction sûre et non vide est acceptée puis découpée sans perte en parties
+physiques sous la limite. Le serveur crée un backup complet du space,
 vérifie le contenu persisté et tente un rollback en cas d'échec. Si ce rollback
 échoue aussi, le job expose le `backup_id` nécessaire à une restauration
 manuelle. Le document logique compacté est stocké, si nécessaire, sous forme de
@@ -351,6 +354,12 @@ restaure que `bank/`, sans pouvoir
 supprimer une note live concurrente. Les résultats terminaux des jobs sont
 persistés pour l'audit après redémarrage ; les jobs actifs/en attente restent
 dans une FIFO en mémoire.
+
+La compaction automatique avant consolidation est une maintenance, pas une
+barrière : un plan LLM invalide ou tronqué laisse ce fichier inchangé et la
+consolidation continue avec la bank cohérente. Les réductions valides des
+autres fichiers sont tout de même appliquées. Seules une famille découpée
+incohérente ou l'échec d'un rollback d'écriture bloquent `bank_consolidate`.
 
 ### Graph (4 outils) — 🌉 Pont vers Graph Memory
 

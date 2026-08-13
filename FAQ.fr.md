@@ -233,8 +233,10 @@ Quand les fichiers bank deviennent trop volumineux (> `BANK_FILE_MAX_SIZE`, 15 K
 remplacements et suppressions de sections. Le serveur applique ce plan
 localement et ne l'accepte que si la réponse complète est valide, conserve le
 H1 principal, produit une réduction réelle, reste au-dessus de 5 % de la taille
-logique d'origine et tient sous 75 % de `BANK_FILE_MAX_SIZE`. Les tailles sont
-des octets UTF-8 logiques, pas un nombre de caractères.
+logique d'origine. Les 75 % de `BANK_FILE_MAX_SIZE` sont une cible indicative,
+pas une condition de succès ; un résultat compacté sûr au-dessus de la cible
+est accepté et découpé sans perte. Les tailles sont des octets UTF-8 logiques, pas un nombre
+de caractères.
 
 ```bash
 # Scan seul (dry-run, par défaut)

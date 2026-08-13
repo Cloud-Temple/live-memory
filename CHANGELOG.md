@@ -5,6 +5,23 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **Compaction targets no longer block valid work** (#43). The 75% byte target
+  is advisory and reported through `target_met`; any non-empty safe reduction
+  is accepted and losslessly split. A `length` response gets one bounded retry
+  with a larger output budget.
+- Valid per-file plans are applied even when another file's plan is invalid,
+  producing an explicit `partial` result instead of falsely reporting zero
+  compacted files. Invalid files keep their originals.
+- Automatic pre-consolidation compaction is no longer a gate while the bank is
+  coherent. Planning failures preserve their files and consolidation proceeds;
+  inconsistent split families and failed write rollbacks remain blocking.
+
+---
+
 ## [2.7.1] — 2026-08-13
 
 ### Fixed
