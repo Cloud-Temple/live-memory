@@ -35,6 +35,26 @@ INCIDENT_LLM_ERROR = (
 )
 
 
+class JobStorage:
+    def __init__(self):
+        self.objects: dict[str, dict] = {}
+
+    async def put_json(self, key: str, value: dict):
+        self.objects[key] = value
+
+    async def get_json(self, key: str):
+        return self.objects.get(key)
+
+
+@pytest.fixture(autouse=True)
+def durable_queue_results():
+    with patch(
+        "live_mem.core.consolidation_queue.get_storage",
+        return_value=JobStorage(),
+    ):
+        yield
+
+
 class FakeStorage:
     """Minimal S3 stand-in tracking every mutating call."""
 
@@ -174,6 +194,73 @@ class TestFirstBatchFailure:
         assert result["failed_batch"] == 1
         assert "S3 write failed" in result["message"]
         assert storage.put_json_calls == []
+
+    async def test_unrestored_note_metrics_are_propagated_to_batch_result(self):
+        storage = FakeStorage(_notes(2))
+        svc = _consolidator(batch_size=2)
+        failed_write = {
+            "status": "error",
+            "message": "partial live note deletion",
+            "notes_processed": 0,
+            "notes_deleted": 1,
+            "notes_restored": 1,
+            "notes_unrestored": 1,
+            "notes_lost": 1,
+            "notes_unrestored_keys": [self_note := _notes(2)[0]["key"]],
+            "operations_failed": 1,
+            "operation_failures": [],
+        }
+
+        with patch(
+            "live_mem.core.consolidator.get_storage", return_value=storage
+        ), patch.object(
+            svc, "_call_llm", new=AsyncMock(return_value=_ok_llm_result())
+        ), patch.object(
+            svc, "_write_results", new=AsyncMock(return_value=failed_write)
+        ):
+            result = await svc.consolidate(
+                "sp", agent="CLR", enforce_cooldown=False
+            )
+
+        assert result["status"] == "error"
+        assert result["notes_processed"] == 0
+        assert result["notes_deleted"] == 1
+        assert result["notes_restored"] == 1
+        assert result["notes_unrestored"] == 1
+        assert result["notes_lost"] == 1
+        assert result["notes_unrestored_keys"] == [self_note]
+        assert "1 note(s) verified in live/" in result["message"]
+        assert "1 source note(s) could not be restored" in result["message"]
+
+    async def test_final_meta_failure_preserves_committed_batch_audit(self):
+        class MetaFailingStorage(FakeStorage):
+            async def put_json(self, key: str, value: dict):
+                raise RuntimeError("metadata store unavailable")
+
+        storage = MetaFailingStorage(_notes(2))
+        svc = _consolidator(batch_size=2)
+
+        with patch(
+            "live_mem.core.consolidator.get_storage", return_value=storage
+        ), patch.object(
+            svc, "_call_llm", new=AsyncMock(return_value=_ok_llm_result())
+        ), patch.object(
+            svc,
+            "_write_results",
+            new=AsyncMock(return_value=_ok_write_result(2)),
+        ):
+            result = await svc.consolidate(
+                "sp", agent="CLR", enforce_cooldown=False
+            )
+
+        assert result["status"] == "partial"
+        assert result["notes_processed"] == 2
+        assert result["batches_completed"] == 1
+        assert result["bank_files_updated"] == 1
+        assert result["operations_applied"] == 1
+        assert result["finalization_error"] == "metadata update failed"
+        assert result["metrics_incomplete"] is False
+        assert "committed metrics were preserved" in result["message"]
 
 
 @pytest.mark.asyncio

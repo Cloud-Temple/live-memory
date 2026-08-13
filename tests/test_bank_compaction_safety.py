@@ -911,3 +911,524 @@ async def test_failed_operation_exposes_file_section_and_reason():
             "reason": "Section non trouvée: ## Missing",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_invalid_operation_preflight_writes_nothing_and_preserves_notes():
+    original_progress = "# progress.md\n\n## History\nold\n"
+    original_active = "# activeContext.md\n"
+    storage = MemoryStorage(
+        {
+            "sp/bank/activeContext.md": original_active,
+            "sp/bank/progress.md": original_progress,
+            "sp/live/note.md": "important source\n",
+        }
+    )
+    storage.put = AsyncMock(side_effect=storage.put)
+    storage.delete_many = AsyncMock(side_effect=storage.delete_many)
+    service = _service()
+    service._deduplicate_content = AsyncMock(
+        side_effect=lambda content, filename: (content, 0)
+    )
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.md",
+                "action": "edit",
+                "operations": [
+                    {
+                        "type": "append_to_section",
+                        "heading": "## History",
+                        "content": "new fact",
+                    }
+                ],
+            },
+            {
+                "filename": "activeContext.md",
+                "action": "edit",
+                "operations": [
+                    {
+                        "type": "append_to_section",
+                        "heading": "## Missing",
+                        "content": "must never be written",
+                    }
+                ],
+            },
+        ],
+        "synthesis": "must not be persisted",
+    }
+
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp", output, bank_files, ["sp/live/note.md"], 1, {}, skip_meta=True
+        )
+
+    assert result["status"] == "error"
+    assert result["notes_processed"] == 0
+    assert result["operations_failed"] == 1
+    assert storage.objects["sp/bank/progress.md"] == original_progress
+    assert storage.objects["sp/bank/activeContext.md"] == original_active
+    assert storage.objects["sp/live/note.md"] == "important source\n"
+    assert "sp/_synthesis.md" not in storage.objects
+    storage.put.assert_not_awaited()
+    storage.delete_many.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_preflight_cannot_overwrite_existing_bank_file():
+    original = "# progress.md\n\n## History\nsource of truth\n"
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": original,
+            "sp/live/note.md": "new fact\n",
+        }
+    )
+    storage.put = AsyncMock(side_effect=storage.put)
+    storage.delete_many = AsyncMock(side_effect=storage.delete_many)
+    service = _service()
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.md",
+                "action": "create",
+                "content": "replacement disguised as creation",
+            }
+        ],
+        "synthesis": "must not be persisted",
+    }
+
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp",
+            output,
+            bank_files,
+            ["sp/live/note.md"],
+            1,
+            {},
+            skip_meta=True,
+        )
+
+    assert result["status"] == "error"
+    assert result["notes_processed"] == 0
+    assert result["operation_failures"][0]["reason"] == (
+        "create is forbidden on an existing bank file"
+    )
+    assert storage.objects["sp/bank/progress.md"] == original
+    assert storage.objects["sp/live/note.md"] == "new fact\n"
+    storage.put.assert_not_awaited()
+    storage.delete_many.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_synthesis", [None, 42, {"text": "summary"}])
+async def test_invalid_synthesis_type_is_rejected_before_mutation(invalid_synthesis):
+    original = "# progress.md\n\n## History\nsource of truth\n"
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": original,
+            "sp/live/note.md": "new fact\n",
+        }
+    )
+    storage.put = AsyncMock(side_effect=storage.put)
+    storage.delete_many = AsyncMock(side_effect=storage.delete_many)
+    service = _service()
+    output = {
+        "file_edits": [],
+        "synthesis": invalid_synthesis,
+    }
+
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp",
+            output,
+            bank_files,
+            ["sp/live/note.md"],
+            1,
+            {},
+            skip_meta=True,
+        )
+
+    assert result["status"] == "error"
+    assert result["notes_processed"] == 0
+    assert result["operation_failures"] == [
+        {
+            "filename": "_synthesis.md",
+            "action": "write",
+            "reason": "synthesis must be a string",
+        }
+    ]
+    assert storage.objects["sp/bank/progress.md"] == original
+    assert storage.objects["sp/live/note.md"] == "new fact\n"
+    storage.put.assert_not_awaited()
+    storage.delete_many.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_storage_exception_rolls_back_all_batch_outputs():
+    progress = "# progress.md\n\n## History\nold progress\n"
+    patterns = "# systemPatterns.md\n\n## History\nold pattern\n"
+    note = {"key": "sp/live/note.md", "content": "important source\n"}
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": progress,
+            "sp/bank/systemPatterns.md": patterns,
+            note["key"]: note["content"],
+        }
+    )
+    original_put = storage.put
+    failed_once = False
+
+    async def fail_second_bank_write_once(key: str, content: str):
+        nonlocal failed_once
+        if key == "sp/bank/systemPatterns.md" and not failed_once:
+            failed_once = True
+            raise RuntimeError("second bank write failed")
+        await original_put(key, content)
+
+    storage.put = AsyncMock(side_effect=fail_second_bank_write_once)
+    storage.delete_many = AsyncMock(side_effect=storage.delete_many)
+    service = _service()
+    service._temperature = 0.3
+    service._max_notes = 200
+    service._batch_size = 10
+    service._cooldown_seconds = 0
+    service._compact_threshold = 0.6
+    service._validation_enabled = False
+    service._validation_max_examples = 20
+    service._deduplicate_content = AsyncMock(
+        side_effect=lambda content, filename: (content, 0)
+    )
+    llm_result = {
+        "status": "ok",
+        "data": {
+            "file_edits": [
+                {
+                    "filename": "progress.md",
+                    "action": "edit",
+                    "operations": [
+                        {
+                            "type": "append_to_section",
+                            "heading": "## History",
+                            "content": "new progress",
+                        }
+                    ],
+                },
+                {
+                    "filename": "systemPatterns.md",
+                    "action": "edit",
+                    "operations": [
+                        {
+                            "type": "append_to_section",
+                            "heading": "## History",
+                            "content": "new pattern",
+                        }
+                    ],
+                },
+            ],
+            "synthesis": "must be rolled back",
+        },
+        "usage": {},
+    }
+
+    with (
+        patch("live_mem.core.consolidator.get_storage", return_value=storage),
+        patch.object(service, "_call_llm", new=AsyncMock(return_value=llm_result)),
+    ):
+        result = await service.consolidate("sp", enforce_cooldown=False)
+
+    assert result["status"] == "error"
+    assert result["notes_processed"] == 0
+    assert storage.objects["sp/bank/progress.md"] == progress
+    assert storage.objects["sp/bank/systemPatterns.md"] == patterns
+    assert storage.objects[note["key"]] == note["content"]
+    assert "sp/_synthesis.md" not in storage.objects
+    storage.delete_many.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_batch_rollback_rejects_silent_extra_key_delete_failure():
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": "original",
+            "sp/bank/unexpected.part-001.md": "residue",
+        }
+    )
+    storage.delete = AsyncMock(return_value=None)
+    service = _service()
+
+    with (
+        patch("live_mem.core.consolidator.get_storage", return_value=storage),
+        pytest.raises(RuntimeError, match="keyset verification failed"),
+    ):
+        await service._restore_consolidation_outputs(
+            space_id="sp",
+            bank_snapshot={"sp/bank/progress.md": "original"},
+            synthesis_before=None,
+            meta_before=None,
+            restore_meta=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_partial_note_deletion_is_rolled_back_and_reported():
+    note_a = {"key": "sp/live/a.md", "content": "source A\n"}
+    note_b = {"key": "sp/live/b.md", "content": "source B\n"}
+    original_progress = "# progress.md\n\n## History\nold\n"
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": original_progress,
+            note_a["key"]: note_a["content"],
+            note_b["key"]: note_b["content"],
+        }
+    )
+
+    async def partial_delete(keys: list[str]) -> int:
+        await storage.delete(keys[0])
+        return 1
+
+    storage.delete_many = AsyncMock(side_effect=partial_delete)
+    service = _service()
+    service._deduplicate_content = AsyncMock(
+        side_effect=lambda content, filename: (content, 0)
+    )
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.md",
+                "action": "edit",
+                "operations": [
+                    {
+                        "type": "append_to_section",
+                        "heading": "## History",
+                        "content": "integrated fact",
+                    }
+                ],
+            }
+        ],
+        "synthesis": "batch summary",
+    }
+
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp",
+            output,
+            bank_files,
+            [note_a["key"], note_b["key"]],
+            2,
+            {},
+            skip_meta=True,
+            notes=[note_a, note_b],
+        )
+
+    assert result["status"] == "error"
+    assert result["notes_processed"] == 0
+    assert result["notes_deleted"] == 1
+    assert result["notes_restored"] == 2
+    assert "partial live note deletion" in result["message"]
+    assert storage.objects[note_a["key"]] == note_a["content"]
+    assert storage.objects[note_b["key"]] == note_b["content"]
+    assert storage.objects["sp/bank/progress.md"] == original_progress
+    assert "sp/_synthesis.md" not in storage.objects
+
+
+@pytest.mark.asyncio
+async def test_no_fallible_storage_io_occurs_after_complete_note_delete():
+    note = {"key": "sp/live/note.md", "content": "source\n"}
+    original_progress = "# progress.md\n\n## History\nold\n"
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": original_progress,
+            note["key"]: note["content"],
+        }
+    )
+    notes_committed = False
+    original_list_objects = storage.list_objects
+
+    async def delete_notes(keys: list[str]) -> int:
+        nonlocal notes_committed
+        deleted = await MemoryStorage.delete_many(storage, keys)
+        notes_committed = True
+        return deleted
+
+    async def fail_if_listed_after_note_commit(prefix: str):
+        if notes_committed:
+            raise RuntimeError("post-commit storage I/O is forbidden")
+        return await original_list_objects(prefix)
+
+    storage.delete_many = AsyncMock(side_effect=delete_notes)
+    storage.list_objects = AsyncMock(side_effect=fail_if_listed_after_note_commit)
+    service = _service()
+    service._deduplicate_content = AsyncMock(
+        side_effect=lambda content, filename: (content, 0)
+    )
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.md",
+                "action": "edit",
+                "operations": [
+                    {
+                        "type": "append_to_section",
+                        "heading": "## History",
+                        "content": "integrated",
+                    }
+                ],
+            }
+        ],
+        "synthesis": "summary",
+    }
+
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp",
+            output,
+            bank_files,
+            [note["key"]],
+            1,
+            {},
+            skip_meta=True,
+            notes=[note],
+        )
+
+    assert result["status"] == "ok"
+    assert result["notes_processed"] == 1
+    assert note["key"] not in storage.objects
+
+
+@pytest.mark.asyncio
+async def test_partial_note_restore_metrics_are_based_on_verified_final_state():
+    note_a = {"key": "sp/live/a.md", "content": "source A\n"}
+    note_b = {"key": "sp/live/b.md", "content": "source B\n"}
+    original_progress = "# progress.md\n\n## History\nold\n"
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": original_progress,
+            note_a["key"]: note_a["content"],
+            note_b["key"]: note_b["content"],
+        }
+    )
+
+    async def partial_delete(keys: list[str]) -> int:
+        await storage.delete(keys[0])
+        return 1
+
+    original_put = storage.put
+
+    async def fail_deleted_note_restore(key: str, content: str):
+        if key == note_a["key"]:
+            raise RuntimeError("note restore unavailable")
+        await original_put(key, content)
+
+    storage.delete_many = AsyncMock(side_effect=partial_delete)
+    storage.put = AsyncMock(side_effect=fail_deleted_note_restore)
+    service = _service()
+    service._deduplicate_content = AsyncMock(
+        side_effect=lambda content, filename: (content, 0)
+    )
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.md",
+                "action": "edit",
+                "operations": [
+                    {
+                        "type": "append_to_section",
+                        "heading": "## History",
+                        "content": "integrated fact",
+                    }
+                ],
+            }
+        ],
+        "synthesis": "batch summary",
+    }
+
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp",
+            output,
+            bank_files,
+            [note_a["key"], note_b["key"]],
+            2,
+            {},
+            skip_meta=True,
+            notes=[note_a, note_b],
+        )
+
+    assert result["status"] == "error"
+    assert result["notes_processed"] == 0
+    assert result["notes_restored"] == 1
+    assert result["notes_unrestored"] == 1
+    assert result["notes_lost"] == 1
+    assert result["notes_unrestored_keys"] == [note_a["key"]]
+    assert note_a["key"] not in storage.objects
+    assert storage.objects[note_b["key"]] == note_b["content"]
+    assert storage.objects["sp/bank/progress.md"] == original_progress
+
+
+@pytest.mark.asyncio
+async def test_multi_file_compaction_failure_restores_the_whole_backup():
+    progress = _oversized_section_markdown()
+    patterns = _oversized_section_markdown().replace(
+        "# progress.md", "# systemPatterns.md", 1
+    )
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/bank/progress.md": progress,
+            "sp/bank/systemPatterns.md": patterns,
+        }
+    )
+    original_put = storage.put
+
+    async def fail_second_file(key: str, content: str):
+        if key == "sp/bank/progress.md":
+            storage.objects["sp/live/concurrent.md"] = "arrived after backup\n"
+        if key == "sp/bank/systemPatterns.md":
+            raise RuntimeError("second file write failed")
+        await original_put(key, content)
+
+    storage.put = AsyncMock(side_effect=fail_second_file)
+    service = _service()
+    service._client.chat.completions.create.side_effect = [
+        _llm_plan_response(filename="progress.md"),
+        _llm_plan_response(filename="systemPatterns.md"),
+    ]
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "error"
+    assert result["files_compacted"] == 0
+    assert result["files_failed"] == 2
+    assert storage.objects["sp/bank/progress.md"] == progress
+    assert storage.objects["sp/bank/systemPatterns.md"] == patterns
+    assert storage.objects["sp/live/concurrent.md"] == "arrived after backup\n"
+    assert "global rollback" in result["files"][0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_compaction_rollback_rejects_silent_extra_bank_delete_failure():
+    storage = MemoryStorage(
+        {
+            "_backups/sp/backup/bank/progress.md": "original",
+            "sp/bank/progress.md": "mutated",
+            "sp/bank/unexpected.part-001.md": "residue",
+            "sp/live/concurrent.md": "must survive",
+        }
+    )
+    storage.delete = AsyncMock(return_value=None)
+    service = _service()
+
+    with (
+        patch("live_mem.core.consolidator.get_storage", return_value=storage),
+        pytest.raises(RuntimeError, match="keyset verification failed"),
+    ):
+        await service._restore_compaction_backup("sp", "sp/backup")
+
+    assert storage.objects["sp/live/concurrent.md"] == "must survive"
