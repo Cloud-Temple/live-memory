@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
+> **Version**: 2.7.1 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -239,14 +239,28 @@ Agent → bank_consolidate("project-alpha", agent="cline-dev")
         └──────────────────────────────────────────────┘
                 │
                 ▼
-        5. Applies operations surgically
+        5. Preflights the complete edit plan
+           → synthesis must be textual
+           → create cannot overwrite; rewrite requires a target
+           → every surgical operation is applied in memory first
+        6. Applies operations surgically
            on existing bank files (v0.6.0)
            → What is not touched remains intact byte-for-byte
            → Zero content loss (vs full rewrite)
-        6. Writes _synthesis.md (residual for next consolidation)
-        7. Deletes processed live notes (LAST — atomicity)
-        8. Updates _meta.json (counters)
+        7. Writes _synthesis.md (residual for next consolidation)
+        8. Computes every fallible metric
+        9. Deletes processed live notes (LAST batch commit)
+       10. Updates _meta.json once after all committed batches
 ```
+
+Each batch snapshots bank, synthesis, and (outside batched mode) metadata. Any
+invalid operation or storage exception before source-note deletion restores
+the complete output snapshot and verifies both contents and the exact bank
+keyset. A partial note deletion restores and re-reads every collected source;
+loss metrics are explicit and are never counted as processed notes. If the
+final metadata/audit update fails after committed batches, the result is
+`partial` and retains their exact metrics—committed batches are not rolled
+back.
 
 ### 4.4 Safe Bank Compaction (via LLM)
 
@@ -271,7 +285,7 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                                       │
                                       ▼
                          Full-space backup, write, readback
-                         and rollback attempt on persistence failure
+                         and bank-only rollback on persistence failure
                                       │
                                       ▼
                          Lossless physical split with markers
@@ -286,6 +300,11 @@ observable through `bank_consolidation_status` and
 `bank_consolidation_queues`; automatic pre-consolidation compaction exposes its
 phase on the consolidation job. If both persistence and rollback fail, the job
 reports the restorable `backup_id` and requires manual recovery.
+
+The bank-only rollback is deliberate: `live_note` does not take the
+consolidation lock, so restoring the full space could delete a note created
+after the backup. Multi-file rollback verifies the exact final bank keyset and
+content before it is reported as successful.
 
 ### 4.5 Graph Push (Bridge to Graph Memory)
 
@@ -492,4 +511,4 @@ PROXY_URL=http://10.0.0.1:3128
 
 ---
 
-*Document updated August 12, 2026 — Live Memory v2.7.0*
+*Document updated August 13, 2026 — Live Memory v2.7.1*

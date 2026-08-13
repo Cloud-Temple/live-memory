@@ -1,6 +1,6 @@
 # Multi-Agent Concurrency Management — Live Memory
 
-> **Version**: 2.7.0 | **Date**: 2026-08-12 | **Author**: Cloud Temple
+> **Version**: 2.7.1 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -35,7 +35,9 @@ Consolidation, applied compaction, and administrative bank maintenance can all
 mutate the bank. Two callers must never update the same logical file family at
 the same time.
 
-**Solution**: an in-memory FIFO queue **per space** plus the existing `asyncio.Lock` **per space** for the actual bank mutation.
+**Solution**: an in-memory FIFO queue **per space** plus the existing
+`asyncio.Lock` **per space** for the actual bank mutation, with terminal job
+payloads persisted independently for audit.
 
 ```python
 async def bank_consolidate(space_id: str, agent: str = "") -> dict:
@@ -57,7 +59,10 @@ async def bank_consolidate(space_id: str, agent: str = "") -> dict:
 - Two different spaces can be consolidated in parallel (independent locks)
 - Direct `bank_write`, `bank_delete`, and `bank_repair` mutations acquire the
   same per-space lock, so they cannot interleave with a queued bank job
-- PR 1 queue durability is `in_memory_best_effort`: jobs are not persisted across process restart
+- Queued/running jobs remain `in_memory_best_effort` across process restart
+- Terminal payloads are persisted before terminal status is exposed and before
+  the lane is released; a persistence failure changes the job to `failed` with
+  `audit_persistence_error=true`
 
 ---
 
@@ -89,7 +94,7 @@ Updated during consolidation and `graph_push`. Protected by the consolidation lo
 | `live_note` (N simultaneous agents) | None | Unique files (timestamp+UUID) | **Zero** |
 | `live_read` / `live_search` (parallel reads) | None | Parallel S3 reads | **Zero** |
 | `bank_read` / `bank_read_all` (parallel reads) | None | Parallel S3 reads | **Zero** |
-| `bank_consolidate` (2 agents, same space) | Overwrite | In-memory FIFO + `asyncio.Lock` per space | 2nd is queued |
+| `bank_consolidate` (2 agents, same space) | Overwrite | In-memory FIFO + durable terminal audit + `asyncio.Lock` per space | 2nd is queued |
 | `bank_consolidate` (2 agents, different spaces) | None | Independent locks | **Zero** |
 | `bank_compact(..., dry_run=False)` | Overwrite / partial split family | Same FIFO + per-space lock | Queued behind the current bank job |
 | `bank_write` / `bank_delete` / `bank_repair` | Interleaved maintenance | Same per-space lock | Short serialization |
@@ -102,6 +107,11 @@ manual `backup_create`: it runs while the compaction worker holds the per-space
 lock and is the safe rollback point. The public backup tool does not currently
 take that lock and must not be scheduled during consolidation, compaction, or
 direct bank maintenance.
+
+Compaction rollback restores only the bank subtree. This is a concurrency
+invariant: `live_note` intentionally takes no lock, so a whole-space rollback
+could otherwise delete a note written after the backup. The restored bank
+keyset and every object content are verified before success is reported.
 
 ---
 
@@ -226,4 +236,4 @@ T+5s:  Agent B → graph_push("project-alpha")
 
 ---
 
-*Document updated August 12, 2026 — Live Memory v2.7.0*
+*Document updated August 13, 2026 — Live Memory v2.7.1*

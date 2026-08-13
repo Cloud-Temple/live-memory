@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.7.1-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -337,6 +337,17 @@ rollback on failure. If rollback also fails, the job reports the `backup_id`
 needed for manual restore. The compacted logical document is stored as a
 machine-marked split family when needed; reads and later consolidations
 transparently reassemble it.
+
+Since v2.7.1, consolidation validates the complete LLM edit plan before the
+first write. Bank and synthesis outputs (plus metadata outside normal batched
+mode) are rolled back and verified as one batch on failure; source notes are
+deleted only after every fallible operation in that batch has completed. Final
+metadata/audit I/O runs after committed batches but can only return `partial`;
+it never rolls them back. Partial note deletion exposes verified
+restoration/loss metrics.
+Multi-file compaction restores only `bank/`, so a live note created
+concurrently is never removed by rollback. Terminal job results are persisted
+for post-restart audit; active/queued jobs remain an in-memory FIFO.
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory
 
@@ -790,4 +801,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.7.0 — Shared working memory for collaborative AI agents*
+*Live Memory v2.7.1 — Shared working memory for collaborative AI agents*
