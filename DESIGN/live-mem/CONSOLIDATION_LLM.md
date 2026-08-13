@@ -285,16 +285,18 @@ alter this response contract.
 
 The compaction response has a stricter parser than normal consolidation:
 
-- `finish_reason` must be `stop`; truncated responses are rejected;
+- `finish_reason` must be `stop`; a `length` response gets one bounded retry
+  with a larger available output budget, then remains rejected if incomplete;
 - JSON must parse as returned, with no extraction or repair;
 - every heading must match exactly once and the principal H1 cannot change;
-- the result must be smaller than the input, at least 5% of its original
-  UTF-8 byte size, and no larger than 75% of `BANK_FILE_MAX_SIZE`;
-- all target files are planned before the first storage mutation; if one plan
-  is invalid, nothing is written.
+- the result must be smaller than the input and at least 5% of its original
+  UTF-8 byte size. 75% of `BANK_FILE_MAX_SIZE` is an optimization target,
+  exposed as `target_met`, never a success condition;
+- every valid target is planned before the first storage mutation. Invalid
+  plans keep their originals while valid plans are still applied.
 
-Once all plans pass, the server creates a standard full-space backup. Each
-logical result is split losslessly on line boundaries into physical objects
+When at least one plan passes, the server creates a standard full-space backup.
+Each valid logical result is split losslessly on line boundaries into physical objects
 below the byte limit. Every object contains a machine-readable
 `live-mem-split` marker, including a one-part family. Writes are read back and
 verified; a failure triggers an attempt to restore the original family from
@@ -308,6 +310,11 @@ Applied manual compaction is a `compact` job in the same per-space FIFO as
 consolidation. Automatic compaction runs inside the consolidation job before
 new notes are applied. Both paths therefore share serialization and status
 observability.
+
+Automatic compaction failure does not by itself fail consolidation: a rejected
+plan performs no mutation, and note integration continues against the coherent
+original/partially compacted bank. An inconsistent split family or a failed
+write rollback remains blocking because bank coherence is no longer proven.
 
 ---
 

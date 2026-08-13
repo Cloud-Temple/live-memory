@@ -787,7 +787,7 @@ class ConsolidatorService:
         compact_result = await self._compact_bank_if_needed(
             space_id, inputs["bank_files"], inputs["rules"]
         )
-        if compact_result.get("files_failed", 0):
+        if compact_result.get("files_failed", 0) and compact_result.get("blocking"):
             return {
                 "status": "error",
                 "space_id": space_id,
@@ -799,6 +799,14 @@ class ConsolidatorService:
                 ),
                 "compaction": compact_result,
             }
+        if compact_result.get("files_failed", 0):
+            logger.warning(
+                "Pre-consolidation compaction was partial/non-applicable; "
+                "continuing with a coherent bank — space=%s compacted=%d failed=%d",
+                space_id,
+                compact_result.get("files_compacted", 0),
+                compact_result.get("files_failed", 0),
+            )
         if compact_result["compacted"]:
             # Relire la bank compactée depuis S3
             inputs["bank_files"] = await storage.list_and_get(f"{space_id}/bank/")
@@ -1169,6 +1177,8 @@ class ConsolidatorService:
             "batch_size": batch_size,
             "duration_seconds": duration,
         }
+        if compact_result.get("compacted") or compact_result.get("files_failed", 0):
+            result["compaction"] = compact_result
         if finalization_failures:
             result["finalization_error"] = "; ".join(finalization_failures)
             result["metrics_incomplete"] = metrics_incomplete
@@ -2842,6 +2852,7 @@ CONSIGNE : Fusionne ces versions en UNE SEULE version cohérente.
                 "files_failed": len(invalid_units),
                 "size_before": total_bank_size,
                 "size_after": total_bank_size,
+                "blocking": True,
                 "message": "incomplete or inconsistent split bank family",
             }
         oversized = [
@@ -2868,6 +2879,7 @@ CONSIGNE : Fusionne ces versions en UNE SEULE version cohérente.
             "rollback failed" in str(report.get("error", ""))
             for report in result.get("reports", {}).values()
         )
+        planning_failed = result.get("files_failed", 0)
         return {
             "compacted": result["files_compacted"] > 0,
             "files_compacted": result["files_compacted"],
@@ -2875,10 +2887,17 @@ CONSIGNE : Fusionne ces versions en UNE SEULE version cohérente.
             "size_before": total_bank_size,
             "size_after": total_bank_size + result["logical_size_delta_bytes"],
             "backup_id": result.get("backup_id"),
+            "blocking": rollback_failed,
+            "reports": result.get("reports", {}),
             "message": (
                 "A bank compaction and its rollback failed; restore the reported backup"
                 if rollback_failed
-                else None
+                else (
+                    f"{planning_failed} file(s) could not be compacted; "
+                    "consolidation continued with a coherent bank"
+                    if planning_failed
+                    else None
+                )
             ),
         }
 
@@ -2936,6 +2955,7 @@ Contenu actuel :
             return None, {"error": "file exceeds the configured LLM context window"}
 
         try:
+            attempts = 1
             response = await self._client.chat.completions.create(
                 model=self._model,
                 messages=messages,
@@ -2943,9 +2963,33 @@ Contenu actuel :
                 temperature=0.1,
             )
             choice = response.choices[0]
+            if choice.finish_reason == "length":
+                available_output_tokens = max(
+                    0, self._context_window - estimated_input_tokens
+                )
+                retry_tokens = min(
+                    self._max_tokens,
+                    available_output_tokens,
+                    max(output_tokens * 2, output_tokens + 4096),
+                )
+                if retry_tokens > output_tokens:
+                    attempts = 2
+                    logger.warning(
+                        "COMPACT %s response truncated; retrying with %d output tokens",
+                        filename,
+                        retry_tokens,
+                    )
+                    response = await self._client.chat.completions.create(
+                        model=self._model,
+                        messages=messages,
+                        max_tokens=retry_tokens,
+                        temperature=0.1,
+                    )
+                    choice = response.choices[0]
             if choice.finish_reason != "stop":
                 return None, {
-                    "error": f"LLM response was incomplete ({choice.finish_reason})"
+                    "error": f"LLM response was incomplete ({choice.finish_reason})",
+                    "llm_attempts": attempts,
                 }
             raw_content = choice.message.content or ""
             data = json.loads(raw_content.strip())
@@ -3022,15 +3066,25 @@ Contenu actuel :
                     "safety floor"
                 )
             }
-        if candidate_size > target_size:
-            return None, {
-                "error": f"compacted content is {candidate_size} bytes (target {target_size})"
-            }
+        target_met = candidate_size <= target_size
+        if not target_met:
+            logger.info(
+                "COMPACT %s target not reached but reduction accepted: %d→%d bytes "
+                "(target=%d)",
+                filename,
+                _utf8_size(content),
+                candidate_size,
+                target_size,
+            )
         return candidate, {
             "operations": len(operations),
             "reasons": [operation["reason"] for operation in operations],
             "finish_reason": "stop",
             "model": self._model,
+            "llm_attempts": attempts,
+            "target_size_bytes": target_size,
+            "target_met": target_met,
+            "target_overage_bytes": max(0, candidate_size - target_size),
         }
 
     async def _create_compaction_backup(self, space_id: str) -> str:
@@ -3218,18 +3272,13 @@ Contenu actuel :
                 continue
             plans.append((unit, candidate, details))
 
-        if len(plans) != len(units):
+        planning_failures = len(units) - len(plans)
+        if not plans:
             return {
                 "files_compacted": 0,
-                "files_failed": len(units),
+                "files_failed": planning_failures,
                 "logical_size_delta_bytes": 0,
-                "reports": {
-                    unit["source"]: reports.get(
-                        unit["source"],
-                        {"error": "not written because another plan was invalid"},
-                    )
-                    for unit in units
-                },
+                "reports": reports,
             }
 
         try:
@@ -3248,9 +3297,8 @@ Contenu actuel :
             }
 
         files_compacted = 0
-        files_failed = 0
+        files_failed = planning_failures
         logical_delta = 0
-        reports = {}
         failed_source: str | None = None
         failed_reason: str | None = None
         for unit, candidate, plan_details in plans:
@@ -3460,7 +3508,8 @@ Contenu actuel :
             result["message"] = "Pre-compaction backup failed; no file was modified"
         elif files_failed:
             result["message"] = (
-                f"{files_failed} file(s) could not be compacted; originals were preserved"
+                f"{files_compacted} file(s) compacted; {files_failed} file(s) "
+                "could not be compacted and their originals were preserved"
             )
         return result
 

@@ -391,6 +391,207 @@ async def test_output_budget_scales_for_production_35000_byte_limit():
 
 
 @pytest.mark.asyncio
+async def test_target_is_advisory_when_compaction_reduces_content_safely():
+    content = "# progress.md\n\n## Historique\n" + ("fait historique utile\n" * 6000)
+    partial_reduction = "fait historique utile\n" * 3800
+    service = _service(max_size=35000)
+    service._max_tokens = 20000
+    service._client.chat.completions.create.return_value = _llm_plan_response(
+        compacted=partial_reduction
+    )
+
+    candidate, details = await service._plan_single_file_compaction(
+        "progress.md", content, 35000, "# Rules"
+    )
+
+    assert candidate is not None, details
+    assert _utf8_size(candidate) > 26250
+    assert _utf8_size(candidate) < _utf8_size(content)
+    assert details["target_size_bytes"] == 26250
+    assert details["target_met"] is False
+    assert details["target_overage_bytes"] == _utf8_size(candidate) - 26250
+
+
+@pytest.mark.asyncio
+async def test_zero_byte_candidate_is_rejected_before_any_storage_mutation():
+    content = _oversized_section_markdown()
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/bank/progress.md": content,
+        }
+    )
+    storage.put = AsyncMock(side_effect=storage.put)
+    service = _service()
+    service._client.chat.completions.create.return_value = _llm_plan_response(
+        compacted=""
+    )
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "error"
+    assert result["files_compacted"] == 0
+    assert result["files_failed"] == 1
+    assert storage.objects["sp/bank/progress.md"] == content
+    storage.put.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_length_truncated_compaction_plan_gets_one_larger_retry():
+    content = _oversized_section_markdown()
+    service = _service(max_size=35000)
+    service._max_tokens = 20000
+    service._client.chat.completions.create.side_effect = [
+        _llm_plan_response(finish_reason="length"),
+        _llm_plan_response(),
+    ]
+
+    candidate, details = await service._plan_single_file_compaction(
+        "progress.md", content, 35000, "# Rules"
+    )
+
+    assert candidate is not None, details
+    assert details["llm_attempts"] == 2
+    calls = service._client.chat.completions.create.await_args_list
+    assert len(calls) == 2
+    assert calls[1].kwargs["max_tokens"] > calls[0].kwargs["max_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_valid_reduction_is_applied_when_another_plan_is_incomplete():
+    progress = _oversized_section_markdown()
+    patterns = _oversized_section_markdown().replace(
+        "# progress.md", "# systemPatterns.md", 1
+    )
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/bank/progress.md": progress,
+            "sp/bank/systemPatterns.md": patterns,
+        }
+    )
+    service = _service()
+    service._client.chat.completions.create.side_effect = [
+        _llm_plan_response(filename="progress.md"),
+        _llm_plan_response(filename="systemPatterns.md", finish_reason="length"),
+    ]
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "partial"
+    assert result["files_compacted"] == 1
+    assert result["files_failed"] == 1
+    assert result["message"] == (
+        "1 file(s) compacted; 1 file(s) could not be compacted and their "
+        "originals were preserved"
+    )
+    assert result["files"][0]["size_bytes_after"] > 0
+    assert storage.objects["sp/bank/systemPatterns.md"] == patterns
+    _, compacted_progress = _parse_split_part(
+        "progress.md", storage.objects["sp/bank/progress.md"]
+    )
+    assert compacted_progress
+    assert _utf8_size(compacted_progress) < _utf8_size(progress)
+
+
+@pytest.mark.asyncio
+async def test_nonfatal_auto_compaction_failure_does_not_block_consolidation():
+    service = _service()
+    service._batch_size = 1
+    service._validation_enabled = False
+    note = {"key": "sp/live/note.md", "content": "new fact"}
+    service._collect_inputs = AsyncMock(
+        return_value={
+            "notes": [note],
+            "notes_keys": [note["key"]],
+            "bank_files": [
+                {"key": "sp/bank/progress.md", "content": "oversized original"}
+            ],
+            "rules": "rules",
+            "synthesis": "",
+        }
+    )
+    compaction_result = {
+        "compacted": False,
+        "files_compacted": 0,
+        "files_failed": 1,
+        "size_before": 120534,
+        "size_after": 120534,
+        "blocking": False,
+        "message": "LLM response was incomplete (length)",
+    }
+    service._compact_bank_if_needed = AsyncMock(return_value=compaction_result)
+    service._build_prompt = lambda **kwargs: []
+    service._call_llm = AsyncMock(
+        return_value={
+            "status": "ok",
+            "data": {"file_edits": [], "synthesis": "done"},
+            "usage": {},
+        }
+    )
+    service._write_results = AsyncMock(
+        return_value={
+            "status": "ok",
+            "notes_processed": 1,
+            "bank_files_created": 0,
+            "bank_files_updated": 0,
+            "operations_applied": 0,
+            "operations_failed": 0,
+            "operation_failures": [],
+            "llm_tokens_used": 0,
+            "llm_prompt_tokens": 0,
+            "llm_completion_tokens": 0,
+            "synthesis_size": 4,
+        }
+    )
+    storage = MemoryStorage({"sp/_meta.json": '{"space_id":"sp"}'})
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.consolidate("sp", enforce_cooldown=False)
+
+    assert result["status"] == "ok"
+    assert result["notes_processed"] == 1
+    assert result["compaction"] == compaction_result
+    service._write_results.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_failed_compaction_rollback_still_blocks_consolidation():
+    service = _service()
+    service._batch_size = 1
+    service._validation_enabled = False
+    service._collect_inputs = AsyncMock(
+        return_value={
+            "notes": [{"key": "sp/live/note.md", "content": "new fact"}],
+            "notes_keys": ["sp/live/note.md"],
+            "bank_files": [],
+            "rules": "rules",
+            "synthesis": "",
+        }
+    )
+    service._compact_bank_if_needed = AsyncMock(
+        return_value={
+            "compacted": False,
+            "files_failed": 1,
+            "blocking": True,
+            "backup_id": "sp/backup",
+            "message": "A bank compaction and its rollback failed",
+        }
+    )
+    service._call_llm = AsyncMock()
+    storage = MemoryStorage({"sp/_meta.json": '{"space_id":"sp"}'})
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.consolidate("sp", enforce_cooldown=False)
+
+    assert result["status"] == "error"
+    assert result["notes_processed"] == 0
+    service._call_llm.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_backup_failure_preserves_original_without_any_write():
     content = _oversized_section_markdown()
     storage = MemoryStorage({"sp/bank/progress.md": content})
