@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.7.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.7.3-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -262,7 +262,7 @@ The consolidator uses an LLM (OpenAI-compatible API) to transform live notes int
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Optional post-consolidation check for unattributed claims |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Max examples returned by the validation pass |
 | `COMPACT_THRESHOLD`       | `0.6`             | Legacy compatibility setting; compaction follows the logical UTF-8 byte limit per file |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | UTF-8 byte threshold for semantic compaction and max physical split-part size. The LLM aims for 75%; missing that target is not a failure |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | UTF-8 byte threshold that triggers semantic compaction. The LLM aims for 75%; missing that target is not a failure and never creates multipart files |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Max non-MCP response body size before truncation |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Max request body accepted by `/api/tool` |
 
@@ -334,12 +334,13 @@ consolidation and returns a `job_id`. For each logical file above
 server applies and validates that plan locally, in UTF-8 bytes, before any
 write. The 75% target guides the LLM and is reported through `target_met`; it
 is not a success condition. Any non-empty safe reduction is accepted and
-losslessly split into physical parts below the byte limit. The server creates
-a full-space backup, verifies persisted content, and attempts
+written under the single canonical filename, even when it remains above the
+target. The server creates a full-space backup, verifies persisted content, and attempts
 rollback on failure. If rollback also fails, the job reports the `backup_id`
-needed for manual restore. The compacted logical document is stored as a
-machine-marked split family when needed; reads and later consolidations
-transparently reassemble it.
+needed for manual restore. No new `*.part-NNN.md` object is created. Legacy
+v2.7.x multipart families are read losslessly, then reassembled into their
+single canonical file by compaction, consolidation, or an explicit
+`bank_write` restoration.
 
 Since v2.7.1, consolidation validates the complete LLM edit plan before the
 first write. Bank and synthesis outputs (plus metadata outside normal batched
@@ -355,7 +356,7 @@ for post-restart audit; active/queued jobs remain an in-memory FIFO.
 Since v2.7.2, automatic pre-consolidation compaction is maintenance, not a
 gate: an invalid or truncated LLM plan leaves that file unchanged and consolidation continues
 with the coherent bank. Valid reductions from other files are still applied.
-Only an inconsistent split family or a failed write rollback blocks
+Only an inconsistent legacy split family or a failed write rollback blocks
 `bank_consolidate`.
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory
@@ -732,7 +733,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dependencies & project config (uv)
 ├── uv.lock                    # uv lockfile
-├── VERSION                    # 2.5.3
+├── VERSION                    # 2.7.3
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -810,4 +811,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.7.2 — Shared working memory for collaborative AI agents*
+*Live Memory v2.7.3 — Shared working memory for collaborative AI agents*

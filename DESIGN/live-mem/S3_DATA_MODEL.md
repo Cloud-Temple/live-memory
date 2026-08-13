@@ -1,6 +1,6 @@
 # S3 Data Model — Live Memory
 
-> **Version**: 2.7.2 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.7.3 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -58,7 +58,6 @@
 │       ├── projectbrief.md               # ← Created and maintained
 │       ├── activeContext.md              # ← by the LLM
 │       ├── progress.md                   # ← according to the rules
-│       ├── progress.part-002.md           # ← optional marked split part
 │       └── ...                           # ← (dynamic names)
 │
 └── {other_space_id}/                     # Another space (same structure)
@@ -210,21 +209,21 @@ Bank files are pure Markdown, **without front-matter**. Their content is entirel
 
 Filenames are **decided by the LLM** based on the rules.
 
-Since v2.7.0, a compacted logical bank file may be stored as a marked split
-family. Part 1 keeps the canonical filename; later parts use
-`{stem}.part-NNN.md`. Every part, including a one-part family, starts with a
-machine-readable comment:
+Versions v2.7.0 through v2.7.2 could store a compacted logical file as a marked
+split family. This format is now legacy and read-only for migration. Part 1
+keeps the canonical filename; later parts use `{stem}.part-NNN.md`. Every part
+starts with a machine-readable comment:
 
 ```markdown
 <!-- live-mem-split {"source":"progress.md","part":1,"total":2,"next":"progress.part-002.md"} -->
 ```
 
-The marker is storage metadata, not bank content. `bank_read`,
-`bank_read_all`, compaction, and consolidation validate the complete family,
-remove the markers, and reconstruct one logical Markdown document. Missing,
-duplicated, inconsistent, or colliding parts fail closed. Manually named files
-such as `progress-2.md` are ordinary independent files and are never inferred
-as parts.
+The marker is storage metadata, not bank content. Readers validate and
+reconstruct the complete family. The next compaction, consolidation edit, or
+explicit `bank_write` restoration writes the exact logical content under the
+single canonical filename and removes the legacy parts. New multipart families
+are never created. Missing, duplicated, or inconsistent parts fail closed.
+Manually named files such as `progress-2.md` remain ordinary independent files.
 
 ---
 
@@ -284,4 +283,4 @@ S3 provides **strong consistency** for PUT and DELETE followed by GET. No waitin
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.2*
+*Document updated August 13, 2026 — Live Memory v2.7.3*

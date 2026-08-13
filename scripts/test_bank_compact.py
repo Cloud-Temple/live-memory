@@ -6,7 +6,7 @@ Tests unitaires et E2E pour le bank compaction.
 Tests couverts :
   - _get_max_size_for_file() : limites par type de fichier
   - _compact_bank_if_needed() : seuil de déclenchement, compaction
-  - _split_markdown_losslessly() : découpe en octets UTF-8 sans perte
+  - stockage canonique unique : aucun découpage multipart produit
   - compact_bank() : mode dry_run et mode apply
   - _call_llm() : calcul dynamique du max_tokens
   - E2E : compact_bank sur un vrai espace (nécessite serveur MCP)
@@ -216,23 +216,16 @@ class TestCompactBankIfNeeded(unittest.TestCase):
         self.assertLess(result["size_after"], result["size_before"])
 
 
-class TestLosslessSplit(unittest.TestCase):
-    """Tests directs de la découpe mécanique."""
+class TestCanonicalPersistence(unittest.TestCase):
+    """La production ne doit plus exposer de primitive de découpage."""
 
-    def test_utf8_bytes_and_reconstruction(self):
-        from live_mem.core.consolidator import (
-            _parse_split_part,
-            _split_markdown_losslessly,
-            _utf8_size,
+    def test_no_split_writer_exists(self):
+        import live_mem.core.consolidator as consolidator
+
+        self.assertFalse(hasattr(consolidator, "_split_markdown_losslessly"))
+        self.assertFalse(
+            hasattr(consolidator.ConsolidatorService, "_write_split_parts")
         )
-
-        content = "# test\n" + "".join(f"## Étape {i}\n- donnée préservée\n" for i in range(1000))
-        parts, error = _split_markdown_losslessly("test.md", content, 15360)
-        self.assertIsNone(error)
-        self.assertGreater(len(parts), 1)
-        self.assertTrue(all(_utf8_size(rendered) <= 15360 for _, rendered in parts))
-        rebuilt = "".join(_parse_split_part(name, rendered)[1] for name, rendered in parts)
-        self.assertEqual(rebuilt, content)
 
 
 class TestCompactBank(unittest.TestCase):
@@ -445,7 +438,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromTestCase(TestGetMaxSizeForFile))
     suite.addTests(loader.loadTestsFromTestCase(TestDynamicMaxTokens))
     suite.addTests(loader.loadTestsFromTestCase(TestCompactBankIfNeeded))
-    suite.addTests(loader.loadTestsFromTestCase(TestLosslessSplit))
+    suite.addTests(loader.loadTestsFromTestCase(TestCanonicalPersistence))
     suite.addTests(loader.loadTestsFromTestCase(TestCompactBank))
 
     # Tests E2E (optionnel)

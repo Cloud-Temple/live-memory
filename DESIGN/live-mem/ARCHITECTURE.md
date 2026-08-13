@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: 2.7.2 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.7.3 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -289,15 +289,16 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                          and bank-only rollback on persistence failure
                                       │
                                       ▼
-                         Lossless physical split with markers
-                         (one logical document for readers and
-                         future consolidations)
+                         One verified canonical Markdown object
+                         (the byte threshold triggers compaction;
+                         it is not a storage-size ceiling)
 ```
 
 An invalid plan never mutates its file, but does not discard valid reductions
-planned for other files. A later consolidation reconstructs a split family,
-applies its surgical edits once to
-the logical document, and writes a new split family. Manual compaction jobs are
+planned for other files. No compaction path creates `*.part-NNN.md` objects.
+A later consolidation reconstructs any legacy v2.7.x split family, applies its
+surgical edits once to the logical document, and writes one canonical file.
+Manual compaction jobs are
 observable through `bank_consolidation_status` and
 `bank_consolidation_queues`; automatic pre-consolidation compaction exposes its
 phase on the consolidation job. If both persistence and rollback fail, the job
@@ -310,7 +311,7 @@ content before it is reported as successful.
 
 Since v2.7.2, pre-consolidation compaction is non-blocking while bank coherence
 is proven: rejected/truncated LLM plans keep their originals and note consolidation
-continues. Inconsistent split metadata and failed write rollback remain hard
+continues. Inconsistent legacy split metadata and failed write rollback remain hard
 failures.
 
 ### 4.5 Graph Push (Bridge to Graph Memory)
@@ -518,4 +519,4 @@ PROXY_URL=http://10.0.0.1:3128
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.2*
+*Document updated August 13, 2026 — Live Memory v2.7.3*

@@ -1,6 +1,6 @@
 # MCP Tools Specification — Live Memory
 
-> **Version**: 2.7.2 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.7.3 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -448,12 +448,12 @@ same per-space FIFO as consolidation. The job is visible through
 `bank_consolidation_status` and `bank_consolidation_queues`.
 
 The worker obtains a strict JSON section-edit plan from the LLM, validates the
-complete result locally, creates a full-space backup, and persists a verified
-split family when required. The 75% size target is advisory: any safe,
+complete result locally, creates a full-space backup, and persists one verified
+canonical Markdown file. The 75% size target is advisory: any safe,
 non-empty reduction is accepted and reports `target_met` and the overage. A
 `length` response gets one bounded larger-budget retry. Invalid plans preserve
 their own originals without discarding valid plans for other files. The final
-result exposes logical byte sizes, part counts, hashes, operation reasons,
+result exposes logical byte sizes, legacy migration counts, hashes, operation reasons,
 failures, targets, and `backup_id`.
 A persistence failure triggers an all-planned-files rollback limited to
 `bank/`; exact keys and contents are verified, while concurrent `live/` notes
@@ -461,7 +461,7 @@ remain untouched. If rollback also fails, the reported backup id is the manual
 recovery point.
 
 Since v2.7.2, automatic compaction planning failure does not block
-`bank_consolidate` while the bank remains coherent. Invalid split families and failed write rollbacks
+`bank_consolidate` while the bank remains coherent. Invalid legacy split families and failed write rollbacks
 remain blocking.
 
 ---
@@ -727,4 +727,4 @@ async def admin_gc_notes(
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.2*
+*Document updated August 13, 2026 — Live Memory v2.7.3*

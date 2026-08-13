@@ -1,6 +1,6 @@
 # Multi-Agent Concurrency Management — Live Memory
 
-> **Version**: 2.7.2 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.7.3 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -96,7 +96,7 @@ Updated during consolidation and `graph_push`. Protected by the consolidation lo
 | `bank_read` / `bank_read_all` (parallel reads) | None | Parallel S3 reads | **Zero** |
 | `bank_consolidate` (2 agents, same space) | Overwrite | In-memory FIFO + durable terminal audit + `asyncio.Lock` per space | 2nd is queued |
 | `bank_consolidate` (2 agents, different spaces) | None | Independent locks | **Zero** |
-| `bank_compact(..., dry_run=False)` | Overwrite / partial split family | Same FIFO + per-space lock | Queued behind the current bank job |
+| `bank_compact(..., dry_run=False)` | Canonical file overwrite / legacy multipart migration | Same FIFO + per-space lock | Queued behind the current bank job |
 | `bank_write` / `bank_delete` / `bank_repair` | Interleaved maintenance | Same per-space lock | Short serialization |
 | `admin_create_token` (2 admins) | tokens.json overwrite | Single `asyncio.Lock` for tokens | Serialization (~200ms) |
 | `graph_connect` / `graph_push` | _meta.json update | Sequential (long operations) | **Zero** |
@@ -236,4 +236,4 @@ T+5s:  Agent B → graph_push("project-alpha")
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.2*
+*Document updated August 13, 2026 — Live Memory v2.7.3*

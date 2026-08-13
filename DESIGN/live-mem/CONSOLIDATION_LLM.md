@@ -1,6 +1,6 @@
 # LLM Consolidation Pipeline — Live Memory
 
-> **Version**: 2.7.2 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.7.3 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -296,11 +296,13 @@ The compaction response has a stricter parser than normal consolidation:
   plans keep their originals while valid plans are still applied.
 
 When at least one plan passes, the server creates a standard full-space backup.
-Each valid logical result is split losslessly on line boundaries into physical objects
-below the byte limit. Every object contains a machine-readable
-`live-mem-split` marker, including a one-part family. Writes are read back and
-verified; a failure triggers an attempt to restore the original family from
-the backup. A multi-file failure restores and exactly verifies only `bank/`,
+Each valid logical result is written and read back under its single canonical
+filename. `BANK_FILE_MAX_SIZE` is a compaction trigger, not a physical object
+limit, so a safe reduction above the advisory target remains canonical. The
+prompt explicitly removes repeated review passes, superseded states and
+granular execution journals instead of merely densifying them. A failure
+triggers an attempt to restore the original file or legacy family from the
+backup. A multi-file failure restores and exactly verifies only `bank/`,
 so live notes created concurrently after the backup survive. If that rollback
 also fails, the result explicitly reports the restorable backup id for manual
 recovery. Reports include logical sizes, reduction, operation reasons, SHA-256
@@ -313,7 +315,7 @@ observability.
 
 Since v2.7.2, automatic compaction failure does not by itself fail
 consolidation: a rejected plan performs no mutation, and note integration continues against the coherent
-original/partially compacted bank. An inconsistent split family or a failed
+original/partially compacted bank. An inconsistent legacy split family or a failed
 write rollback remains blocking because bank coherence is no longer proven.
 
 ---
@@ -661,4 +663,4 @@ Input: 3 notes, 6 bank files
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.2*
+*Document updated August 13, 2026 — Live Memory v2.7.3*

@@ -285,18 +285,34 @@ def register(mcp: FastMCP) -> int:
                     "message": f"Espace '{space_id}' introuvable",
                 }
 
-            # Lister les objets bank (sans les .keep)
-            from ..core.storage import bank_relpath
+            # Exposer les documents logiques. Les éventuelles familles
+            # multipart v2.7.x sont un format hérité à migrer, jamais des
+            # fichiers utilisateur.
+            from ..core.consolidator import _build_compaction_units
 
-            objects = await storage.list_objects(f"{space_id}/bank/")
+            bank_data = await storage.list_and_get(f"{space_id}/bank/")
+            units = _build_compaction_units(space_id, bank_data)
+            invalid_units = [unit for unit in units if unit.get("error")]
+            if invalid_units:
+                return {
+                    "status": "error",
+                    "space_id": space_id,
+                    "message": "Invalid legacy multipart bank family",
+                    "invalid_files": len(invalid_units),
+                }
             files = [
                 {
-                    "filename": bank_relpath(o["Key"], space_id),
-                    "size": o["Size"],
-                    "last_modified": str(o.get("LastModified", "")),
+                    "filename": unit["source"],
+                    "size": len(unit["content"].encode("utf-8")),
+                    "last_modified": max(
+                        (member.get("last_modified", "") for member in unit["members"]),
+                        default="",
+                    ),
+                    "legacy_parts": max(0, len(unit["members"]) - 1),
+                    "legacy_split": unit["legacy_split"],
+                    **({"error": unit["error"]} if unit.get("error") else {}),
                 }
-                for o in objects
-                if not o["Key"].endswith(".keep")
+                for unit in units
             ]
 
             return {
@@ -948,6 +964,9 @@ def register(mcp: FastMCP) -> int:
 
         Si un fichier avec le même nom existe déjà, il est remplacé.
         Les éventuels doublons Unicode sont automatiquement nettoyés.
+        Une famille multipart v2.7.x valide est sauvegardée, remplacée par le
+        contenu canonique fourni, relue, puis ses anciennes parties sont
+        supprimées avec rollback vérifié en cas d'échec.
 
         Args:
             space_id: Identifiant de l'espace
@@ -1009,20 +1028,59 @@ def register(mcp: FastMCP) -> int:
             lock = candidate_lock
 
             bank_files = await storage.list_and_get(f"{space_id}/bank/")
+            legacy_unit = None
             for unit in _build_compaction_units(space_id, bank_files):
                 member_names = {member["filename"] for member in unit["members"]}
                 if sanitized == unit["source"] or sanitized in member_names:
-                    is_split_family = any(
-                        member.get("metadata") for member in unit["members"]
-                    )
-                    if is_split_family or unit.get("error"):
+                    if unit.get("error"):
                         return {
                             "status": "conflict",
-                            "message": (
-                                "bank_write is refused on a split bank family; "
-                                "restore or migrate the logical document first"
-                            ),
+                            "message": unit["error"],
                         }
+                    if unit["legacy_split"]:
+                        legacy_unit = unit
+                        sanitized = unit["source"]
+                    break
+
+            if legacy_unit is not None:
+                from ..core.consolidator import get_consolidator
+
+                consolidator = get_consolidator()
+                backup_id = None
+                try:
+                    backup_id = await consolidator._create_compaction_backup(space_id)
+                    persisted, persist_error = await consolidator._write_canonical_file(
+                        space_id, legacy_unit, content, backup_id
+                    )
+                except Exception as exc:
+                    persisted, persist_error = False, str(exc)
+                if not persisted:
+                    rollback_failed = "rollback failed" in (persist_error or "")
+                    return {
+                        "status": "error",
+                        "space_id": space_id,
+                        "filename": sanitized,
+                        "message": (
+                            "Legacy multipart migration and rollback failed; "
+                            "restore the reported backup manually"
+                            if rollback_failed
+                            else (
+                                "Legacy multipart migration failed; original "
+                                "family was restored and verified"
+                            )
+                        ),
+                        "error": persist_error or "write failed",
+                        **({"backup_id": backup_id} if backup_id else {}),
+                    }
+                return {
+                    "status": "ok",
+                    "space_id": space_id,
+                    "filename": sanitized,
+                    "action": "restored_and_canonicalized",
+                    "size": len(content.encode("utf-8")),
+                    "legacy_parts_removed": max(0, len(legacy_unit["members"]) - 1),
+                    "backup_id": backup_id,
+                }
 
             # Écrire le fichier avec le nom canonique
             canonical_key = f"{space_id}/bank/{sanitized}"

@@ -233,7 +233,8 @@ replacements and deletions. The server applies the plan locally and accepts it
 only if the complete response is valid, keeps the main H1, produces a real
 reduction, and stays above 5% of the original logical size. 75% of
 `BANK_FILE_MAX_SIZE` is an advisory target, not a success condition; safe
-compacted results above the target are accepted and split losslessly. Sizes are logical UTF-8
+compacted results above the target are accepted under the single canonical
+filename. Sizes are logical UTF-8
 bytes, not character counts.
 
 ```bash
@@ -253,9 +254,10 @@ and attempts rollback on failure. If rollback also fails, the job reports the
 
 **Auto-compaction** runs before consolidation when a logical bank file exceeds
 `BANK_FILE_MAX_SIZE` (default 15 KB). `COMPACT_THRESHOLD` is retained only for
-configuration compatibility. If storage needs several physical objects, the
-server writes a marked split family that reads and later consolidations treat
-as one logical Markdown file.
+configuration compatibility. The threshold starts semantic compaction; it is
+not an object-size limit. A valid reduction is always stored as one canonical
+Markdown file, even above the target. Legacy v2.7.x multipart families are
+reassembled and removed during the next write path.
 
 ### Can I use an HTTP proxy for outbound connections?
 

@@ -235,7 +235,7 @@ localement et ne l'accepte que si la réponse complète est valide, conserve le
 H1 principal, produit une réduction réelle, reste au-dessus de 5 % de la taille
 logique d'origine. Les 75 % de `BANK_FILE_MAX_SIZE` sont une cible indicative,
 pas une condition de succès ; un résultat compacté sûr au-dessus de la cible
-est accepté et découpé sans perte. Les tailles sont des octets UTF-8 logiques, pas un nombre
+est accepté sous l'unique nom de fichier canonique. Les tailles sont des octets UTF-8 logiques, pas un nombre
 de caractères.
 
 ```bash
@@ -256,10 +256,11 @@ restauration manuelle.
 
 L'**auto-compaction** s'exécute avant la consolidation lorsqu'un fichier bank
 logique dépasse `BANK_FILE_MAX_SIZE` (15 KB par défaut). `COMPACT_THRESHOLD`
-est conservé uniquement pour compatibilité de configuration. Si le stockage
-nécessite plusieurs objets physiques, le serveur écrit une famille découpée et
-marquée que les lectures et consolidations suivantes traitent comme un seul
-document Markdown logique.
+est conservé uniquement pour compatibilité de configuration. Le seuil déclenche
+la compaction sémantique ; ce n'est pas une limite de taille d'objet. Une
+réduction valide est toujours stockée dans un seul fichier Markdown canonique,
+même au-dessus de la cible. Les familles multipart v2.7.x héritées sont
+réassemblées et supprimées lors du prochain chemin d'écriture.
 
 ### Puis-je utiliser un proxy HTTP pour les connexions sortantes ?
 
