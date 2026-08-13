@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.7.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.7.2-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -352,8 +352,8 @@ Multi-file compaction restores only `bank/`, so a live note created
 concurrently is never removed by rollback. Terminal job results are persisted
 for post-restart audit; active/queued jobs remain an in-memory FIFO.
 
-Automatic pre-consolidation compaction is maintenance, not a gate: an invalid
-or truncated LLM plan leaves that file unchanged and consolidation continues
+Since v2.7.2, automatic pre-consolidation compaction is maintenance, not a
+gate: an invalid or truncated LLM plan leaves that file unchanged and consolidation continues
 with the coherent bank. Valid reductions from other files are still applied.
 Only an inconsistent split family or a failed write rollback blocks
 `bank_consolidate`.
@@ -810,4 +810,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.7.1 — Shared working memory for collaborative AI agents*
+*Live Memory v2.7.2 — Shared working memory for collaborative AI agents*

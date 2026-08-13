@@ -1,6 +1,6 @@
 # LLM Consolidation Pipeline — Live Memory
 
-> **Version**: 2.7.1 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.7.2 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -311,8 +311,8 @@ consolidation. Automatic compaction runs inside the consolidation job before
 new notes are applied. Both paths therefore share serialization and status
 observability.
 
-Automatic compaction failure does not by itself fail consolidation: a rejected
-plan performs no mutation, and note integration continues against the coherent
+Since v2.7.2, automatic compaction failure does not by itself fail
+consolidation: a rejected plan performs no mutation, and note integration continues against the coherent
 original/partially compacted bank. An inconsistent split family or a failed
 write rollback remains blocking because bank coherence is no longer proven.
 
@@ -661,4 +661,4 @@ Input: 3 notes, 6 bank files
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.1*
+*Document updated August 13, 2026 — Live Memory v2.7.2*

@@ -1,6 +1,6 @@
 # Multi-Agent Concurrency Management — Live Memory
 
-> **Version**: 2.7.1 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.7.2 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -236,4 +236,4 @@ T+5s:  Agent B → graph_push("project-alpha")
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.1*
+*Document updated August 13, 2026 — Live Memory v2.7.2*
