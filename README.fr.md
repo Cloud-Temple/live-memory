@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.7.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.7.3-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -262,7 +262,7 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
 | `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite logique par fichier en octets UTF-8 |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Seuil en octets UTF-8 de compaction sémantique et taille max d'une partie physique. Le LLM vise 75 % ; manquer cette cible n'est pas un échec |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Seuil en octets UTF-8 déclenchant la compaction sémantique. Le LLM vise 75 % ; manquer cette cible n'est pas un échec et ne crée jamais de fichiers multipart |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
@@ -334,13 +334,14 @@ logique dépassant `BANK_FILE_MAX_SIZE`, le LLM retourne un plan JSON strict
 d'opérations par section ; le serveur applique et valide ce plan localement,
 en octets UTF-8, avant toute écriture. La cible de 75 % guide le LLM et est
 exposée par `target_met` ; ce n'est pas une condition de succès. Toute
-réduction sûre et non vide est acceptée puis découpée sans perte en parties
-physiques sous la limite. Le serveur crée un backup complet du space,
+réduction sûre et non vide est acceptée et écrite sous l'unique nom canonique,
+même si elle reste au-dessus de la cible. Le serveur crée un backup complet du space,
 vérifie le contenu persisté et tente un rollback en cas d'échec. Si ce rollback
 échoue aussi, le job expose le `backup_id` nécessaire à une restauration
-manuelle. Le document logique compacté est stocké, si nécessaire, sous forme de
-famille découpée et marquée ; les lectures et consolidations suivantes la
-réassemblent de façon transparente.
+manuelle. Aucun nouvel objet `*.part-NNN.md` n'est créé. Les anciennes familles
+multipart v2.7.x restent lisibles sans perte, puis sont réassemblées sous leur
+unique nom canonique par une compaction, une consolidation ou une restauration
+explicite via `bank_write`.
 
 Depuis la v2.7.1, la consolidation valide l'intégralité du plan d'édition LLM
 avant la première écriture. La bank et la synthèse (ainsi que les métadonnées
@@ -358,7 +359,7 @@ dans une FIFO en mémoire.
 Depuis la v2.7.2, la compaction automatique avant consolidation est une
 maintenance, pas une barrière : un plan LLM invalide ou tronqué laisse ce fichier inchangé et la
 consolidation continue avec la bank cohérente. Les réductions valides des
-autres fichiers sont tout de même appliquées. Seules une famille découpée
+autres fichiers sont tout de même appliquées. Seules une ancienne famille découpée
 incohérente ou l'échec d'un rollback d'écriture bloquent `bank_consolidate`.
 
 ### Graph (4 outils) — 🌉 Pont vers Graph Memory
@@ -735,7 +736,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dépendances et config projet (uv)
 ├── uv.lock                    # lockfile uv
-├── VERSION                    # 2.5.3
+├── VERSION                    # 2.7.3
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -814,4 +815,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.7.2 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.7.3 — Mémoire de travail partagée pour agents IA collaboratifs*

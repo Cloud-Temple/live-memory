@@ -536,6 +536,7 @@ class StaticFilesMiddleware:
             # Read-only tokens can use /live for viewing. The admin console
             # is for management — individual tools enforce stricter permissions.
             from ..auth.context import check_write_permission
+
             perm_err = check_write_permission()
             if perm_err:
                 await self._send_json(send, perm_err, 403)
@@ -543,6 +544,7 @@ class StaticFilesMiddleware:
 
             # ADM-05 fix: limit request body size to prevent memory exhaustion.
             from ..config import get_settings as _adm_gs
+
             max_body = _adm_gs().api_tool_max_body_bytes
 
             body_chunks: list[bytes] = []
@@ -611,6 +613,7 @@ class StaticFilesMiddleware:
             # sees a generic message (unless MCP_SERVER_DEBUG=true).
             logger.exception("/api/tool error")
             from ..auth.context import safe_error
+
             await self._send_json(send, safe_error(e, "/api/tool"), 500)
 
     async def _api_login(self, scope, receive, send):
@@ -882,24 +885,39 @@ class StaticFilesMiddleware:
                 )
                 return
 
-            # Lister les fichiers bank
-            # VULN-11 fix : utiliser bank_relpath au lieu de split("/")[-1]
-            from ..core.storage import bank_relpath
+            # Exposer uniquement les documents logiques. Les objets multipart
+            # v2.7.x restent lisibles le temps de leur migration canonique.
+            from ..core.consolidator import _build_compaction_units
 
-            objects = await storage.list_objects(f"{space_id}/bank/")
-            files = []
-            for obj in objects:
-                key = obj["Key"]
-                if key.endswith(".keep"):
-                    continue
-                filename = bank_relpath(key, space_id)
-                files.append(
+            bank_data = await storage.list_and_get(f"{space_id}/bank/")
+            units = _build_compaction_units(space_id, bank_data)
+            invalid_units = [unit for unit in units if unit.get("error")]
+            if invalid_units:
+                await self._send_json(
+                    send,
                     {
-                        "filename": filename,
-                        "size": obj.get("Size", 0),
-                        "last_modified": obj.get("LastModified", ""),
-                    }
+                        "status": "error",
+                        "space_id": space_id,
+                        "message": "Invalid legacy multipart bank family",
+                        "invalid_files": len(invalid_units),
+                    },
+                    409,
                 )
+                return
+            files = [
+                {
+                    "filename": unit["source"],
+                    "size": len(unit["content"].encode("utf-8")),
+                    "last_modified": max(
+                        (member.get("last_modified", "") for member in unit["members"]),
+                        default="",
+                    ),
+                    "legacy_parts": max(0, len(unit["members"]) - 1),
+                    "legacy_split": unit["legacy_split"],
+                    **({"error": unit["error"]} if unit.get("error") else {}),
+                }
+                for unit in units
+            ]
 
             await self._send_json(
                 send,
@@ -935,9 +953,19 @@ class StaticFilesMiddleware:
                 )
                 return
 
-            key = f"{space_id}/bank/{filename}"
-            content = await storage.get(key)
-            if content is None:
+            from ..core.consolidator import _build_compaction_units, _sanitize_filename
+
+            sanitized_target = _sanitize_filename(filename)
+            bank_data = await storage.list_and_get(f"{space_id}/bank/")
+            unit = next(
+                (
+                    item
+                    for item in _build_compaction_units(space_id, bank_data)
+                    if item["source"] == sanitized_target
+                ),
+                None,
+            )
+            if unit is None:
                 await self._send_json(
                     send,
                     {
@@ -946,13 +974,27 @@ class StaticFilesMiddleware:
                     },
                 )
                 return
+            if unit.get("error"):
+                await self._send_json(
+                    send,
+                    {
+                        "status": "error",
+                        "space_id": space_id,
+                        "filename": unit["source"],
+                        "message": unit["error"],
+                    },
+                    409,
+                )
+                return
+
+            content = unit["content"]
 
             await self._send_json(
                 send,
                 {
                     "status": "ok",
                     "space_id": space_id,
-                    "filename": filename,
+                    "filename": unit["source"],
                     "content": content,
                     "size": len(content.encode("utf-8")),
                 },

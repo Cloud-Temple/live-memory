@@ -5,6 +5,34 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.7.3] — 2026-08-13
+
+### Fixed
+
+- **Compaction no longer creates user-visible multipart bank files** (#46).
+  `BANK_FILE_MAX_SIZE` is now only the UTF-8 threshold that triggers semantic
+  LLM compaction; it is not a physical S3 object-size ceiling. Every accepted
+  non-empty reduction is persisted under the single canonical filename, even
+  when it remains above the advisory 75% target.
+- Consolidation and explicit `bank_write` restoration reassemble valid legacy
+  v2.7.x `*.part-NNN.md` families, write one verified canonical file, and
+  remove the old parts. MCP and web lists expose only logical canonical
+  documents during migration. Inconsistent legacy families still fail closed.
+- The compaction prompt now asks for actual semantic synthesis: repetitive
+  review passes, superseded states and granular execution journals are removed
+  instead of being packed into dense, unreadable bullets. Structural facts,
+  decisions, milestones and active debt remain protected.
+
+### Tests
+
+- Added regressions proving that compaction, consolidation, legacy migration
+  and manual restoration never create multipart output; canonical writes may
+  remain above the byte target; legacy cleanup failures restore the backup.
+- Validation: 485 passed, 1 expected failure; dedicated compaction script
+  17/17; Ruff and `git diff --check` clean.
+
+---
+
 ## [2.7.2] — 2026-08-13
 
 ### Fixed

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import posixpath
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -16,15 +17,56 @@ from live_mem.core.consolidator import (
     _build_compaction_units,
     _content_sha256,
     _parse_split_part,
-    _split_markdown_losslessly,
-    _split_marker,
     _utf8_size,
 )
 from live_mem.core.backup import BackupService
 from live_mem.core.locks import LockManager
+from live_mem.auth.middleware import StaticFilesMiddleware
 from live_mem.tools.bank import register as register_bank_tools
 from live_mem.tools.backup import _parse_backup_id
 from live_mem.tools.space import register as register_space_tools
+
+
+def _split_marker(source: str, part: int, total: int) -> str:
+    """Build a legacy v2.7 marker for migration fixtures only."""
+    stem, ext = posixpath.splitext(source)
+    next_name = f"{stem}.part-{part + 1:03d}{ext or '.md'}" if part < total else None
+    metadata = {"source": source, "part": part, "total": total, "next": next_name}
+    return (
+        "<!-- live-mem-split "
+        + json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+        + " -->\n"
+    )
+
+
+def _split_markdown_losslessly(
+    source: str, content: str, max_size_bytes: int
+) -> tuple[list[tuple[str, str]] | None, str | None]:
+    """Create legacy multipart fixtures; production no longer splits files."""
+    body_budget = int(max_size_bytes * 0.75) - 1024
+    lines = content.splitlines(keepends=True) or [content]
+    chunks: list[str] = []
+    current: list[str] = []
+    current_bytes = 0
+    for line in lines:
+        line_bytes = _utf8_size(line)
+        if line_bytes > body_budget:
+            return None, f"a single line is {line_bytes} bytes and cannot be split"
+        if current and current_bytes + line_bytes > body_budget:
+            chunks.append("".join(current))
+            current = []
+            current_bytes = 0
+        current.append(line)
+        current_bytes += line_bytes
+    if current:
+        chunks.append("".join(current))
+    total = len(chunks)
+    parts = []
+    stem, ext = posixpath.splitext(source)
+    for index, body in enumerate(chunks, 1):
+        filename = source if index == 1 else f"{stem}.part-{index:03d}{ext or '.md'}"
+        parts.append((filename, _split_marker(source, index, total) + body))
+    return parts, None
 
 
 def _service(max_size: int = 4096) -> ConsolidatorService:
@@ -98,6 +140,7 @@ class MemoryStorage:
         self.copy_calls: list[tuple[str, str]] = []
         self.fail_copy = False
         self.fail_restore = False
+        self.silent_restore = False
         self.corrupt_reads = False
 
     async def get_json(self, key: str):
@@ -128,6 +171,8 @@ class MemoryStorage:
         if self.fail_restore and source.startswith("_backups/"):
             raise RuntimeError("restore unavailable")
         self.copy_calls.append((source, destination))
+        if self.silent_restore and source.startswith("_backups/"):
+            return
         self.objects[destination] = self.objects[source]
 
     async def delete(self, key: str):
@@ -149,7 +194,7 @@ class MemoryStorage:
         ]
 
 
-def test_split_is_utf8_byte_aware_and_lossless():
+def test_legacy_split_fixture_is_utf8_byte_aware_and_lossless():
     content = _large_french_markdown()
     assert _utf8_size(content) > len(content), "French UTF-8 must exercise byte drift"
 
@@ -165,7 +210,7 @@ def test_split_is_utf8_byte_aware_and_lossless():
     assert _content_sha256(reconstructed) == _content_sha256(content)
 
 
-def test_split_refuses_to_cut_an_oversized_line():
+def test_legacy_split_fixture_refuses_to_cut_an_oversized_line():
     content = "# title\n" + ("é" * 3000)
 
     parts, error = _split_markdown_losslessly("progress.md", content, 4096)
@@ -207,7 +252,7 @@ async def test_apply_uses_llm_plan_reduces_bytes_and_creates_backup():
     service._client.chat.completions.create.assert_awaited_once()
     persisted = storage.objects["sp/bank/progress.md"]
     metadata, compacted = _parse_split_part("progress.md", persisted)
-    assert metadata == {"source": "progress.md", "part": 1, "total": 1}
+    assert metadata is None
     assert compacted == f"# progress.md\n\n## Historique\n\n{_compacted_summary()}\n"
     assert _utf8_size(compacted) < _utf8_size(content)
     assert _utf8_size(compacted) <= int(4096 * 0.75)
@@ -331,11 +376,63 @@ async def test_logical_split_family_is_compacted_even_when_parts_fit_limit():
     metadata, body = _parse_split_part(
         "progress.md", storage.objects["sp/bank/progress.md"]
     )
-    assert metadata == {"source": "progress.md", "part": 1, "total": 1}
+    assert metadata is None
     assert body.startswith("# progress.md")
     assert not any(
         "part-" in key for key in storage.objects if key.startswith("sp/bank/")
     )
+
+
+@pytest.mark.asyncio
+async def test_legacy_split_below_limit_is_reassembled_without_llm():
+    logical = "# progress.md\n\n## Current\nCanonical content\n"
+    midpoint = logical.index("## Current")
+    parts = [
+        (
+            "progress.md",
+            _split_marker("progress.md", 1, 2) + logical[:midpoint],
+        ),
+        (
+            "progress.part-002.md",
+            _split_marker("progress.md", 2, 2) + logical[midpoint:],
+        ),
+    ]
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            **{f"sp/bank/{name}": value for name, value in parts},
+        }
+    )
+    service = _service(max_size=4096)
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "ok"
+    assert result["files_compacted"] == 0
+    assert result["files_migrated"] == 1
+    service._client.chat.completions.create.assert_not_awaited()
+    assert storage.objects["sp/bank/progress.md"] == logical
+    assert "sp/bank/progress.part-002.md" not in storage.objects
+
+
+@pytest.mark.asyncio
+async def test_empty_legacy_file_is_migrated_without_division_by_zero():
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/bank/empty.md": _split_marker("empty.md", 1, 1),
+        }
+    )
+    service = _service(max_size=4096)
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "ok"
+    assert result["files_migrated"] == 1
+    assert result["files"][0]["reduction_pct"] == 0.0
+    assert storage.objects["sp/bank/empty.md"] == ""
 
 
 @pytest.mark.asyncio
@@ -370,6 +467,11 @@ async def test_compaction_prompt_includes_rules_beyond_character_2000():
     assert candidate is not None, details
     call = service._client.chat.completions.create.await_args.kwargs
     assert "SENTINELLE_CONSERVATION_ABSOLUE" in call["messages"][1]["content"]
+    system_prompt = call["messages"][0]["content"]
+    assert "pas une simple reformulation plus dense" in system_prompt
+    assert "passes de revue intermédiaires" in system_prompt
+    assert "états\n  supplantés" in system_prompt
+    assert "backup pré-compaction" in system_prompt
 
 
 @pytest.mark.asyncio
@@ -717,7 +819,7 @@ async def test_consolidate_propagates_the_fatal_backup_id():
 
 
 @pytest.mark.asyncio
-async def test_consolidator_reassembles_edits_and_resplits_logical_file():
+async def test_consolidator_reassembles_edits_and_writes_one_canonical_file():
     canonical = _split_marker("progress.md", 1, 2) + "# progress.md\n\n## First\nold\n"
     second = _split_marker("progress.md", 2, 2) + "## Target\nold target\n"
     storage = MemoryStorage(
@@ -754,20 +856,21 @@ async def test_consolidator_reassembles_edits_and_resplits_logical_file():
         )
 
     assert result["operations_failed"] == 0
-    rewritten_parts = [
+    rewritten_files = [
         (key.removeprefix("sp/bank/"), value)
         for key, value in sorted(storage.objects.items())
         if key.startswith("sp/bank/")
     ]
-    reconstructed = "".join(
-        _parse_split_part(filename, value)[1] for filename, value in rewritten_parts
-    )
-    assert "new target" in reconstructed
-    assert "old target" not in reconstructed
+    assert rewritten_files == [
+        (
+            "progress.md",
+            "# progress.md\n\n## First\nold\n## Target\n\nnew target\n",
+        )
+    ]
 
 
 @pytest.mark.asyncio
-async def test_one_part_compacted_family_is_resplit_after_later_growth():
+async def test_one_part_legacy_family_is_canonicalized_after_later_growth():
     compacted_body = "# progress.md\n\n## Target\nshort\n"
     canonical = _split_marker("progress.md", 1, 1) + compacted_body
     storage = MemoryStorage({"sp/bank/progress.md": canonical})
@@ -799,18 +902,18 @@ async def test_one_part_compacted_family_is_resplit_after_later_growth():
         )
 
     assert result["operations_failed"] == 0
-    rewritten_parts = [
+    rewritten_files = [
         (key.removeprefix("sp/bank/"), value)
         for key, value in sorted(storage.objects.items())
         if key.startswith("sp/bank/")
     ]
-    assert len(rewritten_parts) > 1
-    assert all(_utf8_size(value) <= 2048 for _, value in rewritten_parts)
-    reconstructed = "".join(
-        _parse_split_part(filename, value)[1] for filename, value in rewritten_parts
-    )
-    assert reconstructed.startswith("# progress.md")
-    assert "growth" in reconstructed
+    assert len(rewritten_files) == 1
+    assert rewritten_files[0][0] == "progress.md"
+    assert _utf8_size(rewritten_files[0][1]) > 2048
+    metadata, canonical_body = _parse_split_part(*rewritten_files[0])
+    assert metadata is None
+    assert canonical_body.startswith("# progress.md")
+    assert "growth" in canonical_body
 
 
 @pytest.mark.asyncio
@@ -886,17 +989,14 @@ async def test_stale_part_delete_failure_rolls_back_family():
         for unit in _build_compaction_units("sp", bank_files)
         if unit["source"] == "progress.md"
     )
-    replacement, split_error = _split_markdown_losslessly("progress.md", logical, 4096)
-    assert split_error is None and replacement is not None
-
     with patch("live_mem.core.consolidator.get_storage", return_value=storage):
         backup_id = await service._create_compaction_backup("sp")
-        ok, write_error = await service._write_split_parts(
-            "sp", unit, replacement, backup_id
+        ok, write_error = await service._write_canonical_file(
+            "sp", unit, logical, backup_id
         )
 
     assert ok is False
-    assert "stale split part deletion failed" in str(write_error)
+    assert "legacy split part deletion failed" in str(write_error)
     for key, value in original.items():
         assert storage.objects[key] == value
 
@@ -970,6 +1070,101 @@ async def test_bank_read_reassembles_a_split_family():
         }
     ]
 
+    with (
+        patch("live_mem.auth.context.check_access", return_value=None),
+        patch("live_mem.core.storage.get_storage", return_value=storage),
+    ):
+        list_result = await _bank_tool("bank_list")("sp")
+
+    assert list_result["status"] == "ok"
+    assert list_result["file_count"] == 1
+    assert list_result["files"] == [
+        {
+            "filename": "progress.md",
+            "size": _utf8_size(logical),
+            "last_modified": "",
+            "legacy_parts": len(parts) - 1,
+            "legacy_split": True,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_web_bank_api_hides_legacy_parts_and_reads_logical_content():
+    logical = "# progress.md\n" + "entry\n" * 100
+    parts, error = _split_markdown_losslessly("progress.md", logical, 2048)
+    assert error is None and parts is not None and len(parts) > 1
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            **{f"sp/bank/{name}": value for name, value in parts},
+        }
+    )
+    middleware = StaticFilesMiddleware(AsyncMock())
+
+    async def collect(call):
+        messages = []
+
+        async def send(message):
+            messages.append(message)
+
+        await call(send)
+        return json.loads(messages[-1]["body"])
+
+    with (
+        patch("live_mem.auth.middleware.check_access", return_value=None),
+        patch("live_mem.core.storage.get_storage", return_value=storage),
+    ):
+        listed = await collect(lambda send: middleware._api_bank_list(send, "sp"))
+        read = await collect(
+            lambda send: middleware._api_bank_file(send, "sp", "progress.md")
+        )
+
+    assert listed["total"] == 1
+    assert listed["files"][0]["filename"] == "progress.md"
+    assert listed["files"][0]["legacy_parts"] == len(parts) - 1
+    assert all("part-" not in item["filename"] for item in listed["files"])
+    assert read["status"] == "ok"
+    assert read["filename"] == "progress.md"
+    assert read["content"] == logical
+
+
+@pytest.mark.asyncio
+async def test_invalid_legacy_marker_fails_lists_without_exposing_part_filename():
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/bank/progress.part-003.md": (
+                '<!-- live-mem-split {"source":"progress.md","part":3,'
+                '"total":2,"next":null} -->\ninvalid\n'
+            ),
+        }
+    )
+    middleware = StaticFilesMiddleware(AsyncMock())
+
+    async def collect_web_list():
+        messages = []
+
+        async def send(message):
+            messages.append(message)
+
+        await middleware._api_bank_list(send, "sp")
+        payload = json.loads(messages[-1]["body"])
+        return payload
+
+    with (
+        patch("live_mem.auth.context.check_access", return_value=None),
+        patch("live_mem.auth.middleware.check_access", return_value=None),
+        patch("live_mem.core.storage.get_storage", return_value=storage),
+    ):
+        mcp_result = await _bank_tool("bank_list")("sp")
+        web_result = await collect_web_list()
+
+    for result in (mcp_result, web_result):
+        assert result["status"] == "error"
+        assert result["invalid_files"] == 1
+        assert "part-003" not in json.dumps(result)
+
 
 @pytest.mark.asyncio
 async def test_bank_write_waits_for_the_shared_bank_lock():
@@ -1023,7 +1218,7 @@ async def test_space_delete_refuses_while_the_bank_lock_is_held():
 
 
 @pytest.mark.asyncio
-async def test_bank_write_refuses_a_split_family():
+async def test_bank_write_restores_and_canonicalizes_a_legacy_split_family():
     logical = "# progress.md\n" + "entry\n" * 100
     parts, error = _split_markdown_losslessly("progress.md", logical, 2048)
     assert error is None and parts is not None and len(parts) > 1
@@ -1034,18 +1229,34 @@ async def test_bank_write_refuses_a_split_family():
         }
     )
     lock_manager = LockManager()
+    service = _service(max_size=2048)
 
     with (
         patch("live_mem.auth.context.check_access", return_value=None),
         patch("live_mem.auth.context.check_manage_permission", return_value=None),
         patch("live_mem.core.storage.get_storage", return_value=storage),
         patch("live_mem.core.locks.get_lock_manager", return_value=lock_manager),
+        patch("live_mem.core.consolidator.get_consolidator", return_value=service),
+        patch("live_mem.core.consolidator.get_storage", return_value=storage),
     ):
         result = await _bank_tool("bank_write")("sp", "progress.md", "new\n")
 
-    assert result["status"] == "conflict"
-    assert storage.objects[f"sp/bank/{parts[0][0]}"] == parts[0][1]
+    assert result["status"] == "ok"
+    assert result["action"] == "restored_and_canonicalized"
+    assert result["legacy_parts_removed"] == len(parts) - 1
+    assert storage.objects["sp/bank/progress.md"] == "new\n"
+    assert not any(
+        "part-" in key for key in storage.objects if key.startswith("sp/bank/")
+    )
 
+    # A multipart family still cannot be deleted directly: deletion is not a
+    # restoration and has no replacement payload to verify.
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            **{f"sp/bank/{name}": value for name, value in parts},
+        }
+    )
     with (
         patch("live_mem.auth.context.check_access", return_value=None),
         patch("live_mem.auth.context.check_manage_permission", return_value=None),
@@ -1058,6 +1269,39 @@ async def test_bank_write_refuses_a_split_family():
 
     assert delete_result["status"] == "conflict"
     assert all(f"sp/bank/{name}" in storage.objects for name, _ in parts)
+
+
+@pytest.mark.asyncio
+async def test_bank_write_reports_unverified_silent_rollback_failure():
+    logical = "# progress.md\n" + "entry\n" * 100
+    parts, error = _split_markdown_losslessly("progress.md", logical, 2048)
+    assert error is None and parts is not None and len(parts) > 1
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            **{f"sp/bank/{name}": value for name, value in parts},
+        }
+    )
+    storage.delete_many = AsyncMock(return_value=0)
+    storage.silent_restore = True
+    lock_manager = LockManager()
+    service = _service(max_size=2048)
+
+    with (
+        patch("live_mem.auth.context.check_access", return_value=None),
+        patch("live_mem.auth.context.check_manage_permission", return_value=None),
+        patch("live_mem.core.storage.get_storage", return_value=storage),
+        patch("live_mem.core.locks.get_lock_manager", return_value=lock_manager),
+        patch("live_mem.core.consolidator.get_consolidator", return_value=service),
+        patch("live_mem.core.consolidator.get_storage", return_value=storage),
+    ):
+        result = await _bank_tool("bank_write")("sp", "progress.md", "MUTATED\n")
+
+    assert result["status"] == "error"
+    assert "rollback failed" in result["message"]
+    assert "rollback failed" in result["error"]
+    assert result["backup_id"].startswith("sp/")
+    assert storage.objects["sp/bank/progress.md"] == "MUTATED\n"
 
 
 @pytest.mark.asyncio
