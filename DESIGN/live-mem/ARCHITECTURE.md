@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: 2.7.1 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.7.2 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -308,8 +308,8 @@ consolidation lock, so restoring the full space could delete a note created
 after the backup. Multi-file rollback verifies the exact final bank keyset and
 content before it is reported as successful.
 
-Pre-consolidation compaction is non-blocking while bank coherence is proven:
-rejected/truncated LLM plans keep their originals and note consolidation
+Since v2.7.2, pre-consolidation compaction is non-blocking while bank coherence
+is proven: rejected/truncated LLM plans keep their originals and note consolidation
 continues. Inconsistent split metadata and failed write rollback remain hard
 failures.
 
@@ -518,4 +518,4 @@ PROXY_URL=http://10.0.0.1:3128
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.1*
+*Document updated August 13, 2026 — Live Memory v2.7.2*

@@ -1,6 +1,6 @@
 # MCP Tools Specification — Live Memory
 
-> **Version**: 2.7.1 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.7.2 | **Date**: 2026-08-13 | **Author**: Cloud Temple
 
 ---
 
@@ -460,8 +460,8 @@ A persistence failure triggers an all-planned-files rollback limited to
 remain untouched. If rollback also fails, the reported backup id is the manual
 recovery point.
 
-Automatic compaction planning failure does not block `bank_consolidate` while
-the bank remains coherent. Invalid split families and failed write rollbacks
+Since v2.7.2, automatic compaction planning failure does not block
+`bank_consolidate` while the bank remains coherent. Invalid split families and failed write rollbacks
 remain blocking.
 
 ---
@@ -727,4 +727,4 @@ async def admin_gc_notes(
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.1*
+*Document updated August 13, 2026 — Live Memory v2.7.2*

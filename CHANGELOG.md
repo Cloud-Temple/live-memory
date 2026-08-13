@@ -5,11 +5,11 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [2.7.2] — 2026-08-13
 
 ### Fixed
 
-- **Compaction targets no longer block valid work** (#43). The 75% byte target
+- **Compaction targets no longer block valid work** (#43, PR #44). The 75% byte target
   is advisory and reported through `target_met`; any non-empty safe reduction
   is accepted and losslessly split. A `length` response gets one bounded retry
   with a larger output budget.
@@ -19,6 +19,22 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Automatic pre-consolidation compaction is no longer a gate while the bank is
   coherent. Planning failures preserve their files and consolidation proceeds;
   inconsistent split families and failed write rollbacks remain blocking.
+
+### Tests
+
+- Added the production regression for a valid `120,534 → 76,505` byte
+  reduction above the `26,250` byte target, plus coverage for bounded
+  `finish_reason=length` retry, per-file partial success, non-blocking automatic
+  compaction, blocking rollback failure, and rejection of an empty candidate
+  for a non-empty source.
+- Validation: 480 passed, 1 expected failure; independent reviewer GO after 71
+  targeted compaction/consolidation tests.
+
+### Changed
+
+- `README.md`, `README.fr.md`, `FAQ.md`, `FAQ.fr.md`, and the architecture,
+  consolidation, and MCP tool specifications document the advisory target and
+  non-blocking pre-consolidation maintenance contract.
 
 ---
 

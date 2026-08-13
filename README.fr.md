@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.7.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.7.2-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -355,8 +355,8 @@ supprimer une note live concurrente. Les résultats terminaux des jobs sont
 persistés pour l'audit après redémarrage ; les jobs actifs/en attente restent
 dans une FIFO en mémoire.
 
-La compaction automatique avant consolidation est une maintenance, pas une
-barrière : un plan LLM invalide ou tronqué laisse ce fichier inchangé et la
+Depuis la v2.7.2, la compaction automatique avant consolidation est une
+maintenance, pas une barrière : un plan LLM invalide ou tronqué laisse ce fichier inchangé et la
 consolidation continue avec la bank cohérente. Les réductions valides des
 autres fichiers sont tout de même appliquées. Seules une famille découpée
 incohérente ou l'échec d'un rollback d'écriture bloquent `bank_consolidate`.
@@ -814,4 +814,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.7.1 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.7.2 — Mémoire de travail partagée pour agents IA collaboratifs*
