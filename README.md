@@ -262,7 +262,7 @@ The consolidator uses an LLM (OpenAI-compatible API) to transform live notes int
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Optional post-consolidation check for unattributed claims |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Max examples returned by the validation pass |
 | `COMPACT_THRESHOLD`       | `0.6`             | Legacy compatibility setting; compaction follows the logical UTF-8 byte limit per file |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | UTF-8 byte threshold that triggers extractive compaction. Qwen ranks exact Markdown units; it never generates persisted bank content |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | UTF-8 byte threshold that triggers semantic compaction. The LLM aims for 75%; missing that target is not a failure and never creates multipart files |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Max non-MCP response body size before truncation |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Max request body accepted by `/api/tool` |
 
@@ -323,21 +323,19 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `bank_consolidation_status` | `job_id`              | Manual-only status check for a job returned by `bank_consolidate` or applied `bank_compact` |
 | `bank_consolidation_queues` | `space_ids?`          | Read-only summary of consolidation lanes by space |
 | `bank_stale_spaces` | `min_notes?=5`, `min_age_days?=5`, `space_ids?` | 🚨 Lists spaces with ≥N unconsolidated notes whose oldest is ≥D days old (supervision) |
-| `bank_compact`     | `space_id`, `dry_run?`            | 🔧 Scans or enqueues extractive compaction with UTF-8 byte checks, backup, rollback and audit hashes. `dry_run=True` by default (manage) |
+| `bank_compact`     | `space_id`, `dry_run?`            | 🔧 Scans or enqueues strict LLM compaction with UTF-8 byte checks, backup, rollback and audit hashes. `dry_run=True` by default (manage) |
 | `bank_repair`      | `space_id`, `dry_run?`            | 🔧 Repairs corrupted filenames (Unicode, parasitic prefixes). `dry_run=True` by default (manage)       |
 | `bank_write`       | `space_id`, `filename`, `content` | ✏️ Writes/replaces a bank file directly — bypasses LLM consolidation (manage)                         |
 | `bank_delete`      | `space_id`, `filename`            | 🗑️ Deletes a bank file + its Unicode duplicates (manage, irreversible)                               |
 
 Applied `bank_compact` is asynchronous: it joins the same per-space FIFO as
 consolidation and returns a `job_id`. For each logical file above
-`BANK_FILE_MAX_SIZE`, Qwen ranks IDs of complete Markdown source units. The
-server retains exact source units under the UTF-8 limit and validates every
-candidate before any write. Selection is generic: content with dated structural
-entries uses dated mode; otherwise complete H3 sections are eligible. Recent,
-undated, code-bearing and HTML-bearing units remain protected. All files are
-preflighted before the first LLM call, with at most one call per compressible
-file and no cross-file authority. The server creates a full-space backup,
-verifies persisted content, and attempts
+`BANK_FILE_MAX_SIZE`, the LLM returns a strict JSON section-edit plan; the
+server applies and validates that plan locally, in UTF-8 bytes, before any
+write. The 75% target guides the LLM and is reported through `target_met`; it
+is not a success condition. Any non-empty safe reduction is accepted and
+written under the single canonical filename, even when it remains above the
+target. The server creates a full-space backup, verifies persisted content, and attempts
 rollback on failure. If rollback also fails, the job reports the `backup_id`
 needed for manual restore. No new `*.part-NNN.md` object is created. Legacy
 v2.7.x multipart families are read losslessly, then reassembled into their
@@ -355,10 +353,17 @@ Multi-file compaction restores only `bank/`, so a live note created
 concurrently is never removed by rollback. Terminal job results are persisted
 for post-restart audit; active/queued jobs remain an in-memory FIFO.
 
-In 2.8.0, automatic pre-consolidation compaction is a gate: any ranking,
-candidate or persistence failure blocks `bank_consolidate`. Bank files and live
-notes remain untouched when planning fails. Results expose
-`planned_llm_calls` alongside byte and retention metrics.
+Since v2.7.2, automatic pre-consolidation compaction is maintenance, not a
+gate: an invalid or truncated LLM plan leaves that file unchanged and consolidation continues
+with the coherent bank. Valid reductions from other files are still applied.
+Only an inconsistent legacy split family or a failed write rollback blocks
+`bank_consolidate`.
+
+> **2.8.0 development status:** the generic extractive replacement is an
+> experimental Draft PR with a semantic **NO-GO** on the representative
+> `agentic-platform` bank. It must not be merged, released, enabled in
+> production, or treated as the current product contract. See the
+> [2.8.0 extractive compaction design](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory
 

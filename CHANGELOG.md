@@ -7,6 +7,12 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+> **Experimental 2.8.0 — NO-GO / DO NOT MERGE.** The extractive implementation
+> below is published in a Draft PR for review only. It passed mechanical
+> integrity checks but failed the semantic selection gate on the representative
+> `agentic-platform` bank. It is not releasable and does not replace the 2.7.3
+> product contract.
+
 ### Changed
 
 - Replaced generated JSON/Markdown bank compaction with an extractive

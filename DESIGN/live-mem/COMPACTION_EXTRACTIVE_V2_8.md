@@ -127,8 +127,9 @@ limite est réassemblée byte-exactement sans appel Qwen.
 ## Gates de validation
 
 Le changement d'une architecture liée à trois noms de fichiers vers ce contrat
-générique invalide le précédent gate produit. Avant tout bump, push, PR ou
-release, il faut :
+générique invalide le précédent gate produit. La branche peut être poussée et
+une Draft PR peut être ouverte uniquement comme véhicule de revue, avec le
+statut `NO-GO / DO NOT MERGE`. Avant tout merge, bump ou release, il faut :
 
 1. une suite unitaire complète verte, avec notamment le même contenu sous deux
    noms arbitraires produisant le même plan ;
@@ -171,8 +172,9 @@ surreprésentés.
 
 Conclusion : cette recette valide l'intégrité, le coût et la transaction, mais
 invalide le classement global direct comme arbitre de la valeur future sur un
-gros journal. Aucun second run, bump, push, PR ou canari production n'est
-autorisé avec cet algorithme inchangé.
+gros journal. Seuls le push de la branche et une Draft PR de revue explicitement
+`NO-GO / DO NOT MERGE` sont autorisés. Aucun merge, second run, bump, release,
+canari ou déploiement production n'est autorisé avec cet algorithme inchangé.
 
 ## Non-objectifs 2.8.0
 
