@@ -123,6 +123,14 @@ def extract_markdown_inventory(original: bytes, parser: MarkdownIt) -> UnitInven
 
     h3_units = discover(h3_raw)
     list_units = discover(list_raw)
+    outside_h3 = [
+        item
+        for item in list_units
+        if not any(
+            item[0] < h3_end and item[1] > h3_start
+            for h3_start, h3_end in h3_spans
+        )
+    ]
     dated_h3 = [item for item in h3_units if item[3] is not None]
     dated_items = [item for item in list_units if item[3] is not None]
     # One incidental date in an otherwise thematic document must not turn the
@@ -130,20 +138,12 @@ def extract_markdown_inventory(original: bytes, parser: MarkdownIt) -> UnitInven
     # dated mode without relying on a filename or rules convention.
     if len(dated_h3) >= 2:
         mode = "dated"
-        discovered = h3_units
+        discovered = sorted([*h3_units, *outside_h3])
     elif len(dated_items) >= 2:
         mode = "dated"
         discovered = list_units
     else:
         mode = "sections"
-        outside_h3 = [
-            item
-            for item in list_units
-            if not any(
-                item[0] < h3_end and item[1] > h3_start
-                for h3_start, h3_end in h3_spans
-            )
-        ]
         discovered = h3_units + outside_h3
     if mode == "sections" and not h3_units:
         raise ValueError("no dated entry or complete H3 section")

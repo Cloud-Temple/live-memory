@@ -32,7 +32,7 @@ flowchart TD
         C["Décodage UTF-8 strict<br/>parse Markdown unique"]
         D["Offsets de lignes convertis<br/>en offsets d'octets source"]
         E{"Au moins 2 unités datées<br/>de même nature ?"}
-        F["Mode daté<br/>H3 datés prioritaires, sinon items datés"]
+        F["Mode daté<br/>H3 datés + items extérieurs non chevauchants<br/>sinon items datés"]
         G["Mode sections<br/>H3 complets"]
         H["U = unités candidates exactes<br/>P = unités protégées/contextuelles"]
         I["Base = source moins toutes les U<br/>disponible = limite moins taille(base)"]
@@ -114,10 +114,12 @@ Le mode est déterminé indépendamment pour chaque fichier surdimensionné :
 
 - **Mode daté** : le fichier contient au moins deux unités structurelles de même
   nature dont le label porte une date complète ISO ou `jj/mm/aaaa`. Les dates
-  citées dans le corps ne comptent pas. Les H3 datés sont prioritaires ; à
-  défaut, les items de liste de premier niveau datés sont utilisés, y compris
-  sous un H3 conteneur non daté. Les deux représentations ne sont jamais
-  mélangées. Seules les unités antérieures au dernier jour sont candidates ; le
+  citées dans le corps ne comptent pas. Si au moins deux H3 sont datés, leurs
+  sections établissent le journal et les items de premier niveau situés hors de
+  toute section H3 rejoignent le même inventaire, sans chevauchement. À défaut,
+  les items de liste de premier niveau datés sont utilisés, y compris sous un H3
+  conteneur non daté. Une seule date récente est calculée sur l'inventaire
+  retenu. Seules les unités antérieures au dernier jour sont candidates ; le
   dernier jour et les unités non datées restent protégés.
 - **Mode sections** : en l'absence de journal daté identifiable, les sections H3
   complètes sont candidates. Une section va de son H3 au prochain H1, H2 ou H3.
@@ -194,9 +196,11 @@ raccourci lié aux fixtures.
 
 ### B. Candidats et protections
 
-1. Si au moins deux H3 sont datés, choisir leurs sections comme unités du mode
-   daté. Sinon, si au moins deux items de premier niveau sont datés, choisir ces
-   items. Les deux représentations ne sont jamais mélangées.
+1. Si au moins deux H3 sont datés, choisir leurs sections et les items de
+   premier niveau extérieurs à toute section H3, puis trier cette union par
+   offset. Les items internes aux H3 ne sont jamais ajoutés une seconde fois.
+   Sinon, si au moins deux items de premier niveau sont datés, choisir ces items
+   seuls, y compris sous un H3 conteneur non daté.
 2. En mode daté, rendre sélectionnables uniquement les unités datées antérieures
    au dernier jour observé. Le dernier jour, les unités sans date et les unités
    contenant `fence`, `code_block`, `html_block` ou `html_inline` sont

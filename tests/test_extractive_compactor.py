@@ -121,6 +121,30 @@ def test_dated_items_under_undated_h3_protect_the_latest_day():
     assert [unit.source for unit in inventory.protected_context] == [recent]
 
 
+def test_dated_h3_journal_includes_non_overlapping_list_era():
+    old_list = b"- **2026-08-01** old list entry\n"
+    recent_list = b"- **2026-08-03** recent list entry\n"
+    old_h3 = (
+        b"### 2026-08-02 - old section\n"
+        b"- **2026-07-01** nested body item, not a separate unit\n"
+    )
+    recent_h3 = b"### 2026-08-03 - recent section\n- exact\n"
+    preamble = b"# Progress\n"
+    original = preamble + old_list + recent_list + old_h3 + recent_h3
+
+    inventory = extract_markdown_inventory(original, PARSER)
+
+    assert inventory.mode == "dated"
+    assert [unit.source for unit in inventory.candidates] == [old_list, old_h3]
+    assert [unit.source for unit in inventory.protected_context] == [
+        recent_list,
+        recent_h3,
+    ]
+    assert delete_units(original, list(inventory.candidates)) == (
+        preamble + recent_list + recent_h3
+    )
+
+
 def test_one_dated_h3_in_thematic_document_remains_section_mode():
     first = b"### 2026-08-01 baseline\n- invariant\n"
     second = b"### Durable mechanism\n- invariant\n"
