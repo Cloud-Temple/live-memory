@@ -274,14 +274,17 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                               Read complete logical bank
                                       │
                                       ▼
-                         Qwen ranks source-unit IDs
-                         systemPatterns first, then progress
+                         Detect each oversized file mode
+                         from Markdown structure and content
                                       │
                                       ▼
-                         Keep exact source units under byte budget
-                         - activeContext never compacted
-                         - recent/code/HTML progress protected
-                         - every candidate ready before backup
+                         Qwen ranks this file's source-unit IDs
+                         - one call per compressible file
+                         - same-file protected context only
+                         - exact source units retained
+                                      │
+                                      ▼
+                         Every candidate ready before backup
                                       │
                                       ▼
                          Full-space backup, write, readback
@@ -296,6 +299,12 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
 Any ranking or candidate failure cancels the complete job before backup. No
 compaction path creates `*.part-NNN.md` objects. A later consolidation
 reconstructs any legacy v2.7.x split family and writes one canonical file.
+No filename has a compaction role. A file is handled in dated mode when at
+least two complete dates occur in structural entry labels; otherwise its
+complete H3 sections are eligible. Recent, undated, code-bearing and HTML-bearing
+units are protected. A file with neither structure fails closed before the
+first LLM call. All oversized files are preflighted before any ranking request,
+and reports expose the resulting `planned_llm_calls`.
 Manual compaction jobs are
 observable through `bank_consolidation_status` and
 `bank_consolidation_queues`; automatic pre-consolidation compaction exposes its

@@ -11,8 +11,12 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Replaced generated JSON/Markdown bank compaction with an extractive
   hierarchy: Qwen ranks IDs while the server persists only exact source units.
-- `activeContext.md` is never compacted; `systemPatterns.md` is selected first
-  and becomes, with `activeContext.md`, the authority used to rank `progress.md`.
+- Removed filename-specific compaction roles. Every oversized logical Bank file
+  is classified from its Markdown structure and content as dated entries or H3
+  sections, with protected context taken only from the same file.
+- Preflight now covers every oversized file before the first LLM request, with
+  at most one ranking call per compressible file and `planned_llm_calls` in the
+  result.
 - All candidates must succeed before backup or write. Automatic compaction
   failure now blocks the following consolidation instead of allowing a later
   bank mutation against an oversized or partially planned context.

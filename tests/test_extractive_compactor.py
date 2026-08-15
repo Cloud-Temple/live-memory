@@ -9,12 +9,11 @@ from live_mem.core.extractive_compactor import (
     MarkdownUnit,
     SelectionPlan,
     build_candidate,
+    compaction_prompt,
     delete_units,
-    extract_pattern_units,
-    extract_progress_units,
+    extract_markdown_inventory,
     make_plan,
     parse_ranking,
-    progress_prompt,
     select_under_budget,
 )
 
@@ -32,8 +31,10 @@ def test_progress_units_are_complete_utf8_and_exclude_recent_and_protected():
     recent = b"### 2026-08-03 - recent\n- stays exact\n"
     original = b"\xef\xbb\xbf# progress\n\n" + old + protected + recent
 
-    units = extract_progress_units(original, PARSER)
+    inventory = extract_markdown_inventory(original, PARSER)
+    units = list(inventory.candidates)
 
+    assert inventory.mode == "dated"
     assert [unit.source for unit in units] == [old]
     assert original[units[0].start_byte : units[0].end_byte] == old
     assert delete_units(original, units) == b"\xef\xbb\xbf# progress\n\n" + protected + recent
@@ -52,10 +53,11 @@ def test_crlf_code_and_html_entries_remain_byte_exact(protected_body):
     recent = b"### 2026-08-02 - recent\r\n- exact\r\n"
     original = b"# progress\r\n\r\n" + protected + recent
 
-    units = extract_progress_units(original, PARSER)
+    inventory = extract_markdown_inventory(original, PARSER)
 
-    assert units == []
-    assert delete_units(original, units) == original
+    assert inventory.mode == "dated"
+    assert inventory.candidates == ()
+    assert delete_units(original, list(inventory.candidates)) == original
 
 
 def test_pattern_h3_sections_stop_at_h1_h2_and_h3():
@@ -66,12 +68,61 @@ def test_pattern_h3_sections_stop_at_h1_h2_and_h3():
         + b"# Annexe\n- H1 exact\n## Suite\n- H2 exact\n"
     )
 
-    units = extract_pattern_units(original, PARSER)
+    inventory = extract_markdown_inventory(original, PARSER)
+    units = list(inventory.candidates)
 
+    assert inventory.mode == "sections"
     assert [unit.source for unit in units] == [first, second]
     assert delete_units(original, units) == (
         b"# Patterns\n## Groupe\n# Annexe\n- H1 exact\n## Suite\n- H2 exact\n"
     )
+
+
+def test_dates_in_h3_bodies_do_not_turn_a_thematic_file_into_a_journal():
+    original = (
+        b"# Knowledge\n"
+        b"### First invariant\nObserved on 2026-08-01.\n"
+        b"### Second invariant\nObserved on 2026-08-02.\n"
+    )
+
+    inventory = extract_markdown_inventory(original, PARSER)
+
+    assert inventory.mode == "sections"
+    assert len(inventory.candidates) == 2
+
+
+def test_dated_mode_never_falls_back_to_undated_h3_sections():
+    old = b"### 2026-08-01 - old\n- compressible\n"
+    undated = b"### Permanent appendix\n- protected\n"
+    recent = b"### 2026-08-02 - recent\n- protected\n"
+
+    inventory = extract_markdown_inventory(old + undated + recent, PARSER)
+
+    assert inventory.mode == "dated"
+    assert [unit.source for unit in inventory.candidates] == [old]
+    assert [unit.source for unit in inventory.protected_context] == [undated, recent]
+
+
+def test_dated_items_under_undated_h3_protect_the_latest_day():
+    old = b"- **2026-08-01** old\n"
+    recent = b"- **2026-08-02** recent\n"
+    original = b"# Journal\n### Updates\n" + old + recent
+
+    inventory = extract_markdown_inventory(original, PARSER)
+
+    assert inventory.mode == "dated"
+    assert [unit.source for unit in inventory.candidates] == [old]
+    assert [unit.source for unit in inventory.protected_context] == [recent]
+
+
+def test_one_dated_h3_in_thematic_document_remains_section_mode():
+    first = b"### 2026-08-01 baseline\n- invariant\n"
+    second = b"### Durable mechanism\n- invariant\n"
+
+    inventory = extract_markdown_inventory(first + second, PARSER)
+
+    assert inventory.mode == "sections"
+    assert [unit.source for unit in inventory.candidates] == [first, second]
 
 
 def test_plan_budget_is_exact_and_fails_when_protected_base_is_too_large():
@@ -126,12 +177,14 @@ def test_candidate_is_only_exact_selected_source_plus_untouched_base():
     assert build_candidate(plan, [two], 100) == second + recent
 
 
-def test_progress_prompt_contains_exact_authorities_but_not_generated_edits():
-    source = b"- **2026-08-01** : jalon utile\n"
-    unit = MarkdownUnit("U0001", 0, len(source), source, date(2026, 8, 1))
+def test_prompt_contains_candidates_and_same_file_protected_context_only():
+    old = b"- **2026-08-01** : jalon utile\n"
+    recent = b"- **2026-08-02** : etat recent intact\n"
+    inventory = extract_markdown_inventory(old + recent, PARSER)
 
-    prompt = progress_prompt([unit], b"# active\nSTATE\n# patterns\nINVARIANT")
+    prompt = compaction_prompt(inventory)
 
     assert "U0001" in prompt
-    assert "STATE" in prompt and "INVARIANT" in prompt
+    assert "etat recent intact" in prompt
+    assert "PROTECTED" in prompt
     assert "file_edits" not in prompt and "replace_section" not in prompt

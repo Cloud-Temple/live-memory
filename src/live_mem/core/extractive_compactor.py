@@ -35,6 +35,13 @@ class SelectionPlan:
     available_bytes: int
 
 
+@dataclass(frozen=True)
+class UnitInventory:
+    mode: str
+    candidates: tuple[MarkdownUnit, ...]
+    protected_context: tuple[MarkdownUnit, ...]
+
+
 def _line_byte_offsets(content: str) -> list[int]:
     offsets = [0]
     for line in content.splitlines(keepends=True):
@@ -63,8 +70,8 @@ def _token_tree(tokens):
             yield from _token_tree(token.children)
 
 
-def extract_progress_units(original: bytes, parser: MarkdownIt) -> list[MarkdownUnit]:
-    """Return complete old dated entries, excluding recent and protected ones."""
+def extract_markdown_inventory(original: bytes, parser: MarkdownIt) -> UnitInventory:
+    """Discover exact compressible units from Markdown content, never its filename."""
     content = original.decode("utf-8", errors="strict")
     tokens = parser.parse(content)
     lines = content.splitlines(keepends=True)
@@ -76,7 +83,8 @@ def extract_progress_units(original: bytes, parser: MarkdownIt) -> list[Markdown
         and token.tag in {"h1", "h2", "h3"}
         and token.map is not None
     ]
-    raw: list[tuple[int, int, str]] = []
+    h3_raw: list[tuple[int, int, str, str]] = []
+    list_raw: list[tuple[int, int, str, str]] = []
     h3_spans: list[tuple[int, int]] = []
 
     for token in boundaries:
@@ -88,72 +96,82 @@ def extract_progress_units(original: bytes, parser: MarkdownIt) -> list[Markdown
             len(offsets) - 1,
         )
         start, end = offsets[start_line], offsets[end_line]
-        raw.append((start, end, lines[start_line]))
+        h3_raw.append((start, end, lines[start_line], "h3"))
         h3_spans.append((start, end))
 
     for token in tokens:
         if token.type != "list_item_open" or token.level != 1 or token.map is None:
             continue
         start, end = offsets[token.map[0]], offsets[token.map[1]]
-        if any(start < h3_end and end > h3_start for h3_start, h3_end in h3_spans):
-            continue
-        raw.append((start, end, lines[token.map[0]]))
+        list_raw.append((start, end, lines[token.map[0]], "list"))
 
-    dated = [
-        (start, end, parsed_date)
-        for start, end, label in sorted(raw)
-        if (parsed_date := _entry_date(label)) is not None
-    ]
-    if not dated:
-        return []
-    recent_date = max(item[2] for item in dated)
-    units: list[MarkdownUnit] = []
-    for start, end, parsed_date in dated:
-        source = original[start:end]
-        parsed = parser.parse(source.decode("utf-8", errors="strict"))
-        if parsed_date == recent_date:
-            continue
-        if any(token.type in PROTECTED_TOKENS for token in _token_tree(parsed)):
-            continue
-        units.append(
-            MarkdownUnit(
-                f"U{len(units) + 1:04d}", start, end, source, parsed_date
+    def discover(raw_units: list[tuple[int, int, str, str]]):
+        result: list[tuple[int, int, str, date | None, bool]] = []
+        for start, end, label, kind in sorted(raw_units):
+            source = original[start:end]
+            parsed = parser.parse(source.decode("utf-8", errors="strict"))
+            protected = any(
+                token.type in PROTECTED_TOKENS for token in _token_tree(parsed)
             )
-        )
-    _validate_non_overlapping(units)
-    return units
+            result.append((start, end, kind, _entry_date(label), protected))
+        return result
 
-
-def extract_pattern_units(original: bytes, parser: MarkdownIt) -> list[MarkdownUnit]:
-    """Return exact H3 sections bounded by the next H1, H2 or H3."""
-    content = original.decode("utf-8", errors="strict")
-    lines = content.splitlines(keepends=True)
-    offsets = _line_byte_offsets(content)
-    headings = [
-        token
-        for token in parser.parse(content)
-        if token.type == "heading_open"
-        and token.tag in {"h1", "h2", "h3"}
-        and token.map is not None
-    ]
-    units: list[MarkdownUnit] = []
-    for index, token in enumerate(headings):
-        if token.tag != "h3":
-            continue
-        start = offsets[token.map[0]]
-        end_line = headings[index + 1].map[0] if index + 1 < len(headings) else len(lines)
-        end = offsets[end_line]
-        units.append(
-            MarkdownUnit(
-                f"U{len(units) + 1:04d}", start, end, original[start:end], date.min
+    h3_units = discover(h3_raw)
+    list_units = discover(list_raw)
+    dated_h3 = [item for item in h3_units if item[3] is not None]
+    dated_items = [item for item in list_units if item[3] is not None]
+    # One incidental date in an otherwise thematic document must not turn the
+    # whole file into a journal. Two dated structural entries establish the
+    # dated mode without relying on a filename or rules convention.
+    if len(dated_h3) >= 2:
+        mode = "dated"
+        discovered = h3_units
+    elif len(dated_items) >= 2:
+        mode = "dated"
+        discovered = list_units
+    else:
+        mode = "sections"
+        outside_h3 = [
+            item
+            for item in list_units
+            if not any(
+                item[0] < h3_end and item[1] > h3_start
+                for h3_start, h3_end in h3_spans
             )
+        ]
+        discovered = h3_units + outside_h3
+    if mode == "sections" and not h3_units:
+        raise ValueError("no dated entry or complete H3 section")
+    dated = [item for item in discovered if item[3] is not None]
+    recent_date = max(item[3] for item in dated) if dated else None
+    candidate_spans: list[tuple[int, int, date]] = []
+    protected_spans: list[tuple[int, int, date]] = []
+    for start, end, kind, entry_date, protected in discovered:
+        selectable = (
+            entry_date is not None
+            and entry_date != recent_date
+            and not protected
+            if mode == "dated"
+            else kind == "h3" and not protected
         )
-    _validate_non_overlapping(units)
-    return units
+        target = candidate_spans if selectable else protected_spans
+        target.append((start, end, entry_date or date.min))
+
+    candidates = tuple(
+        MarkdownUnit(f"U{index:04d}", start, end, original[start:end], entry_date)
+        for index, (start, end, entry_date) in enumerate(candidate_spans, 1)
+    )
+    protected_context = tuple(
+        MarkdownUnit(f"P{index:04d}", start, end, original[start:end], entry_date)
+        for index, (start, end, entry_date) in enumerate(protected_spans, 1)
+    )
+    _validate_non_overlapping(list(candidates) + list(protected_context))
+    return UnitInventory(mode, candidates, protected_context)
 
 
 def _validate_non_overlapping(units: list[MarkdownUnit]) -> None:
-    for previous, current in zip(units, units[1:]):
+    ordered = sorted(units, key=lambda item: item.start_byte)
+    for previous, current in zip(ordered, ordered[1:]):
         if previous.end_byte > current.start_byte:
             raise ValueError("eligible Markdown units overlap")
 
@@ -214,33 +232,30 @@ def build_candidate(
     selected_ids = {unit.unit_id for unit in selected}
     removed = [unit for unit in plan.units if unit.unit_id not in selected_ids]
     candidate = delete_units(plan.original, removed)
+    if len(candidate) >= len(plan.original):
+        raise ValueError("candidate does not reduce the original file")
     if len(candidate) > limit:
         raise ValueError("candidate exceeds the configured byte limit")
     return candidate
 
 
-def patterns_prompt(units: list[MarkdownUnit]) -> str:
+def compaction_prompt(inventory: UnitInventory) -> str:
+    units = list(inventory.candidates)
+    if inventory.mode == "dated":
+        units.reverse()
     payload = "\n".join(
         f"<<<{unit.unit_id} bytes={unit.size}>>>\n"
         f"{unit.source.decode('utf-8', errors='strict')}\n<<<END {unit.unit_id}>>>"
         for unit in units
     )
-    return f"""Sections candidates de systemPatterns.md :
-{payload}
-"""
-
-
-def progress_prompt(
-    units: list[MarkdownUnit], authority: bytes
-) -> str:
-    payload = "\n".join(
-        f"<<<{unit.unit_id} bytes={unit.size}>>>\n"
-        f"{unit.source.decode('utf-8', errors='strict')}\n<<<END {unit.unit_id}>>>"
-        for unit in units
+    protected = "\n".join(
+        f"<<<PROTECTED bytes={unit.size}>>>\n"
+        f"{unit.source.decode('utf-8', errors='strict')}\n<<<END PROTECTED>>>"
+        for unit in inventory.protected_context
     )
-    return f"""Entrées candidates de progress.md :
+    return f"""Unités candidates :
 {payload}
 
-Références autoritatives :
-{authority.decode('utf-8', errors='strict')}
+Contexte protégé non sélectionnable :
+{protected}
 """

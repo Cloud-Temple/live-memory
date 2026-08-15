@@ -332,9 +332,12 @@ Applied `bank_compact` is asynchronous: it joins the same per-space FIFO as
 consolidation and returns a `job_id`. For each logical file above
 `BANK_FILE_MAX_SIZE`, Qwen ranks IDs of complete Markdown source units. The
 server retains exact source units under the UTF-8 limit and validates every
-candidate before any write. `activeContext.md` remains untouched;
-`systemPatterns.md` and `progress.md` have distinct selection roles. The server
-creates a full-space backup, verifies persisted content, and attempts
+candidate before any write. Selection is generic: content with dated structural
+entries uses dated mode; otherwise complete H3 sections are eligible. Recent,
+undated, code-bearing and HTML-bearing units remain protected. All files are
+preflighted before the first LLM call, with at most one call per compressible
+file and no cross-file authority. The server creates a full-space backup,
+verifies persisted content, and attempts
 rollback on failure. If rollback also fails, the job reports the `backup_id`
 needed for manual restore. No new `*.part-NNN.md` object is created. Legacy
 v2.7.x multipart families are read losslessly, then reassembled into their
@@ -354,7 +357,8 @@ for post-restart audit; active/queued jobs remain an in-memory FIFO.
 
 In 2.8.0, automatic pre-consolidation compaction is a gate: any ranking,
 candidate or persistence failure blocks `bank_consolidate`. Bank files and live
-notes remain untouched when planning fails.
+notes remain untouched when planning fails. Results expose
+`planned_llm_calls` alongside byte and retention metrics.
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory
 

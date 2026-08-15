@@ -448,11 +448,16 @@ same per-space FIFO as consolidation. The job is visible through
 `bank_consolidation_status` and `bank_consolidation_queues`.
 
 The worker asks Qwen only to rank IDs of complete Markdown source units. It
-prepares `systemPatterns.md` before `progress.md`, persists only exact source
-content, validates every candidate, then creates a full-space backup. A
+processes every oversized logical file from the canonical bank inventory by
+structure and content, without filename-specific roles. Dated structural
+entries or complete H3 sections are candidates; recent, undated, code-bearing
+and HTML-bearing units are protected. The worker preflights every file before
+the first LLM request, uses only same-file protected context, makes at most one
+request per compressible file, persists only exact source content, validates
+every candidate, then creates a full-space backup. A
 ranking or candidate failure cancels the whole job before backup. The final
-result exposes logical byte sizes, retained-unit metrics, legacy migration
-counts, hashes, failures, targets, and `backup_id`.
+result exposes `planned_llm_calls`, logical byte sizes, retained-unit metrics,
+legacy migration counts, hashes, failures, targets, and `backup_id`.
 A persistence failure triggers an all-planned-files rollback limited to
 `bank/`; exact keys and contents are verified, while concurrent `live/` notes
 remain untouched. If rollback also fails, the reported backup id is the manual

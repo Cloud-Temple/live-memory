@@ -277,17 +277,22 @@ Removes 20 types of invisible Unicode characters and normalizes 10 types of Unic
 ## 3ter. Safe Extractive Bank Compaction (v2.8.0)
 
 Qwen ranks IDs of complete Markdown source units; its prose is never persisted.
-`systemPatterns.md` is selected first. Its exact candidate and the untouched
-`activeContext.md` then guide the ranking of historical `progress.md` entries.
-`activeContext.md` itself is never compacted.
+The compacteur has no filename-specific roles. For every oversized logical
+file from the canonical bank inventory, it detects either dated structural
+entries or complete H3 sections from the content itself. Protected units from
+that same file provide non-selectable context; another file is never an
+authority for the ranking.
 
 The compaction response contract is deliberately small:
 
 - `finish_reason` must be `stop`; there is no retry;
 - unknown and duplicate IDs are ignored, but one known ID is mandatory;
 - only exact source units are retained, under the UTF-8 byte limit;
-- recent, undated, fenced, indented-code and HTML progress entries are not
-  candidates;
+- in dated mode, recent and undated units are not candidates;
+- fenced, indented-code and HTML-bearing units are always protected;
+- every oversized file is preflighted before the first ranking request;
+- there is at most one LLM call per compressible file, reported through
+  `planned_llm_calls`;
 - every candidate must succeed before the first storage mutation.
 
 After all candidates pass, the server creates a standard full-space backup.
