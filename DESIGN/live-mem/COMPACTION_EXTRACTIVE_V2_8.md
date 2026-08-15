@@ -1,6 +1,6 @@
 # Compactage extractif générique — Live Memory 2.8.0
 
-**Statut : contrat générique implémenté localement — recette réelle à rejouer — production gelée**
+**Statut : première recette générique NO-GO métier — production gelée**
 
 ## Décision
 
@@ -146,6 +146,33 @@ Les résultats obtenus avec l'ancienne sélection par noms restent une preuve
 historique de faisabilité extractive et transactionnelle, mais ne valident pas
 ce contrat générique. La production et l'auto-compaction restent gelées jusqu'au
 canari manuel convenu.
+
+### Recette générique du 15 août 2026 — NO-GO
+
+Un backup frais du space distant `agentic-platform` a été restauré byte-exactement
+dans le bucket DEV utilisé par le Docker local. Le run réel
+`compact_14bda21a71e041d884770ee47dbd5efd` a traité le seul fichier
+surdimensionné avec le vrai `qwen3.6:35b` :
+
+- `progress.md` : 195 489 → 26 906 octets, sous la limite de 35 000 ;
+- un appel Qwen, `finish_reason=stop`, aucun retry ;
+- 170 unités éligibles, 21 retenues, 3 protégées ;
+- 6/6 autres fichiers byte-identiques ;
+- candidat indépendamment reconstruit par suppression d'unités entières
+  uniquement ; contenu protégé exact ;
+- backup transactionnel créé avant l'écriture.
+
+Le gate humain est toutefois rouge. Dix-sept des 21 unités retenues, soit
+81,6 % des octets sélectionnés, décrivent une même chaîne de canaris des 3 au
+6 août. Des résolutions et faits plus récents disparaissent, notamment le
+vecteur d'exposition de `BROKER_SIGNING_ENC_KEY` via `show-mcp-env.py` et la fin
+de migration, tandis que plusieurs blocages intermédiaires déjà résolus restent
+surreprésentés.
+
+Conclusion : cette recette valide l'intégrité, le coût et la transaction, mais
+invalide le classement global direct comme arbitre de la valeur future sur un
+gros journal. Aucun second run, bump, push, PR ou canari production n'est
+autorisé avec cet algorithme inchangé.
 
 ## Non-objectifs 2.8.0
 
