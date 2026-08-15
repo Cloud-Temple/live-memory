@@ -7,11 +7,12 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-> **Experimental 2.8.0 — product NO-GO.** The first direct-ranking prototype
-> passed mechanical integrity checks but failed semantic selection on the
-> representative `agentic-platform` bank. The Draft PR now carries an unvalidated
-> hierarchical Map/Reduce candidate. It is not releasable and does not replace
-> the 2.7.3 product contract.
+> **Experimental 2.8.0 — representative gate passed, product still NO-GO.**
+> The hierarchical Map/Reduce candidate passed one mechanical and
+> human-reviewed run on the representative `agentic-platform` bank: 195,489 →
+> 27,072 UTF-8 bytes in 7 LLM calls, with exact source-only persistence. The
+> repeated-fixture and release gates remain incomplete. It is not releasable
+> and does not replace the 2.7.3 product contract.
 
 ### Changed
 
@@ -27,6 +28,17 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   failure now blocks the following consolidation instead of allowing a later
   bank mutation against an oversized or partially planned context.
 - Declared `markdown-it-py` as a direct dependency for the single Markdown view.
+
+### Validation
+
+- Validated one full Docker run against a byte-exact local restoration of the
+  representative `agentic-platform` space. The candidate retained 18 of 170
+  eligible historical units plus 3 protected units; all 6 non-target files
+  remained byte-identical.
+- Independently reconstructed the compacted file solely by deleting complete
+  source Markdown units. Human and adversarial reviews found the global meaning
+  and important operational points preserved. No generated Map card or LLM
+  prose entered the persisted Bank.
 
 See [`DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md`](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 

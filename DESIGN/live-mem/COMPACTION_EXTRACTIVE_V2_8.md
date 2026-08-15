@@ -1,6 +1,6 @@
 # Compactage extractif générique — Live Memory 2.8.0
 
-**Statut : candidat hiérarchique Map/Reduce non validé — NO-GO produit**
+**Statut : gate représentatif Map/Reduce franchi — NO-GO produit avant les répétitions de recette et la release review**
 
 ## Décision
 
@@ -137,9 +137,10 @@ sans appel Qwen.
 ## Gates de validation
 
 Le changement d'une architecture liée à trois noms de fichiers vers ce contrat
-générique invalide le précédent gate produit. La branche peut être poussée et
-une Draft PR peut être ouverte uniquement comme véhicule de revue, avec le
-statut `NO-GO / DO NOT MERGE`. Avant tout merge, bump ou release, il faut :
+générique invalide le précédent gate produit. La branche et sa Draft PR servent
+de véhicule de revue. Le run représentatif unique décrit plus bas autorise la
+poursuite des gates, mais pas le merge, le bump ou la release. Avant ceux-ci, il
+faut :
 
 1. une suite unitaire complète verte, avec notamment le même contenu sous deux
    noms arbitraires produisant le même plan ;
@@ -197,8 +198,42 @@ Un probe isolé du même premier Map, hors S3 et sans retry, a montré 32 lignes
 sur 32 avec le même ID répété dans sa propre fiche, sans aucun ID distinct ou
 inconnu. Cette répétition n'est pas ambiguë. Le parseur accepte donc plusieurs
 occurrences d'un même ID connu et les retire toutes de la fiche ; il rejette
-toujours toute ligne portant deux IDs distincts. Cette correction reste à
-valider par une nouvelle recette complète explicitement autorisée.
+toujours toute ligne portant deux IDs distincts. La recette suivante valide ce
+contrat corrigé.
+
+### Second gate Map/Reduce — GO mécanique et métier
+
+Après restauration byte-exacte de la même source, le job autorisé
+`compact_4bc139a462d44457b930c02186a8f782` a terminé en environ 131 secondes :
+
+- `progress.md` : 195 489 → 27 072 octets (-86,2 %), sous la limite ;
+- sept appels planifiés et tentés : six Maps et un Reduce, sans retry ;
+- 173 fiches valides, aucun fallback et aucun fichier en échec ;
+- 170 unités anciennes éligibles, 18 retenues pour 23 679 octets sur un budget
+  de 23 705, plus trois unités protégées ;
+- backup transactionnel `agentic-platform/2026-08-15T21-05-17-718579` créé
+  avant l'écriture ;
+- six fichiers non ciblés sur six byte-identiques.
+
+Un audit indépendant a reconstruit le candidat uniquement par suppressions
+d'unités Markdown source entières. Les trois unités protégées sont exactes et
+aucune fiche ni prose Qwen n'est persistée.
+
+La revue humaine et adverse conclut **GO pour le gate représentatif du
+prototype**. Le biais du classement direct a disparu : la sélection ne se
+concentre plus sur la chaîne ancienne des 3 au 6 août. Elle conserve l'état
+récent, les décisions et contrats actifs, l'incident
+`show-mcp-env.py`/`BROKER_SIGNING_ENC_KEY`, le blocage
+`ModuleNotFoundError`, ainsi que les sondes et leçons opérationnelles. La preuve
+détaillée de fin de migration v0.8.14 n'est plus dans le journal compacté, mais
+ses invariants et l'état ultérieur restent dans les fichiers techniques
+inchangés ; cette perte de détail historique ne change pas le sens global de la
+Bank.
+
+Ce GO prouve la viabilité de l'algorithme sur une exécution représentative. Il
+ne remplace pas les trois exécutions consécutives exigées sur chacune des deux
+fixtures, ne rend pas la PR mergeable et n'autorise ni bump, release, canari ou
+production.
 
 ## Non-objectifs 2.8.0
 
