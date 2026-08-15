@@ -267,14 +267,12 @@ def parse_map_cards(
     cards: dict[str, str] = {}
     for line in output.splitlines():
         matches = ANY_UNIT_ID_RE.findall(line)
-        if len(matches) != 1:
+        if not matches or len(set(matches)) != 1:
             continue
         unit_id = matches[0]
         if unit_id not in by_id or unit_id in cards:
             continue
-        match = ANY_UNIT_ID_RE.search(line)
-        assert match is not None
-        text = (line[: match.start()] + line[match.end() :]).strip(" |:-\t")
+        text = ANY_UNIT_ID_RE.sub("", line).strip(" |:-\t")
         card = _bounded_text(text)
         if card:
             cards[unit_id] = card

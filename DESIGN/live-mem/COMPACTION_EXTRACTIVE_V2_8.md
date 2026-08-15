@@ -187,6 +187,19 @@ hiérarchique Map/Reduce qui le remplace doit subir une nouvelle recette
 `agentic-platform` et une revue humaine avant tout autre gate. Aucun merge,
 bump, release, canari ou déploiement production n'est autorisé jusque-là.
 
+### Premier gate Map/Reduce — rejet protocolaire sans écriture
+
+Le job `compact_e2216dc065ae480eb681d2b6c21799be` a préflighté sept appels,
+puis s'est arrêté au premier Map avec `Qwen returned no valid unit card` : une
+tentative, zéro backup, zéro écriture et les 259 051 octets source inchangés.
+
+Un probe isolé du même premier Map, hors S3 et sans retry, a montré 32 lignes
+sur 32 avec le même ID répété dans sa propre fiche, sans aucun ID distinct ou
+inconnu. Cette répétition n'est pas ambiguë. Le parseur accepte donc plusieurs
+occurrences d'un même ID connu et les retire toutes de la fiche ; il rejette
+toujours toute ligne portant deux IDs distincts. Cette correction reste à
+valider par une nouvelle recette complète explicitement autorisée.
+
 ## Non-objectifs 2.8.0
 
 - archive hot/cold, RAG, Graph Memory ou recherche sémantique ;

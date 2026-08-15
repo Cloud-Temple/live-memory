@@ -179,7 +179,7 @@ def test_map_cards_are_bounded_and_fallback_omissions_to_source_labels():
     output = (
         "U9999 | unknown\n"
         "U0001 U9999 | multiple ids rejected\n"
-        "U0001 | " + ("é" * 300) + "\n"
+        "U0001 | fiche de U0001 " + ("é" * 300) + "\n"
         "U0001 | duplicate ignored\n"
     )
 
@@ -188,6 +188,7 @@ def test_map_cards_are_bounded_and_fallback_omissions_to_source_labels():
     assert valid == 1
     assert fallback == 1
     assert len(cards["U0001"].encode("utf-8")) <= MAP_CARD_MAX_BYTES
+    assert "U0001" not in cards["U0001"]
     assert cards["U0002"] == "### 2026-08-02 - second"
     with pytest.raises(ValueError, match="no valid unit card"):
         parse_map_cards("U0001 U9999 | ambiguous", [first, second])
