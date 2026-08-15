@@ -274,24 +274,24 @@ Removes 20 types of invisible Unicode characters and normalizes 10 types of Unic
 
 ---
 
-## 3ter. Safe Extractive Bank Compaction (v2.8.0)
+## 3ter. Safe Hierarchical Bank Compaction (v2.8.0 candidate)
 
 Qwen first produces bounded ephemeral cards for complete Markdown source units,
-then ranks their IDs in one Reduce call; its prose is never persisted.
+then produces a compact, non-exhaustive Markdown digest in one Reduce call.
 The compacteur has no filename-specific roles. For every oversized logical
 file from the canonical bank inventory, it detects either dated structural
 entries or complete H3 sections from the content itself. Protected units from
-that same file provide non-selectable context; another file is never an
-authority for the ranking.
+that same file provide context for recognizing superseded states; another file
+is never an authority for the digest.
 
 The compaction response contract is deliberately small:
 
 - `finish_reason` must be `stop`; there is no retry;
-- unknown and duplicate IDs are ignored, but one known ID is mandatory;
-- only exact source units are retained, under the UTF-8 byte limit;
+- Map omissions fall back to bounded source labels; Map cards stay ephemeral;
+- the digest contains paragraphs/lists only and no invented reference;
 - in dated mode, recent and undated units are not candidates;
 - fenced, indented-code and HTML-bearing units are always protected;
-- every oversized file is preflighted before the first ranking request;
+- every oversized file is preflighted before the first LLM request;
 - Map batches contain at most 40 000 source bytes and 32 units, followed by one
   Reduce call; the exact call count is reported through `planned_llm_calls`;
 - every candidate must succeed before the first storage mutation.
@@ -303,7 +303,7 @@ triggers an attempt to restore the original file or legacy family from the
 backup. A multi-file failure restores and exactly verifies only `bank/`,
 so live notes created concurrently after the backup survive. If that rollback
 also fails, the result explicitly reports the restorable backup id for manual
-recovery. Reports include logical sizes, retained-unit metrics, SHA-256 hashes,
+recovery. Reports include logical sizes, digest metrics, SHA-256 hashes,
 model finish reason, part count, and backup id.
 
 Applied manual compaction is a `compact` job in the same per-space FIFO as

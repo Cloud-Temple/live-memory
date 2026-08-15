@@ -7,45 +7,46 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-> **Experimental 2.8.0 — representative gate passed, product still NO-GO.**
-> The hierarchical Map/Reduce candidate passed one mechanical and
-> human-reviewed run on the representative `agentic-platform` bank: 195,489 →
-> 27,072 UTF-8 bytes in 7 LLM calls, with exact source-only persistence. The
-> repeated-fixture and release gates remain incomplete. It is not releasable
-> and does not replace the 2.7.3 product contract.
+> **Experimental 2.8.0 — abstractive gates not started, product NO-GO.**
+> The source-only Map/Reduce candidate met its byte and integrity targets but
+> failed semantic review on `mcp-agent`: repeated review chains displaced
+> important incidents and decisions. The current candidate keeps the bounded
+> Maps and uses one Reduce to produce a validated, non-exhaustive Markdown
+> digest. It is not releasable and does not replace the 2.7.3 product contract.
 
 ### Changed
 
-- Replaced generated JSON/Markdown bank compaction with an extractive
-  hierarchy: bounded Map calls produce ephemeral unit cards, one Reduce ranks
-  IDs, and the server persists only exact source units.
+- Replaced generated JSON edit plans with a hierarchical digest pipeline:
+  bounded Map calls produce ephemeral unit cards and one Reduce produces the
+  only generated Markdown persisted by the compactor.
 - Removed filename-specific compaction roles. Every oversized logical Bank file
   is classified from its Markdown structure and content as dated entries or H3
   sections, with protected context taken only from the same file.
-- Preflight now covers every Map and worst-case Reduce prompt before the first
-  LLM request. Results expose the exact Map + Reduce `planned_llm_calls` count.
+- The server validates the raw and normalized digest, rejects invented
+  references and active Markdown structures, and replaces all historical
+  candidates with one code-owned container that is replaced on later passes.
+- Preflight covers every Map and worst-case Reduce prompt before the first LLM
+  request. Results expose the exact Map + Reduce `planned_llm_calls` count.
 - All candidates must succeed before backup or write. Automatic compaction
   failure now blocks the following consolidation instead of allowing a later
   bank mutation against an oversized or partially planned context.
 - Declared `markdown-it-py` as a direct dependency for the single Markdown view.
-- Aligned the MCP tool description and both READMEs with the extractive
-  Map/Reduce contract: no JSON edit plan or generated prose is persisted, the
-  byte limit is mandatory, and automatic compaction failure blocks
+- Aligned the MCP tool description, READMEs and design documents with the
+  hierarchical digest contract: the byte limit is mandatory, recent/protected
+  content remains byte-identical, and automatic compaction failure blocks
   consolidation before source notes are consumed.
 - Made completed Map batches degrade to bounded source-label cards when Qwen
   returns no parseable card; transport errors and incomplete outputs remain
-  blocking, while strict Reduce and source-only persistence stay unchanged.
+  blocking, while the Reduce digest and its validation stay strict.
 
 ### Validation
 
-- Validated one full Docker run against a byte-exact local restoration of the
-  representative `agentic-platform` space. The candidate retained 18 of 170
-  eligible historical units plus 3 protected units; all 6 non-target files
-  remained byte-identical.
-- Independently reconstructed the compacted file solely by deleting complete
-  source Markdown units. Human and adversarial reviews found the global meaning
-  and important operational points preserved. No generated Map card or LLM
-  prose entered the persisted Bank.
+- The earlier extractive candidate passed one representative Docker run on
+  `agentic-platform`, then failed the semantic gate on `mcp-agent`; those runs
+  remain mechanical evidence only and do not count for the current candidate.
+- Added mutation-focused tests for unsafe digests, invented references,
+  multi-file atomicity, mixed H3/list journals and replacement rather than
+  accumulation during a second compaction pass.
 
 See [`DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md`](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 

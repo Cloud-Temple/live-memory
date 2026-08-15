@@ -262,7 +262,7 @@ The consolidator uses an LLM (OpenAI-compatible API) to transform live notes int
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Optional post-consolidation check for unattributed claims |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Max examples returned by the validation pass |
 | `COMPACT_THRESHOLD`       | `0.6`             | Legacy compatibility setting; compaction follows the logical UTF-8 byte limit per file |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Universal UTF-8 byte limit for a logical Bank file. Oversized files use extractive Map/Reduce compaction; dated files reserve 25% of their available space for future growth |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Universal UTF-8 byte limit for a logical Bank file. Oversized files use hierarchical Map/Reduce digest compaction; dated files reserve 25% of their available space for future growth |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Max non-MCP response body size before truncation |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Max request body accepted by `/api/tool` |
 
@@ -331,9 +331,11 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 Applied `bank_compact` is asynchronous: it joins the same per-space FIFO as
 consolidation and returns a `job_id`. For each logical file above
 `BANK_FILE_MAX_SIZE`, bounded Map calls create ephemeral cards for complete
-Markdown source units and one Reduce ranks the IDs to retain. The server writes
-only exact source bytes, never generated cards or an edit plan, and requires the
-candidate to fit the configured limit. In dated mode, old units may consume at
+Markdown source units and one Reduce writes a compact, non-exhaustive Markdown
+digest. The server validates that digest, replaces all eligible historical
+units with one code-owned, recompactable container, and requires the candidate
+to fit the configured limit. Recent, undated, code-bearing, HTML-bearing and
+external content stays byte-identical. In dated mode, the digest may consume at
 most 75% of the space left after protected content; the remaining 25% is growth
 headroom. All candidates are validated before a full-space backup is created.
 Persisted content is read back and verified; failure triggers a verified
@@ -359,14 +361,15 @@ preflight, Map, Reduce, candidate, backup, persistence, or rollback failure
 blocks `bank_consolidate`; no source note is consumed and no later Bank mutation
 starts.
 
-> **2.8.0 development status:** the hierarchical Map/Reduce extractive
-> compactor passed one mechanical and human-reviewed run on the representative
-> `agentic-platform` bank (195,489 → 27,072 UTF-8 bytes, 7 LLM calls). It keeps
-> only exact source Markdown units; generated cards are never persisted. The
-> remaining repeated-fixture and release gates are not complete, so the Draft
+> **2.8.0 development status:** the previous extractive Map/Reduce candidate
+> passed its mechanical gate but failed semantic review on `mcp-agent` because
+> repeated review chains displaced important cross-cutting facts. The current
+> candidate uses the same bounded Maps and one Reduce to produce a validated,
+> non-exhaustive digest while preserving recent and protected content exactly.
+> Its real-corpus gates restart from zero, so the Draft
 > PR must not yet be merged, released, enabled in production, or treated as the
 > current product contract. See the
-> [2.8.0 extractive compaction design](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
+> [2.8.0 hierarchical compaction design](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory
 

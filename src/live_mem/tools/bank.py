@@ -1258,19 +1258,19 @@ def register(mcp: FastMCP) -> int:
             bool,
             Field(
                 default=True,
-                description="True = scan seul, False = enfile une compaction extractive Map/Reduce",
+                description="True = scan seul, False = enfile une compaction hiérarchique Map/Reduce",
             ),
         ] = True,
     ) -> dict:
         """
-        Compacte extractivement les fichiers bank surdimensionnés (manage).
+        Compacte hiérarchiquement les fichiers bank surdimensionnés (manage).
 
         Les tailles sont mesurées en octets UTF-8. Qwen produit des fiches
-        temporaires bornées puis classe les IDs d'unités Markdown complètes.
-        Le serveur persiste uniquement les octets source des unités retenues ;
-        aucune prose LLM ni plan d'édition n'est écrit. Une réponse tronquée,
-        un classement invalide ou un candidat au-dessus de la limite bloque le
-        job avant backup et écriture.
+        temporaires bornées puis un digest Markdown compact et non exhaustif.
+        Le serveur valide le digest et l'insère dans un unique conteneur
+        recompactable ; le contenu récent et protégé reste byte-identique. Une
+        réponse tronquée, une référence inventée, une structure interdite ou un
+        candidat au-dessus de la limite bloque le job avant backup et écriture.
 
         Tous les candidats sont validés en mémoire avant la création d'un
         snapshot standard complet. Les écritures sont relues et vérifiées ;

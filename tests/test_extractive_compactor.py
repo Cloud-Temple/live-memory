@@ -1,4 +1,4 @@
-"""Mutation-focused tests for exact extractive Markdown selection."""
+"""Mutation-focused tests for hierarchical Markdown digest compaction."""
 
 from datetime import date
 
@@ -10,25 +10,28 @@ from live_mem.core.extractive_compactor import (
     MAP_BATCH_MAX_UNITS,
     MAP_CARD_MAX_BYTES,
     MarkdownUnit,
-    SelectionPlan,
-    build_candidate,
+    build_digest_candidate,
     build_map_batches,
     delete_units,
+    digest_output_budget,
+    digest_insertion_offset,
     extract_markdown_inventory,
     map_prompt,
     make_plan,
     parse_map_cards,
-    parse_ranking,
     reduce_prompt,
-    select_under_budget,
+    render_digest_container,
+    validate_digest,
 )
 
 
-PARSER = MarkdownIt()
+PARSER = MarkdownIt().enable("table")
 
 
 def _unit(unit_id: str, start: int, size: int) -> MarkdownUnit:
-    return MarkdownUnit(unit_id, start, start + size, b"x" * size, date(2026, 8, 1))
+    return MarkdownUnit(
+        unit_id, start, start + size, b"x" * size, date(2026, 8, 1), "h3"
+    )
 
 
 def test_progress_units_are_complete_utf8_and_exclude_recent_and_protected():
@@ -43,7 +46,10 @@ def test_progress_units_are_complete_utf8_and_exclude_recent_and_protected():
     assert inventory.mode == "dated"
     assert [unit.source for unit in units] == [old]
     assert original[units[0].start_byte : units[0].end_byte] == old
-    assert delete_units(original, units) == b"\xef\xbb\xbf# progress\n\n" + protected + recent
+    assert (
+        delete_units(original, units)
+        == b"\xef\xbb\xbf# progress\n\n" + protected + recent
+    )
 
 
 @pytest.mark.parametrize(
@@ -70,7 +76,9 @@ def test_pattern_h3_sections_stop_at_h1_h2_and_h3():
     first = b"### Pattern A\n- exact A\n"
     second = b"### Pattern B\n- exact B\n"
     original = (
-        b"# Patterns\n## Groupe\n" + first + second
+        b"# Patterns\n## Groupe\n"
+        + first
+        + second
         + b"# Annexe\n- H1 exact\n## Suite\n- H2 exact\n"
     )
 
@@ -157,22 +165,12 @@ def test_one_dated_h3_in_thematic_document_remains_section_mode():
 
 def test_plan_budget_is_exact_and_fails_when_protected_base_is_too_large():
     source = b"old"
-    unit = MarkdownUnit("U0001", 0, len(source), source, date(2026, 8, 1))
+    unit = MarkdownUnit("U0001", 0, len(source), source, date(2026, 8, 1), "list")
     original = source + b"protected"
 
     assert make_plan(original, [unit], 12).available_bytes == 3
     with pytest.raises(ValueError, match="protected content"):
         make_plan(original, [unit], 8)
-
-
-def test_ranking_ignores_unknown_and_duplicates_but_requires_one_known_id():
-    known = [_unit("U0001", 0, 10), _unit("U0002", 10, 10)]
-
-    ranking = parse_ranking("prose U9999 U0002 U0002 U0001", known)
-
-    assert [unit.unit_id for unit in ranking] == ["U0002", "U0001"]
-    with pytest.raises(ValueError, match="no known"):
-        parse_ranking("U9999", known)
 
 
 def test_map_batches_keep_units_indivisible_and_bounded():
@@ -182,7 +180,9 @@ def test_map_batches_keep_units_indivisible_and_bounded():
 
     assert [len(batch) for batch in batches] == [30, 4]
     assert all(len(batch) <= MAP_BATCH_MAX_UNITS for batch in batches)
-    assert all(sum(unit.size for unit in batch) <= MAP_BATCH_MAX_BYTES for batch in batches)
+    assert all(
+        sum(unit.size for unit in batch) <= MAP_BATCH_MAX_BYTES for batch in batches
+    )
     assert [unit for batch in batches for unit in batch] == units
 
 
@@ -195,10 +195,10 @@ def test_map_batch_rejects_an_indivisible_unit_above_its_bound():
 
 def test_map_cards_are_bounded_and_fallback_omissions_to_source_labels():
     first = MarkdownUnit(
-        "U0001", 0, 20, b"### 2026-08-01 - first\n", date(2026, 8, 1)
+        "U0001", 0, 20, b"### 2026-08-01 - first\n", date(2026, 8, 1), "h3"
     )
     second = MarkdownUnit(
-        "U0002", 20, 40, b"### 2026-08-02 - second\n", date(2026, 8, 2)
+        "U0002", 20, 40, b"### 2026-08-02 - second\n", date(2026, 8, 2), "h3"
     )
     output = (
         "U9999 | unknown\n"
@@ -227,36 +227,189 @@ def test_map_cards_are_bounded_and_fallback_omissions_to_source_labels():
     }
 
 
-def test_greedy_budget_uses_ranking_then_restores_document_order():
-    first = _unit("U0001", 0, 40)
-    second = _unit("U0002", 40, 80)
-    third = _unit("U0003", 120, 30)
+def test_digest_validation_allows_technical_markdown_and_rejects_invention():
+    source = b"Decision #80 livree en v1.2.3 le 2026-08-01."
+    output = "- Décision #80 livrée en `v1.2.3` le 2026-08-01."
 
-    selected = select_under_budget([second, third, first], 75)
+    assert validate_digest(output, source, source, 200, PARSER) == output.encode()
 
-    assert [unit.unit_id for unit in selected] == ["U0001", "U0003"]
-    assert sum(unit.size for unit in selected) == 70
-
-
-def test_known_but_indivisible_ranking_cannot_delete_every_eligible_unit():
-    known = _unit("U0001", 0, 11)
-
-    with pytest.raises(ValueError, match="no ranked Markdown unit fits"):
-        select_under_budget([known], 5)
+    with pytest.raises(ValueError, match="invents references"):
+        validate_digest("- Décision #81.", source, source, 200, PARSER)
+    with pytest.raises(ValueError, match="internal unit id"):
+        validate_digest("- Garder U0001.", source, source, 200, PARSER)
 
 
-def test_candidate_is_only_exact_selected_source_plus_untouched_base():
-    first = b"- **2026-08-01** : exact one\n"
-    second = b"- **2026-08-02** : exact two\n"
-    recent = b"- **2026-08-03** : exact recent\n"
-    original = first + second + recent
-    one = MarkdownUnit("U0001", 0, len(first), first, date(2026, 8, 1))
-    two = MarkdownUnit(
-        "U0002", len(first), len(first) + len(second), second, date(2026, 8, 2)
+@pytest.mark.parametrize(
+    "output, reason",
+    [
+        ("### Heading", "heading_open"),
+        ("```sh\necho no\n```", "fence"),
+        ("<span>raw</span>", "html_inline"),
+        ("> citation", "blockquote_open"),
+        ("---", "hr"),
+        ("[lien](https://example.test)", "link_open"),
+        ("[ref]: https://example.test", "link definition"),
+        ("[foo\\]]: https://example.test\n\n- résumé", "link definition"),
+        ("[foo\nbar]: https://example.test\n\n- résumé", "link definition"),
+        ("![image](x.png)", "image"),
+        ("| A | B |\n|---|---|\n|x|y|", "table_open"),
+        ('{"plan":["delete"]}', "JSON"),
+        ('{"plan":["delete"]}\n\n- résumé', "JSON"),
+    ],
+)
+def test_digest_validation_rejects_active_or_structured_output(output, reason):
+    with pytest.raises(ValueError, match=reason):
+        validate_digest(output, b"source", b"source", 500, PARSER)
+
+
+def test_mixed_digest_uses_h3_anchor_and_is_recompactable():
+    old_list = b"- **2026-08-01** ancienne liste avec beaucoup de details historiques\n"
+    old_h3 = (
+        b"### 2026-08-02 - ancien H3\n" + b"- detail historique important et long\n" * 4
     )
-    plan = SelectionPlan(original, (one, two), 100)
+    recent_h3 = b"### 2026-08-03 - H3 recent\n- exact\n"
+    original = b"# Journal\n" + old_list + old_h3 + recent_h3
+    inventory = extract_markdown_inventory(original, PARSER)
+    plan = make_plan(original, list(inventory.candidates), 500)
+    digest = b"- Decision historique #80."
 
-    assert build_candidate(plan, [two], 100) == second + recent
+    candidate = build_digest_candidate(plan, digest, inventory.mode, 300, 500)
+
+    assert digest_insertion_offset(plan) == len(b"# Journal\n")
+    assert old_list not in candidate and old_h3 not in candidate
+    assert recent_h3 in candidate
+    second = extract_markdown_inventory(candidate, PARSER)
+    assert second.mode == "dated"
+    assert len(second.candidates) == 1
+    assert second.candidates[0].kind == "h3"
+    assert b"Historique compact" in second.candidates[0].source
+    assert [unit.source for unit in second.protected_context] == [recent_h3]
+
+    second_plan = make_plan(candidate, list(second.candidates), 500)
+    replacement = build_digest_candidate(
+        second_plan, b"- Nouveau.", second.mode, 300, 500
+    )
+    assert digest not in replacement
+    assert replacement.count(b"Historique compact") == 1
+    assert recent_h3 in replacement
+
+
+def test_digest_cannot_activate_a_reference_link_in_protected_content():
+    old = (
+        b"- **2026-08-01** ancien historique suffisamment long pour reduction "
+        + b"details repetitifs " * 12
+        + b"\n"
+    )
+    recent = b"- **2026-08-02** recent [ref]\n"
+    original = old + recent
+    inventory = extract_markdown_inventory(original, PARSER)
+    plan = make_plan(original, list(inventory.candidates), 500)
+
+    with pytest.raises(ValueError, match="link definition"):
+        validate_digest("[ref]: https://example.test", original, recent, 200, PARSER)
+
+    unsafe = build_digest_candidate(
+        plan, b"[ref]: https://example.test", inventory.mode, 300, 500
+    )
+    assert any(
+        child.type == "link_open"
+        for token in PARSER.parse(unsafe.decode())
+        for child in (token.children or [])
+    )
+
+
+def test_protected_reference_definition_cannot_activate_a_digest_link():
+    preserved = b"[ref]: https://example.test\n"
+    source = b"historique supprimable\n" + preserved
+
+    with pytest.raises(ValueError, match="link_open"):
+        validate_digest("- Voir [ref].", source, preserved, 200, PARSER)
+
+
+def test_sections_digest_hides_dated_internal_lists_from_next_inventory():
+    first = b"### Pattern A\n" + b"- invariant detaille et durable\n" * 4
+    second = b"### Pattern B\n" + b"- invariant detaille et durable\n" * 4
+    original = b"# Patterns\n" + first + second
+    inventory = extract_markdown_inventory(original, PARSER)
+    plan = make_plan(original, list(inventory.candidates), 500)
+    digest = b"- 2026-08-01 - decision\n- 2026-08-02 - incident"
+
+    candidate = build_digest_candidate(plan, digest, inventory.mode, 400, 500)
+    second_inventory = extract_markdown_inventory(candidate, PARSER)
+
+    assert second_inventory.mode == "sections"
+    assert len(second_inventory.candidates) == 1
+    assert second_inventory.candidates[0].kind == "h3"
+    assert render_digest_container(plan, digest, inventory.mode) in candidate
+
+    second_plan = make_plan(candidate, list(second_inventory.candidates), 500)
+    replacement = build_digest_candidate(
+        second_plan, b"- Nouveau pattern durable.", second_inventory.mode, 400, 500
+    )
+    assert digest not in replacement
+    assert replacement.count(b"Historique compact") == 1
+
+
+def test_list_digest_is_one_recompactable_dated_item():
+    old = (
+        b"- **2026-08-01** ancien avec beaucoup de details historiques "
+        + b"qui seront remplaces par une synthese courte " * 4
+        + b"\n"
+    )
+    recent = b"- **2026-08-02** recent\n"
+    original = b"# Journal\n### Updates\n" + old + recent
+    inventory = extract_markdown_inventory(original, PARSER)
+    plan = make_plan(original, list(inventory.candidates), 500)
+
+    candidate = build_digest_candidate(
+        plan,
+        "- Décision ancienne.\n- Risque résolu.".encode(),
+        inventory.mode,
+        300,
+        500,
+    )
+    second = extract_markdown_inventory(candidate, PARSER)
+
+    assert second.mode == "dated"
+    assert len(second.candidates) == 1
+    assert second.candidates[0].kind == "list"
+    assert [unit.source for unit in second.protected_context] == [recent]
+
+    second_plan = make_plan(candidate, list(second.candidates), 500)
+    replacement = build_digest_candidate(
+        second_plan, b"- Digest remplace.", second.mode, 300, 500
+    )
+    assert b"D\xc3\xa9cision ancienne" not in replacement
+    assert replacement.count(b"Historique compact") == 1
+    assert recent in replacement
+
+
+def test_digest_container_budget_is_exact_and_never_truncated():
+    old = b"- **2026-08-01** ancien\n"
+    recent = b"- **2026-08-02** recent\n"
+    inventory = extract_markdown_inventory(old + recent, PARSER)
+    plan = make_plan(old + recent, list(inventory.candidates), 500)
+    digest = b"mot " * 20
+    container = render_digest_container(plan, digest, inventory.mode)
+
+    with pytest.raises(ValueError, match="container exceeds"):
+        build_digest_candidate(plan, digest, inventory.mode, len(container) - 1, 500)
+
+
+def test_reduce_budget_reserves_wrapper_and_worst_case_line_indentation():
+    old = b"- **2026-08-01** ancien historique " + b"x" * 300 + b"\n"
+    recent = b"- **2026-08-02** recent\n"
+    inventory = extract_markdown_inventory(old + recent, PARSER)
+    plan = make_plan(old + recent, list(inventory.candidates), 500)
+    allowance = 100
+    budget = digest_output_budget(plan, inventory.mode, allowance)
+    worst_case_lines = b"\n".join(b"x" for _ in range((budget + 1) // 2))
+
+    assert len(worst_case_lines) <= budget
+    container = render_digest_container(plan, worst_case_lines, inventory.mode)
+    assert len(container) <= allowance
+    with pytest.raises(ValueError, match="byte budget"):
+        validate_digest("x" * 100, old + recent, recent, budget, PARSER)
 
 
 def test_map_and_reduce_prompts_keep_source_and_ephemeral_cards_separate():
@@ -272,10 +425,12 @@ def test_map_and_reduce_prompts_keep_source_and_ephemeral_cards_separate():
 
     source_prompt = map_prompt(units)
     cards = {"U0001": "décision durable", "P0001": "état final"}
-    ranking_prompt = reduce_prompt(inventory, cards, 100)
+    digest_prompt = reduce_prompt(inventory, cards, 100)
 
     assert "jalon utile" in source_prompt and "etat recent intact" in source_prompt
-    assert "selectable | U0001 | date=2026-08-01" in ranking_prompt
-    assert "protected | P0001 | date=2026-08-02" in ranking_prompt
-    assert "bytes=" in ranking_prompt and "décision durable" in ranking_prompt
-    assert "jalon utile" not in ranking_prompt and "etat recent intact" not in ranking_prompt
+    assert "selectable | U0001 | date=2026-08-01" in digest_prompt
+    assert "protected | P0001 | date=2026-08-02" in digest_prompt
+    assert "bytes=" in digest_prompt and "décision durable" in digest_prompt
+    assert (
+        "jalon utile" not in digest_prompt and "etat recent intact" not in digest_prompt
+    )

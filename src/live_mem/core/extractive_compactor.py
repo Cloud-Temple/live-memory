@@ -1,7 +1,8 @@
-"""Pure Markdown selection for the v2.8 extractive bank compactor."""
+"""Markdown inventory and hierarchical digest assembly for bank compaction."""
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -11,9 +12,21 @@ from markdown_it import MarkdownIt
 
 ISO_DATE_RE = re.compile(r"\b(20\d{2})-(\d{2})-(\d{2})\b")
 FR_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(20\d{2})\b")
-UNIT_ID_RE = re.compile(r"\bU\d{4}\b")
 ANY_UNIT_ID_RE = re.compile(r"\b[UP]\d{4}\b")
 PROTECTED_TOKENS = {"fence", "code_block", "html_block", "html_inline"}
+DIGEST_FORBIDDEN_TOKENS = PROTECTED_TOKENS | {
+    "heading_open",
+    "blockquote_open",
+    "hr",
+    "link_open",
+    "image",
+    "table_open",
+}
+ISSUE_REF_RE = re.compile(r"(?<!\w)#\d+\b")
+VERSION_REF_RE = re.compile(r"\bv\d+\.\d+(?:\.\d+)?\b")
+ISO_REF_RE = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
+FR_REF_RE = re.compile(r"\b\d{1,2}/\d{1,2}/20\d{2}\b")
+LINK_DEFINITION_RE = re.compile(r"(?m)^[ \t]{0,3}\[[^\]\n]+\]:")
 MAP_BATCH_MAX_BYTES = 40_000
 MAP_BATCH_MAX_UNITS = 32
 MAP_CARD_MAX_BYTES = 240
@@ -27,6 +40,7 @@ class MarkdownUnit:
     end_byte: int
     source: bytes
     entry_date: date
+    kind: str
 
     @property
     def size(self) -> int:
@@ -127,8 +141,7 @@ def extract_markdown_inventory(original: bytes, parser: MarkdownIt) -> UnitInven
         item
         for item in list_units
         if not any(
-            item[0] < h3_end and item[1] > h3_start
-            for h3_start, h3_end in h3_spans
+            item[0] < h3_end and item[1] > h3_start for h3_start, h3_end in h3_spans
         )
     ]
     dated_h3 = [item for item in h3_units if item[3] is not None]
@@ -149,26 +162,24 @@ def extract_markdown_inventory(original: bytes, parser: MarkdownIt) -> UnitInven
         raise ValueError("no dated entry or complete H3 section")
     dated = [item for item in discovered if item[3] is not None]
     recent_date = max(item[3] for item in dated) if dated else None
-    candidate_spans: list[tuple[int, int, date]] = []
-    protected_spans: list[tuple[int, int, date]] = []
+    candidate_spans: list[tuple[int, int, str, date]] = []
+    protected_spans: list[tuple[int, int, str, date]] = []
     for start, end, kind, entry_date, protected in discovered:
         selectable = (
-            entry_date is not None
-            and entry_date != recent_date
-            and not protected
+            entry_date is not None and entry_date != recent_date and not protected
             if mode == "dated"
             else kind == "h3" and not protected
         )
         target = candidate_spans if selectable else protected_spans
-        target.append((start, end, entry_date or date.min))
+        target.append((start, end, kind, entry_date or date.min))
 
     candidates = tuple(
-        MarkdownUnit(f"U{index:04d}", start, end, original[start:end], entry_date)
-        for index, (start, end, entry_date) in enumerate(candidate_spans, 1)
+        MarkdownUnit(f"U{index:04d}", start, end, original[start:end], entry_date, kind)
+        for index, (start, end, kind, entry_date) in enumerate(candidate_spans, 1)
     )
     protected_context = tuple(
-        MarkdownUnit(f"P{index:04d}", start, end, original[start:end], entry_date)
-        for index, (start, end, entry_date) in enumerate(protected_spans, 1)
+        MarkdownUnit(f"P{index:04d}", start, end, original[start:end], entry_date, kind)
+        for index, (start, end, kind, entry_date) in enumerate(protected_spans, 1)
     )
     _validate_non_overlapping(list(candidates) + list(protected_context))
     return UnitInventory(mode, candidates, protected_context)
@@ -202,19 +213,6 @@ def make_plan(original: bytes, units: list[MarkdownUnit], limit: int) -> Selecti
     if available <= 0:
         raise ValueError("protected content already exceeds the configured limit")
     return SelectionPlan(original, tuple(units), available)
-
-
-def parse_ranking(output: str, known: list[MarkdownUnit]) -> list[MarkdownUnit]:
-    by_id = {unit.unit_id: unit for unit in known}
-    ranking: list[MarkdownUnit] = []
-    seen: set[str] = set()
-    for unit_id in UNIT_ID_RE.findall(output):
-        if unit_id in by_id and unit_id not in seen:
-            ranking.append(by_id[unit_id])
-            seen.add(unit_id)
-    if not ranking:
-        raise ValueError("Qwen returned no known unit id")
-    return ranking
 
 
 def build_map_batches(
@@ -255,7 +253,9 @@ def _bounded_text(value: str, max_bytes: int = MAP_CARD_MAX_BYTES) -> str:
 
 def _fallback_card(unit: MarkdownUnit) -> str:
     content = unit.source.decode("utf-8", errors="strict")
-    first_line = next((line.strip() for line in content.splitlines() if line.strip()), "")
+    first_line = next(
+        (line.strip() for line in content.splitlines() if line.strip()), ""
+    )
     return _bounded_text(first_line)
 
 
@@ -282,26 +282,148 @@ def parse_map_cards(
     return cards, valid_cards, len(known) - valid_cards
 
 
-def select_under_budget(
-    ranking: list[MarkdownUnit], budget: int
-) -> list[MarkdownUnit]:
-    selected: list[MarkdownUnit] = []
-    used = 0
-    for unit in ranking:
-        if used + unit.size <= budget:
-            selected.append(unit)
-            used += unit.size
-    if not selected:
-        raise ValueError("no ranked Markdown unit fits the available byte budget")
-    return sorted(selected, key=lambda item: item.start_byte)
+def _references(value: str) -> set[str]:
+    return {
+        match.group(0)
+        for pattern in (ISSUE_REF_RE, VERSION_REF_RE, ISO_REF_RE, FR_REF_RE)
+        for match in pattern.finditer(value)
+    }
 
 
-def build_candidate(
-    plan: SelectionPlan, selected: list[MarkdownUnit], limit: int
+def _validate_digest_markdown(
+    value: str, parser: MarkdownIt, preserved_context: str
+) -> None:
+    if not value.strip():
+        raise ValueError("Qwen returned an empty digest")
+    if LINK_DEFINITION_RE.search(value):
+        raise ValueError("digest contains a forbidden Markdown link definition")
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        decoded = None
+    if isinstance(decoded, (dict, list)):
+        raise ValueError("Qwen returned JSON instead of a Markdown digest")
+    environment: dict = {}
+    parser.parse(preserved_context, environment)
+    references_before = set(environment.get("references", {}))
+    duplicate_refs_before = len(environment.get("duplicate_refs", []))
+    tokens = parser.parse(value, environment)
+    references_after = set(environment.get("references", {}))
+    duplicate_refs_after = len(environment.get("duplicate_refs", []))
+    if (
+        references_after != references_before
+        or duplicate_refs_after != duplicate_refs_before
+    ):
+        raise ValueError("digest contains a forbidden Markdown link definition")
+    if not tokens:
+        raise ValueError("Qwen returned a digest without visible Markdown content")
+    for token in _token_tree(tokens):
+        if token.type in DIGEST_FORBIDDEN_TOKENS:
+            raise ValueError(f"digest contains forbidden Markdown token: {token.type}")
+        if token.type == "inline":
+            try:
+                inline_json = json.loads(token.content)
+            except json.JSONDecodeError:
+                inline_json = None
+            if isinstance(inline_json, (dict, list)):
+                raise ValueError("Qwen returned JSON instead of a Markdown digest")
+    allowed_roots = {
+        "paragraph_open",
+        "paragraph_close",
+        "bullet_list_open",
+        "bullet_list_close",
+        "ordered_list_open",
+        "ordered_list_close",
+    }
+    for token in tokens:
+        if token.level == 0 and token.type not in allowed_roots:
+            raise ValueError(f"digest contains forbidden root token: {token.type}")
+
+
+def validate_digest(
+    output: str,
+    source: bytes,
+    preserved: bytes,
+    max_bytes: int,
+    parser: MarkdownIt,
 ) -> bytes:
-    selected_ids = {unit.unit_id for unit in selected}
-    removed = [unit for unit in plan.units if unit.unit_id not in selected_ids]
-    candidate = delete_units(plan.original, removed)
+    """Validate a complete generated digest without repair or truncation."""
+    preserved_context = preserved.decode("utf-8", errors="strict")
+    _validate_digest_markdown(output, parser, preserved_context)
+    normalized = output.strip()
+    _validate_digest_markdown(normalized, parser, preserved_context)
+    if ANY_UNIT_ID_RE.search(normalized):
+        raise ValueError("digest exposes an internal unit id")
+    raw = normalized.encode("utf-8", errors="strict")
+    if len(raw) > max_bytes:
+        raise ValueError("digest exceeds its UTF-8 byte budget")
+    source_text = source.decode("utf-8", errors="strict")
+    invented = _references(normalized) - _references(source_text)
+    if invented:
+        raise ValueError(f"digest invents references: {sorted(invented)}")
+    return raw
+
+
+def digest_insertion_offset(plan: SelectionPlan) -> int:
+    """Return the anchor offset after all selectable units are removed."""
+    h3_units = [unit for unit in plan.units if unit.kind == "h3"]
+    anchor = min(h3_units or list(plan.units), key=lambda item: item.start_byte)
+    removed_before = sum(
+        unit.size for unit in plan.units if unit.end_byte <= anchor.start_byte
+    )
+    return anchor.start_byte - removed_before
+
+
+def render_digest_container(
+    plan: SelectionPlan,
+    digest: bytes,
+    mode: str,
+) -> bytes:
+    """Render one naturally recompactable Markdown unit around a digest."""
+    h3_units = [unit for unit in plan.units if unit.kind == "h3"]
+    anchor = min(h3_units or list(plan.units), key=lambda item: item.start_byte)
+    dated = mode == "dated"
+    max_date = max(unit.entry_date for unit in plan.units).isoformat()
+    indented = b"\n".join(b"    " + line for line in digest.split(b"\n"))
+    if anchor.kind == "h3":
+        date_prefix = f"{max_date} — " if dated else ""
+        header = (
+            f"### {date_prefix}Historique compacté\n\n"
+            "- **Synthèse non exhaustive** :\n\n"
+        ).encode("utf-8")
+    else:
+        header = (
+            f"- **{max_date} — Historique compacté (synthèse non exhaustive)** :\n\n"
+        ).encode("utf-8")
+    return header + indented + b"\n\n"
+
+
+def digest_output_budget(
+    plan: SelectionPlan, mode: str, container_allowance: int
+) -> int:
+    """Reserve wrapper and worst-case four-byte indentation for every line."""
+    empty_container = render_digest_container(plan, b"", mode)
+    fixed_overhead = len(empty_container) - 4
+    budget = (container_allowance - fixed_overhead) // 5
+    if budget <= 0:
+        raise ValueError("digest container has no usable UTF-8 output budget")
+    return budget
+
+
+def build_digest_candidate(
+    plan: SelectionPlan,
+    digest: bytes,
+    mode: str,
+    insertion_allowance: int,
+    limit: int,
+) -> bytes:
+    """Replace every selectable unit with one bounded digest container."""
+    base = delete_units(plan.original, list(plan.units))
+    offset = digest_insertion_offset(plan)
+    container = render_digest_container(plan, digest, mode)
+    if len(container) > insertion_allowance:
+        raise ValueError("digest container exceeds its UTF-8 byte budget")
+    candidate = base[:offset] + container + base[offset:]
     if len(candidate) >= len(plan.original):
         raise ValueError("candidate does not reduce the original file")
     if len(candidate) > limit:
@@ -336,17 +458,13 @@ def reduce_prompt(
     for unit in units:
         role = "selectable" if unit.unit_id in candidates else "protected"
         entry_date = (
-            unit.entry_date.isoformat()
-            if unit.entry_date != date.min
-            else "undated"
+            unit.entry_date.isoformat() if unit.entry_date != date.min else "undated"
         )
         rows.append(
             f"{role} | {unit.unit_id} | date={entry_date} | "
             f"bytes={unit.size} | {cards[unit.unit_id]}"
         )
     return (
-        f"Budget de rétention : {budget} octets UTF-8.\n"
-        "Fiches Map non fiables :\n"
-        + "\n".join(rows)
-        + "\n"
+        f"Budget du digest Markdown : {budget} octets UTF-8.\n"
+        "Fiches Map non fiables :\n" + "\n".join(rows) + "\n"
     )

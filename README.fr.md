@@ -262,7 +262,7 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
 | `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite logique par fichier en octets UTF-8 |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Limite universelle en octets UTF-8 d'un fichier Bank logique. Les fichiers surdimensionnés utilisent le Map/Reduce extractif ; en mode daté, 25 % de la place disponible reste réservée à la croissance future |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Limite universelle en octets UTF-8 d'un fichier Bank logique. Les fichiers surdimensionnés utilisent un digest Map/Reduce hiérarchique ; en mode daté, 25 % de la place disponible reste réservée à la croissance future |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
@@ -331,11 +331,13 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 Un `bank_compact` appliqué est asynchrone : il rejoint la même file FIFO par
 space que la consolidation et retourne un `job_id`. Pour chaque fichier
 logique dépassant `BANK_FILE_MAX_SIZE`, des Maps bornées créent des fiches
-éphémères pour des unités Markdown source complètes, puis un Reduce classe les
-IDs à retenir. Le serveur écrit uniquement des octets source exacts, jamais les
-fiches ni un plan d'édition, et exige un candidat sous la limite configurée. En
-mode daté, les anciennes unités utilisent au maximum 75 % de la place restant
-après le contenu protégé ; les 25 % restants constituent une marge de croissance.
+éphémères pour des unités Markdown source complètes, puis un Reduce écrit un
+digest Markdown compact et non exhaustif. Le serveur valide ce digest, remplace
+toutes les unités historiques éligibles par un unique conteneur code-owned et
+recompactable, et exige un candidat sous la limite configurée. Le contenu récent,
+non daté, avec code ou HTML, ainsi que l'extérieur, reste byte-identique. En mode
+daté, le digest utilise au maximum 75 % de la place restant après le contenu
+protégé ; les 25 % restants constituent une marge de croissance.
 Tous les candidats sont validés avant la création du backup complet du space.
 Le contenu persisté est relu et vérifié ; un échec déclenche un rollback vérifié
 de `bank/`. Si ce rollback échoue aussi, le job expose le `backup_id` nécessaire à une restauration
@@ -361,6 +363,15 @@ Dans le candidat 2.8.0, la compaction automatique avant consolidation est une
 barrière. Tout échec de préflight, Map, Reduce, candidat, backup, persistance ou
 rollback bloque `bank_consolidate` ; aucune note source n'est consommée et
 aucune mutation ultérieure de la Bank ne démarre.
+
+> **Statut de développement 2.8.0 :** l'ancien candidat extractif Map/Reduce a
+> franchi son gate mécanique mais échoué à la revue sémantique sur `mcp-agent` :
+> des chaînes de revues répétitives ont évincé des faits transverses importants.
+> Le candidat actuel conserve les Maps bornées et utilise un Reduce pour produire
+> un digest validé et non exhaustif, tout en préservant exactement le contenu
+> récent et protégé. Ses gates sur corpus réel repartent de zéro ; la Draft PR ne
+> doit pas encore être mergée, publiée ou activée en production. Voir le
+> [design du compactage hiérarchique 2.8.0](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 
 ### Graph (4 outils) — 🌉 Pont vers Graph Memory
 

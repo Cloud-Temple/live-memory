@@ -1,511 +1,377 @@
-# Compactage extractif générique — Live Memory 2.8.0
+# Compactage hiérarchique Map/Reduce — Live Memory 2.8.0
 
-**Statut : gate représentatif Map/Reduce franchi — NO-GO produit avant les répétitions de recette et la release review**
+**Status: implementation candidate — not released or deployed**
 
-## Décision
+Ce document est la spécification canonique du compacteur 2.8.0. Le nom du
+fichier est conservé pour la traçabilité des travaux extractifs qui ont conduit
+au design actuel. L'algorithme livré est désormais **hiérarchique et
+abstractive** : le code inventorie des unités Markdown exactes, Qwen produit des
+fiches temporaires puis un digest Markdown, et le code remplace l'historique
+sélectionnable par un seul conteneur borné.
 
-Le compacteur ne connaît aucun nom ni rôle de fichier. Il travaille sur
-l'inventaire logique canonique de la Memory Bank déjà construit par le serveur.
-Chaque fichier Markdown logique qui dépasse `BANK_FILE_MAX_SIZE` est analysé à
-partir de sa structure et de son contenu.
+Ce statut n'autorise ni merge, bump, tag, release, canari ou production. Les
+preuves de l'ancien algorithme extractif sont historiques : ses garanties
+mécaniques restent utiles, mais son gate sémantique a échoué.
 
-Qwen 35B produit des fiches temporaires puis classe des IDs d'unités Markdown
-complètes ; aucune prose générée n'est persistée. Le serveur conserve les unités
-retenues dans leurs octets source exacts et supprime les autres. La fidélité
-recherchée est donc la préservation du sens global et des points importants, pas
-l'exhaustivité de l'historique ni de ses répétitions.
+## 1. Décision produit
 
-Les noms tels que `progress.md` ou `systemPatterns.md` n'apparaissent que dans
-les fixtures de recette. Ils ne déclenchent aucun comportement particulier.
+La compaction réduit volontairement l'information. Un résumé fidèle n'est pas
+un inventaire exhaustif : il conserve le sens global et les points importants,
+notamment les décisions, incidents, résolutions, risques ouverts, actions
+requises et invariants durables. Il peut supprimer les répétitions, chroniques
+de revue, états intermédiaires remplacés et détails d'exécution sans valeur
+future.
 
-## Algorithme unique
+Le contrat 2.8.0 est donc :
+
+- le code choisit des unités Markdown anciennes et compressibles ;
+- les Maps caractérisent localement toutes les unités, sans décider du texte
+  persisté ;
+- un unique Reduce produit le digest final à partir des fiches courtes ;
+- le code valide ce digest, supprime toutes les unités historiques candidates
+  et insère un seul conteneur de synthèse ;
+- contenu récent, non daté, code, HTML, extérieur et fichiers non ciblés restent
+  byte-identiques ;
+- tous les candidats sont validés en mémoire avant backup et écriture ;
+- aucune sortie partielle, aucun retry, aucun second modèle et aucun second
+  algorithme.
+
+Le LLM est autorité de synthèse, pas autorité structurelle : il ne choisit ni
+offset, ni fichier, ni heading conteneur, ni opération de persistance. La
+fidélité sémantique ne peut pas être prouvée par un set d'ancres ; elle est un
+gate humain obligatoire sur les vraies banques.
+
+## 2. Vue d'ensemble détaillée
 
 ```mermaid
 flowchart TD
-    subgraph P1["1. Inventaire et préflight déterministes"]
-        Q0["Job FIFO par space<br/>verrou de consolidation exclusif"]
-        A["Inventaire logique canonique<br/>familles legacy réassemblées en mémoire"]
-        B{"Famille legacy cohérente ?"}
-        B1{"Classement du fichier logique"}
-        B2["Sous limite, canonique<br/>aucune action"]
-        B3["Sous limite, legacy<br/>réassemblage exact, 0 LLM"]
-        C["Décodage UTF-8 strict<br/>parse Markdown unique"]
-        D["Offsets de lignes convertis<br/>en offsets d'octets source"]
-        E{"Au moins 2 unités datées<br/>de même nature ?"}
-        F["Mode daté<br/>H3 datés + items extérieurs non chevauchants<br/>sinon items datés"]
-        G["Mode sections<br/>H3 complets"]
-        H["U = unités candidates exactes<br/>P = unités protégées/contextuelles"]
-        I["Base = source moins toutes les U<br/>disponible = limite moins taille(base)"]
-        J{"Base sous la limite<br/>et U non vide ?"}
-        K["Budget daté = 75 % du disponible<br/>Budget sections = 100 %"]
-        L["Maps gloutonnes en ordre source<br/>≤ 32 unités et ≤ 40 000 octets"]
-        M["Préflight de tous les prompts<br/>et du pire Reduce avant le 1er appel"]
-    end
+    A["Bank logique canonique en UTF-8"] --> B["Inventaire Markdown unique avec markdown-it-py"]
+    B --> C{"Mode détecté par le contenu"}
+    C -->|"au moins 2 entrées datées"| D["Mode journal daté"]
+    C -->|"sinon H3 complets"| E["Mode sections"]
+    C -->|"aucune structure sûre"| X0["NO-GO avant appel LLM"]
 
-    subgraph P2["2. Sélection sémantique éphémère"]
-        N["Map Qwen par lot<br/>ID | fiche ≤ 240 octets"]
-        O{"Map terminée avec stop<br/>et au moins une fiche valide ?"}
-        P["Fallback code-owned pour omissions<br/>première ligne source bornée"]
-        Q["Reduce unique du fichier<br/>rôle | ID | date | taille | fiche"]
-        R{"Au moins un ID U connu<br/>et finish_reason = stop ?"}
-        S["Classement dédupliqué<br/>IDs inconnus ignorés"]
-        T["Sélection gloutonne sous budget<br/>saut des unités qui ne tiennent pas"]
-    end
+    D --> F["Candidats = entrées avant le dernier jour"]
+    D --> G["Protégé = dernier jour + non daté + code/HTML"]
+    E --> H["Candidats = H3 sûrs complets"]
+    E --> I["Protégé = extérieur + code/HTML"]
 
-    subgraph P3["3. Construction source-only"]
-        U["Remettre les unités retenues<br/>dans l'ordre documentaire"]
-        V["Supprimer les autres U<br/>par offsets décroissants"]
-        W{"Offsets/source exacts,<br/>candidat plus petit et sous limite ?"}
-        X["Conserver tous les candidats<br/>en mémoire, aucune écriture"]
-    end
+    F --> J["Suppression virtuelle des candidats"]
+    G --> J
+    H --> J
+    I --> J
+    J --> K{"Base protégée sous la limite ?"}
+    K -->|"non"| X1["NO-GO, zéro appel et zéro écriture"]
+    K -->|"oui"| L["Budget digest exact en octets UTF-8"]
 
-    subgraph P4["4. Transaction S3"]
-        Y["Backup global restorable"]
-        Y1{"Backup créé sans erreur ?"}
-        Z["Écriture canonique fichier par fichier"]
-        AA["Relecture exacte et suppression<br/>des anciennes parts legacy"]
-        AB{"Toutes les écritures<br/>et vérifications réussies ?"}
-        AC["Succès + rapport hashes,<br/>tailles, appels et sélection"]
-        AD["Rollback global de bank/<br/>puis vérification contenu + keyset"]
-    end
+    L --> M["Lots Map gloutons : 32 unités et 40 KB max"]
+    M --> N["Préflight global de tous les prompts et fenêtres"]
+    N -->|"échec d'un fichier"| X2["NO-GO global avant premier appel"]
+    N -->|"vert"| O["Maps Qwen, température 0, thinking off"]
 
-    FAIL["FAIL CLOSED<br/>0 appel si préflight ; sinon 0 backup/écriture<br/>tant que les candidats ne sont pas tous valides"]
-    BLOCK["Compaction bloquante :<br/>la consolidation ne consomme aucune note"]
+    O --> P["Parse ID | fiche ; fiche bornée à 240 B"]
+    P --> Q["Fallback code-owned sur le label source si omission"]
+    Q --> R["Inventaire Reduce : rôle, ID, date, bytes, fiche"]
+    R --> S["Un Reduce Qwen : digest Markdown non exhaustif"]
 
-    Q0 --> A --> B
-    B -- "non" --> FAIL
-    B -- "oui" --> B1
-    B1 -- "canonique sous limite" --> B2 --> AC
-    B1 -- "legacy sous limite" --> B3 --> X
-    B1 -- "au-dessus de la limite" --> C --> D --> E
-    E -- "oui" --> F --> H
-    E -- "non" --> G --> H
-    H --> I --> J
-    J -- "non" --> FAIL
-    J -- "oui" --> K --> L --> M --> N
-    N --> O
-    O -- "non" --> FAIL
-    O -- "oui" --> P --> Q --> R
-    R -- "non" --> FAIL
-    R -- "oui" --> S --> T --> U --> V --> W
-    W -- "non" --> FAIL
-    W -- "oui" --> X
-    X -- "tous les fichiers prêts" --> Y --> Y1
-    Y1 -- "non" --> FAIL
-    Y1 -- "oui" --> Z --> AA --> AB
-    AB -- "oui" --> AC
-    AB -- "non" --> AD --> BLOCK
-    FAIL --> BLOCK
+    S --> T["Validation de la sortie brute"]
+    T --> U["Strip extérieur déterministe"]
+    U --> V["Reparse et validation normalisée"]
+    V --> W{"Markdown sûr, budget tenu, références non inventées ?"}
+    W -->|"non"| X3["NO-GO global, aucun backup"]
+    W -->|"oui"| Y["Conteneur code-owned H3 ou item daté"]
+
+    Y --> Z["Supprimer toutes les unités candidates en offsets décroissants"]
+    Z --> AA["Insérer une seule fois le conteneur à l'ancre calculée"]
+    AA --> AB["Valider taille, réduction, UTF-8 et parse Markdown"]
+    AB -->|"échec"| X4["NO-GO global, aucun backup"]
+    AB -->|"tous candidats verts"| AC["Backup standard du space"]
+    AC --> AD["Écriture canonique puis relecture exacte"]
+    AD -->|"échec"| AE["Rollback global bank/ et vérification"]
+    AD -->|"succès"| AF["Rapport tailles, SHA, appels et digest"]
+
+    AF --> AG["Gate humain : sens global et points importants"]
+    AG -->|"rouge"| X5["NO-GO produit ; retour à l'architecture"]
+    AG -->|"vert 3 fois sur chaque corpus"| AH["Revue release indépendante"]
 ```
 
-### 1. Inventaire
+## 3. Spécification normative de l'algorithme
 
-- Le serveur utilise uniquement les fichiers logiques issus de son inventaire
-  canonique, y compris les familles legacy réassemblées en mémoire.
-- Le serveur liste les objets de `bank/`, réassemble l'inventaire logique
-  canonique, puis découvre les candidats uniquement dans ces fichiers logiques ;
-  une part legacy isolée n'est jamais analysée comme un document autonome.
-- Les limites et tailles sont mesurées en octets UTF-8.
-- `markdown-it-py` fournit l'unique vue Markdown.
-
-### 2. Détection du mode
-
-Le mode est déterminé indépendamment pour chaque fichier surdimensionné :
-
-- **Mode daté** : le fichier contient au moins deux unités structurelles de même
-  nature dont le label porte une date complète ISO ou `jj/mm/aaaa`. Les dates
-  citées dans le corps ne comptent pas. Si au moins deux H3 sont datés, leurs
-  sections établissent le journal et les items de premier niveau situés hors de
-  toute section H3 rejoignent le même inventaire, sans chevauchement. À défaut,
-  les items de liste de premier niveau datés sont utilisés, y compris sous un H3
-  conteneur non daté. Une seule date récente est calculée sur l'inventaire
-  retenu. Seules les unités antérieures au dernier jour sont candidates ; le
-  dernier jour et les unités non datées restent protégés.
-- **Mode sections** : en l'absence de journal daté identifiable, les sections H3
-  complètes sont candidates. Une section va de son H3 au prochain H1, H2 ou H3.
-- **Échec fermé** : sans journal daté identifiable ni section H3 complète, le
-  fichier n'est pas compactable et le job entier s'arrête avant tout appel LLM.
-
-Le seuil de deux dates évite qu'une date incidente transforme un document
-thématique en journal. Une fois le mode daté choisi, le compacteur ne réutilise
-pas les H3 non datés comme candidats dans le même job.
-
-### 3. Contenu protégé
-
-Une unité contenant une fence, un bloc de code indenté ou du HTML brut/inline
-est entièrement protégée. Le préambule, les séparateurs, le contenu récent ou
-non daté et toutes les zones extérieures aux unités candidates restent
-byte-identiques.
-
-Les Maps d'un fichier incluent ses unités candidates et protégées. Le Reduce
-reçoit leurs fiches bornées, avec un rôle `selectable` ou `protected`. Aucun
-autre fichier n'est utilisé comme autorité : le résultat d'un fichier doit être
-défendable par son contenu seul.
-
-### 4. Classement et rendu
-
-- Les unités complètes sont regroupées dans des Maps de 40 000 octets et 32
-  unités maximum. Une unité dépassant seule cette borne fait échouer le
-  préflight.
-- Chaque Map retourne une fiche temporaire de 240 octets maximum par unité. Une
-  omission reçoit uniquement la première ligne source comme fallback. Une Map
-  terminée normalement mais entièrement inexploitable dégrade tout son lot vers
-  ces fallbacks source ; timeout, erreur ou troncature restent bloquants. Les
-  fiches ne sont jamais journalisées, rapportées ou persistées.
-- Un Reduce unique par fichier reçoit seulement `rôle | ID | date | octets |
-  fiche`. La date reste secondaire : une résolution explicite prime sur un état
-  intermédiaire plus récent. Il retourne le sous-ensemble ordonné des IDs à
-  retenir et peut laisser du budget inutilisé.
-- Les IDs inconnus et doublons sont ignorés, mais au moins un ID connu tenant
-  dans le budget est obligatoire. Les IDs omis ne sont pas ajoutés en queue.
-- Le code retient gloutonnement des unités entières jusqu'au budget disponible,
-  puis les rend dans leur ordre documentaire en supprimant seulement les unités
-  anciennes non retenues.
-- En mode daté, 75 % de la place restant après le contenu protégé est allouée aux
-  unités anciennes afin de conserver une marge de croissance. En mode sections,
-  toute la place disponible est utilisable.
-- Le candidat doit être strictement plus petit que l'original et ne pas dépasser
-  `BANK_FILE_MAX_SIZE`.
-
-Il n'existe ni résumé génératif persisté, ni reconstruction de headings, ni
-éditeur Markdown, ni second algorithme.
-
-## Spécification complète de l'algorithme
-
-Cette section est normative. Elle décrit le chemin réellement implémenté, sans
-raccourci lié aux fixtures.
-
-### A. Entrée, unités et offsets
+### A. Inventaire logique et exactitude des octets
 
 1. Construire l'inventaire des fichiers logiques. Une famille legacy
    `*.part-NNN.md` cohérente est réassemblée en mémoire ; une famille incomplète
    ou contradictoire arrête le job.
-2. Pour chaque fichier au-dessus de sa limite universelle, encoder son contenu
-   canonique en UTF-8 puis le décoder strictement. Il n'y a ni normalisation des
-   fins de ligne, ni suppression de BOM, ni conversion CRLF/LF.
-3. Parser le Markdown avec `markdown-it-py`. Convertir les positions de lignes
-   du parseur en offsets d'octets UTF-8 dans le buffer original.
-4. Construire des unités indivisibles :
-   - une section H3 commence au heading et finit au prochain H1, H2 ou H3 ;
-   - un item daté est un item de liste de premier niveau avec son contenu ;
-   - un item de liste inclus dans une section H3 n'est jamais sélectionné une
-     seconde fois.
-5. Détecter les dates uniquement dans le label structurel avec une date ISO
-   `aaaa-mm-jj` ou française `jj/mm/aaaa` complète. Une date citée dans le corps
-   ne change jamais le mode.
-6. Refuser tout chevauchement. Pour chaque unité, vérifier que
-   `source[start_byte:end_byte]` correspond exactement aux octets mémorisés.
+2. Encoder le contenu canonique en UTF-8 et le décoder strictement. Ne jamais
+   normaliser BOM, CRLF/LF ou caractères multioctets.
+3. Utiliser une seule vue Markdown, `markdown-it-py`, tables activées. Convertir
+   ses positions de lignes en offsets d'octets dans le buffer original.
+4. Définir une unité indivisible comme :
+   - une section H3, du heading au prochain H1, H2 ou H3 ;
+   - ou un item de liste de premier niveau avec son contenu.
+5. Ne jamais extraire comme seconde unité un item déjà inclus dans un H3.
+6. Reconnaître une date uniquement dans le label structurel, au format ISO
+   `aaaa-mm-jj` ou français complet `jj/mm/aaaa`. Une date du corps n'a aucun
+   effet sur le mode.
+7. Vérifier l'absence de chevauchement et l'égalité exacte entre chaque slice
+   `original[start_byte:end_byte]` et les octets mémorisés.
 
-### B. Candidats et protections
+### B. Détection générique et protections
 
-1. Si au moins deux H3 sont datés, choisir leurs sections et les items de
-   premier niveau extérieurs à toute section H3, puis trier cette union par
-   offset. Les items internes aux H3 ne sont jamais ajoutés une seconde fois.
-   Sinon, si au moins deux items de premier niveau sont datés, choisir ces items
-   seuls, y compris sous un H3 conteneur non daté.
-2. En mode daté, rendre sélectionnables uniquement les unités datées antérieures
-   au dernier jour observé. Le dernier jour, les unités sans date et les unités
-   contenant `fence`, `code_block`, `html_block` ou `html_inline` sont
-   protégés.
-3. Si aucun mode daté n'est établi, utiliser les H3 complets sûrs en mode
-   sections. Sans H3 complet, refuser le fichier.
-4. Calculer `base` en supprimant temporairement toutes les unités candidates de
-   la source. Tout ce qui n'est pas candidat appartient donc mécaniquement à la
-   base immuable.
-5. Calculer `available = BANK_FILE_MAX_SIZE - bytes(base)`. Si `available <= 0`,
-   la compaction est impossible. Allouer `floor(available × 3/4)` aux anciennes
-   unités en mode daté, et `available` en mode sections.
+1. Si au moins deux H3 sont datés, utiliser ces H3 et les items de premier
+   niveau extérieurs aux H3. Sinon, si au moins deux items sont datés, utiliser
+   ces items. Ce choix établit le mode `dated` sans dépendre du nom du fichier.
+2. En mode daté, rendre candidates uniquement les unités datées antérieures au
+   dernier jour présent. Protéger le dernier jour, les unités sans date et toute
+   unité contenant `fence`, `code_block`, `html_block` ou `html_inline`.
+3. Sans journal daté, utiliser les H3 complets sûrs en mode `sections`. Refuser
+   un fichier sans structure complète exploitable.
+4. Construire la base immuable en supprimant virtuellement toutes les unités
+   candidates. Tout octet hors candidat est protégé par construction.
+5. Calculer `available = BANK_FILE_MAX_SIZE - bytes(base)`. Refuser si
+   `available <= 0`.
+6. Réserver 25 % de `available` à la croissance future en mode daté : le budget
+   du conteneur vaut `floor(available × 3/4)`. En mode sections, il vaut
+   `available`. Avant le Reduce, soustraire le wrapper code-owned puis diviser
+   le reste par cinq : un octet de digest peut entraîner au pire quatre octets
+   d'indentation si chaque ligne est minimale. Ce plafond brut garantit que le
+   digest et son wrapper tiennent sans retry.
 
 ### C. Préflight global
 
-1. Trier candidats et contexte protégé par offset source, puis créer des lots
-   gloutons de 32 unités et 40 000 octets source maximum. Une unité indivisible
-   de plus de 40 000 octets arrête le job.
-2. Construire tous les prompts Map. Construire aussi un Reduce de pire cas avec
-   une fiche de 240 octets pour chaque unité.
-3. Avant le premier appel, vérifier pour chaque prompt que sa taille plus le
-   plafond de sortie tient dans la fenêtre configurée. Vérifier aussi que la
-   configuration autorise au moins 4 000 tokens de sortie Map.
-4. Calculer exactement `planned_llm_calls = nombre_de_Maps + 1 Reduce` par
-   fichier. Si un seul fichier échoue au préflight, rapporter zéro appel planifié
-   et n'appeler Qwen pour aucun fichier.
+1. Trier candidats et contexte protégé par offset source.
+2. Former des lots gloutons d'au plus 32 unités et 40 000 octets. Refuser une
+   unité indivisible dépassant 40 000 octets.
+3. Construire tous les prompts Map et, pour chaque fichier, un prompt Reduce de
+   pire cas avec une fiche de 240 octets par unité.
+4. Vérifier avant tout appel que chaque prompt et son plafond de sortie tiennent
+   dans la fenêtre configurée, et que la configuration autorise au moins 4 000
+   tokens Map.
+5. Fixer `planned_llm_calls = nombre de Maps + 1 Reduce` par fichier. L'échec du
+   préflight d'un seul fichier produit zéro appel pour tout le job.
 
-### D. Maps et fiches temporaires
+### D. Maps : caractérisation locale
 
-1. Envoyer à Qwen chaque lot source exact entre marqueurs de données non fiables,
-   avec température zéro, thinking désactivé et plafond de 4 000 tokens.
-2. Exiger `finish_reason=stop`. Il n'existe aucun retry.
-3. Lire la sortie ligne par ligne. Une ligne est valide si elle contient un seul
-   ID connu ; plusieurs répétitions de ce même ID sont tolérées, deux IDs
-   distincts rendent la ligne ambiguë et elle est ignorée. La première fiche
-   valide d'un ID gagne.
-4. Normaliser les espaces de la fiche et la borner à 240 octets UTF-8. Les IDs
-   inconnus, lignes ambiguës et doublons sont ignorés.
-5. Pour chaque unité omise, jusqu'au lot entier si aucune ligne n'est valide,
-   fabriquer une fiche code-owned depuis sa première ligne source non vide,
-   avec la même borne de 240 octets. Ne réutiliser aucun fragment invalide de la
-   sortie Qwen.
-6. Les fiches restent uniquement en mémoire : ni Bank, ni rapport, ni log ne
-   contient leur texte.
+1. Envoyer les unités source exactes, chacune entre marqueurs avec ID, date et
+   taille, comme données non fiables.
+2. Utiliser le modèle configuré, qualifié avec `qwen3.6:35b`, température zéro,
+   thinking désactivé, plafond 4 000 tokens et aucun retry.
+3. Demander une ligne `ID | fiche` par unité. La fiche décrit valeur future,
+   état final ou intermédiaire, décision, risque, résolution et action utile.
+4. Accepter une ligne portant un seul ID connu, même si ce même ID est répété.
+   Ignorer une ligne avec zéro ID, plusieurs IDs distincts, un ID inconnu ou un
+   doublon déjà accepté.
+5. Normaliser les espaces et borner chaque fiche à 240 octets UTF-8.
+6. Pour toute omission, fabriquer une fiche depuis la première ligne source non
+   vide, avec la même borne. La sortie invalide du modèle n'est jamais réutilisée.
+7. Les fiches sont éphémères : elles ne figurent ni dans la Bank, ni dans les
+   rapports, ni dans les logs.
 
-### E. Reduce et sélection sous budget
+### E. Reduce : synthèse globale
 
-1. Appeler exactement un Reduce par fichier, avec un plafond de 2 000 tokens.
-   Il reçoit toutes les fiches et uniquement les métadonnées code-owned : rôle
-   `selectable` ou `protected`, ID, date, taille source et fiche.
-2. En mode daté, demander de privilégier les résolutions et états finaux, les
-   expositions de sécurité, les blocages ouverts, les actions correctives,
-   décisions, incidents et jalons ; pénaliser les répétitions et états
-   remplacés. En mode sections, privilégier mécanismes, invariants, décisions
-   d'architecture et risques durables.
-3. Les unités protégées donnent le contexte nécessaire pour identifier un état
-   remplacé, mais leurs IDs sont interdits dans le classement retourné.
-4. Parser les IDs candidats connus dans leur ordre de sortie, dédupliquer et
-   ignorer les inconnus. Une sortie sans ID connu ou non terminée par
-   `finish_reason=stop` arrête le job. Les candidats omis ne sont pas rajoutés.
-5. Parcourir le classement une fois. Retenir une unité entière si elle tient
-   dans le budget restant ; sinon la sauter et continuer. Il n'y a ni knapsack,
-   ni score, ni seconde passe. Au moins une unité doit tenir.
-6. Trier finalement les unités retenues par offset documentaire : le LLM choisit
-   l'importance, jamais l'ordre du Markdown persisté.
+1. Appeler exactement un Reduce par fichier, plafond 2 000 tokens, sans retry.
+2. Lui transmettre uniquement, pour chaque unité, le rôle `selectable` ou
+   `protected`, l'ID, la date, la taille et la fiche Map. Le texte source complet
+   n'est pas relu par le Reduce.
+3. Le contexte `protected` sert uniquement à détecter les états remplacés. Il
+   ne doit ni être résumé ni répété.
+4. En mode daté, prioriser expositions de sécurité, blocages ouverts, actions
+   correctives, décisions, incidents, résolutions et jalons ; un état final
+   explicite prime sur un état intermédiaire plus récent. Pénaliser fortement
+   répétitions et chroniques de revue.
+5. En mode sections, prioriser mécanismes, invariants, décisions d'architecture
+   et risques structurels durables.
+6. Demander un digest Markdown non exhaustif composé uniquement de paragraphes
+   et listes. Le code inline est autorisé. Headings, tables, liens, images,
+   fences, blocs de code, HTML, blockquotes, séparateurs et JSON sont interdits.
+7. Interdire les IDs internes U/P. Une référence `#N`, une version `vX.Y[.Z]`
+   ou une date ISO/française ne peut apparaître que si elle existe déjà dans le
+   fichier source.
+8. Le modèle peut laisser du budget inutilisé. Le code ne tronque, ne répare et
+   ne relance jamais une sortie.
 
-### F. Construction, validation et persistance
+### F. Validation du digest
 
-1. Partir des octets originaux. Supprimer, en offsets décroissants, chaque unité
-   candidate non retenue. Avant chaque suppression, revérifier offsets et octets
-   source. Les unités retenues, la base et les zones protégées ne sont jamais
-   réécrites.
-2. Exiger un candidat strictement plus petit et inférieur ou égal à la limite
-   configurée. Préparer et valider ainsi tous les fichiers en mémoire.
-3. Créer ensuite un backup standard de tout le space. Une défaillance du backup
-   produit zéro écriture.
-4. Écrire chaque cible sous son nom canonique, la relire exactement, puis
-   supprimer ses anciennes parts legacy. Une famille legacy sous la limite est
-   seulement réassemblée, sans appel LLM.
-5. Au premier échec de persistance, restaurer globalement `bank/` depuis le
-   backup et vérifier à la fois chaque contenu et l'ensemble des clés. Ne jamais
-   restaurer le space entier : une note live créée concurremment ne doit pas être
-   supprimée.
-6. Un échec de compaction automatique est bloquant pour la consolidation qui
-   suit ; aucune note live n'est consommée contre une Bank non maîtrisée.
+1. Valider la sortie brute complète avant toute normalisation.
+2. Retirer uniquement les espaces extérieurs avec `strip`, puis reparser et
+   revalider la sortie normalisée. Une structure cachée par les bords ne peut
+   ainsi devenir active après validation.
+3. Parser chaque fois le digest dans l'environnement de références Markdown de
+   la base conservée. Une définition de lien dans le digest ne peut donc pas
+   activer le contenu protégé, et une définition protégée ne peut pas activer un
+   lien ajouté par le digest.
+4. Rejeter sortie vide ou sans token visible, définition de lien, JSON complet,
+   token interdit, racine autre que
+   paragraphe/liste, ID interne, dépassement du budget UTF-8 ou référence
+   inventée.
+5. Ne pas exiger la conservation de toutes les références : le digest est
+   volontairement non exhaustif. L'invariant est absence d'invention, pas
+   exhaustivité.
 
-### G. Sorties observables
+### G. Conteneur recompactable et cycle de vie
 
-Le rapport expose seulement les faits nécessaires à l'exploitation : modèle,
-`finish_reason`, appels planifiés/tentés, lots Map, nombres de fiches valides et
-fallbacks, mode, unités candidates/protégées/retenues, budget et octets retenus,
-tailles et SHA-256 avant/après, cible atteinte et identifiant du backup. Les
-prompts, fiches et sorties brutes du LLM restent éphémères.
+1. Choisir comme ancre le premier H3 candidat s'il existe, sinon le premier item
+   candidat. Calculer son offset après suppression des unités précédentes.
+2. La date du conteneur en mode daté est la date maximale des unités candidates.
+3. Si l'ancre est H3, rendre un heading `Historique compacté`, suivi d'un unique
+   item `Synthèse non exhaustive` contenant le digest indenté.
+4. Si l'ancre est un item, rendre un unique item daté `Historique compacté
+   (synthèse non exhaustive)` contenant le digest indenté.
+5. Indenter chaque ligne du digest de quatre espaces sous l'unique item externe.
+   Les puces datées du digest ne deviennent donc jamais des unités de premier
+   niveau lors d'une passe suivante.
+6. Le conteneur est volontairement une unité candidate normale. Une future
+   compaction le **remplace** ; elle ne l'imbrique et ne l'accumule jamais.
+7. En mode mixte liste/H3, l'ancre H3 est prioritaire afin que la passe suivante
+   conserve le même mode. Le dernier jour et les unités protégées restent exacts.
 
-Le `dry_run` inventorie les fichiers, les tailles, les familles legacy et le
-nombre d'appels prévu. Il n'appelle jamais le LLM, ne crée pas de backup et
-n'écrit rien.
+### H. Construction atomique
 
-### H. Invocation et concurrence
+1. Partir des octets originaux et supprimer toutes les unités candidates, en
+   offsets décroissants, après revérification de chaque slice.
+2. Insérer une seule fois le conteneur à l'offset calculé.
+3. Exiger que le conteneur tienne dans son allocation, que le candidat soit
+   strictement plus petit, sous la limite et décodable/parserable en UTF-8
+   Markdown.
+4. Préparer ainsi tous les fichiers en mémoire. Un seul échec annule le job avant
+   backup.
+5. Créer le backup standard du space, écrire chaque fichier sous son nom
+   canonique, relire et vérifier les octets, puis supprimer les parts legacy.
+6. Au premier échec de persistance, restaurer et vérifier globalement `bank/`
+   depuis le backup. Ne pas restaurer le space entier, afin de préserver les
+   notes live éventuellement créées concurremment.
+7. Une auto-compaction échouée bloque la consolidation suivante : aucune note
+   live n'est consommée contre une Bank non maîtrisée.
 
-- L'opération exige l'accès au space et la permission `manage`.
-- `dry_run=true` exécute uniquement l'inventaire et estime le nombre d'appels à
-  partir des lots ; il ne réalise pas le préflight complet des budgets et
-  prompts.
-- `dry_run=false` ne compacte pas dans la requête MCP : il place un job dans la
-  FIFO existante du space et retourne immédiatement son `job_id`.
-- Le worker exécute compaction et consolidation sous le même verrou exclusif par
-  space. Il ne peut donc pas lancer deux mutations de Bank concurrentes dans le
-  même processus.
+### I. Observabilité et invocation
 
-## Transaction et coupe-circuit
+- `dry_run=true` inventorie tailles, familles et appels prévus ; aucun LLM,
+  backup ou write.
+- `dry_run=false` enfile le job dans la FIFO existante du space et retourne son
+  `job_id`.
+- La permission `manage` est requise et le verrou par space est partagé avec la
+  consolidation.
+- Le rapport expose modèle, `finish_reason`, appels planifiés/tentés, lots Map,
+  fiches valides/fallbacks, mode, candidats/protégés, `digest_bytes`,
+  `digest_container_bytes`, `digest_budget_bytes`,
+  `digest_container_budget_bytes`, tailles et SHA avant/après,
+  cible et backup. Aucun prompt, fiche ou raw LLM.
 
-L'ordre est obligatoire :
+## 4. Invariants testés
 
-1. inventorier tous les fichiers logiques ;
-2. préflighter tous les fichiers surdimensionnés, leurs budgets, prompts et
-   fenêtres de contexte avant le premier appel Qwen ;
-3. obtenir toutes les fiches Map puis un Reduce par fichier ;
-4. construire et valider tous les candidats en mémoire ;
-5. créer le backup global ;
-6. écrire, relire et vérifier les fichiers canoniques ;
-7. restaurer et vérifier tout `bank/` au moindre échec de persistance.
+Les tests utiles couvrent uniquement les chemins qui peuvent corrompre l'état
+ou invalider le contrat :
 
-Un échec de préflight, de classement ou de candidat produit zéro backup et zéro
-écriture. Un échec d'auto-compaction bloque la consolidation suivante : aucune
-note live n'est consommée. Les mécanismes éprouvés de la 2.7.3 restent les seuls
-mécanismes de persistance : backup, rollback, écriture canonique et FIFO par
-espace.
+- offsets UTF-8, CRLF, BOM, limites H1/H2/H3 et unités indivisibles ;
+- détection générique datée/sections et protection du dernier jour, non daté,
+  fences et HTML ;
+- batches bornés, unité trop grosse, fenêtre de contexte et préflight global ;
+- parsing Map hostile, ambigu, inconnu, dupliqué, omis et fallback borné ;
+- digest vide, tronqué, hors budget, JSON, structure interdite, ID interne ou
+  référence inventée ;
+- code inline légitime et références source légitimes ;
+- ancre H3/list, mode mixte et remplacement du digest lors d'une seconde passe ;
+- candidat sous limite, extérieur/protégé exact et absence d'écriture avant la
+  validation de tous les fichiers ;
+- backup avant mutation, relecture, rollback multi-fichiers et blocage de la
+  consolidation automatique en cas d'échec.
 
-Après un préflight réussi, les rapports exposent `planned_llm_calls`, égal au
-nombre exact de Maps plus un Reduce par fichier compressible. Ils exposent aussi
-les compteurs de fiches valides et de fallbacks, jamais leur contenu. Un
-préflight rejeté rapporte zéro appel planifié et provoque effectivement zéro
-appel. Une famille legacy déjà sous la limite est réassemblée byte-exactement
-sans appel Qwen.
+Les mocks valident la plomberie et les invariants, jamais la qualité métier. Le
+gate sémantique s'effectue exclusivement avec `qwen3.6:35b` sur les vraies
+banques restaurées localement.
 
-## Contrat LLM
+## 5. Gates 2.8.0
 
-- modèle configuré, qualifié avec `qwen3.6:35b` ;
-- température zéro et thinking désactivé ;
-- maximum 4 000 tokens par Map et 2 000 tokens pour le Reduce ;
-- sorties utilisées uniquement comme fiches temporaires puis classement d'IDs ;
-- contexte limité au fichier traité ;
-- aucun retry, modèle secondaire, JSON d'édition ou prose persistée.
+Le pivot abstractive remet les compteurs de validation à zéro. Avant merge,
+bump ou release :
 
-## Gates de validation
+1. suite unitaire complète, lint et diff-check verts ;
+2. trois restaurations et exécutions Docker consécutives sur `mcp-agent` ;
+3. trois restaurations et exécutions Docker consécutives sur `agentic-platform` ;
+4. à chaque passe : résultat sous limite, aucun fichier en échec, récent,
+   protégé, extérieur et fichiers non ciblés byte-identiques, backup et rollback
+   vérifiés ;
+5. revue humaine du sens global et des points importants ;
+6. revue adverse indépendante favorable ;
+7. recette Docker locale complète puis revue release distincte.
 
-Le changement d'une architecture liée à trois noms de fichiers vers ce contrat
-générique invalide le précédent gate produit. La branche et sa Draft PR servent
-de véhicule de revue. Le run représentatif unique décrit plus bas autorise la
-poursuite des gates, mais pas le merge, le bump ou la release. Avant ceux-ci, il
-faut :
+L'auto-compaction production reste gelée jusqu'à un canari manuel explicitement
+autorisé et validé. Un GO de code n'autorise pas un run réel ; un GO de run
+n'autorise pas merge, release ou production.
 
-1. une suite unitaire complète verte, avec notamment le même contenu sous deux
-   noms arbitraires produisant le même plan ;
-2. trois restaurations et exécutions Docker consécutives sur la fixture réelle
-   `mcp-agent` ;
-3. trois restaurations et exécutions Docker consécutives sur la fixture réelle
-   `agentic-platform`, représentative des gros fichiers ;
-4. pour chaque passe : taille finale conforme, contenu protégé et extérieur
-   byte-identique, aucun fichier en échec, backup avant écriture et rollback
-   vérifié par mutation ;
-5. revue humaine du sens global et des points importants conservés ;
-6. revue adverse indépendante favorable.
+## 6. Résultats expérimentaux ayant conduit au pivot
 
-Les résultats obtenus avec l'ancienne sélection par noms restent une preuve
-historique de faisabilité extractive et transactionnelle, mais ne valident pas
-ce contrat générique. La production et l'auto-compaction restent gelées jusqu'au
-canari manuel convenu.
+### Extractif hiérarchique : mécanique verte, sémantique rouge
 
-### Recette générique du 15 août 2026 — NO-GO
+Le job réel `compact_c91baa...` sur `mcp-agent` a produit :
 
-Un backup frais du space distant `agentic-platform` a été restauré byte-exactement
-dans le bucket DEV utilisé par le Docker local. Le run réel
-`compact_14bda21a71e041d884770ee47dbd5efd` a traité le seul fichier
-surdimensionné avec le vrai `qwen3.6:35b` :
+- `progress.md` : 120 534 → 28 177 octets ;
+- `systemPatterns.md` : 37 133 → 33 931 octets ;
+- 12 appels Qwen, aucun octet généré persisté.
 
-- `progress.md` : 195 489 → 26 906 octets, sous la limite de 35 000 ;
-- un appel Qwen, `finish_reason=stop`, aucun retry ;
-- 170 unités éligibles, 21 retenues, 3 protégées ;
-- 6/6 autres fichiers byte-identiques ;
-- candidat indépendamment reconstruit par suppression d'unités entières
-  uniquement ; contenu protégé exact ;
-- backup transactionnel créé avant l'écriture.
+Le candidat était exact mais déséquilibré : 31 unités contiguës U0035–U0065,
+dont 19 consacrées aux mêmes chaînes de revue #106/#111, ont consommé le budget
+tandis que des incidents et décisions transverses disparaissaient. Le gate
+humain a conclu NO-GO. Cette preuve établit que **sélectionner des unités source
+entières ne suffit pas à compacter le sens** : les répétitions doivent être
+fusionnées, ce qui exige une synthèse abstractive.
 
-Le gate humain est toutefois rouge. Dix-sept des 21 unités retenues, soit
-81,6 % des octets sélectionnés, décrivent une même chaîne de canaris des 3 au
-6 août. Des résolutions et faits plus récents disparaissent, notamment le
-vecteur d'exposition de `BROKER_SIGNING_ENC_KEY` via `show-mcp-env.py` et la fin
-de migration, tandis que plusieurs blocages intermédiaires déjà résolus restent
-surreprésentés.
+Les recettes extractives antérieures sur `agentic-platform` restent des preuves
+de robustesse des offsets, protections, préflight et transaction. Elles ne
+valident pas le digest 2.8.0 et ne comptent pas dans les trois passes requises.
 
-Conclusion : cette recette valide l'intégrité, le coût et la transaction, mais
-invalide le classement global direct comme arbitre de la valeur future sur un
-gros journal. Cet algorithme direct ne doit pas être rejoué. Le candidat
-hiérarchique Map/Reduce qui le remplace doit subir une nouvelle recette
-`agentic-platform` et une revue humaine avant tout autre gate. Aucun merge,
-bump, release, canari ou déploiement production n'est autorisé jusque-là.
+## 7. Fondements dans la littérature
 
-### Premier gate Map/Reduce — rejet protocolaire sans écriture
+La littérature guide l'architecture ; elle ne remplace ni les tests réels ni la
+revue humaine.
 
-Le job `compact_e2216dc065ae480eb681d2b6c21799be` a préflighté sept appels,
-puis s'est arrêté au premier Map avec `Qwen returned no valid unit card` : une
-tentative, zéro backup, zéro écriture et les 259 051 octets source inchangés.
-
-Un probe isolé du même premier Map, hors S3 et sans retry, a montré 32 lignes
-sur 32 avec le même ID répété dans sa propre fiche, sans aucun ID distinct ou
-inconnu. Cette répétition n'est pas ambiguë. Le parseur accepte donc plusieurs
-occurrences d'un même ID connu et les retire toutes de la fiche ; il rejette
-toujours toute ligne portant deux IDs distincts. La recette suivante valide ce
-contrat corrigé.
-
-### Second gate Map/Reduce — GO mécanique et métier
-
-Après restauration byte-exacte de la même source, le job autorisé
-`compact_4bc139a462d44457b930c02186a8f782` a terminé en environ 131 secondes :
-
-- `progress.md` : 195 489 → 27 072 octets (-86,2 %), sous la limite ;
-- sept appels planifiés et tentés : six Maps et un Reduce, sans retry ;
-- 173 fiches valides, aucun fallback et aucun fichier en échec ;
-- 170 unités anciennes éligibles, 18 retenues pour 23 679 octets sur un budget
-  de 23 705, plus trois unités protégées ;
-- backup transactionnel `agentic-platform/2026-08-15T21-05-17-718579` créé
-  avant l'écriture ;
-- six fichiers non ciblés sur six byte-identiques.
-
-Un audit indépendant a reconstruit le candidat uniquement par suppressions
-d'unités Markdown source entières. Les trois unités protégées sont exactes et
-aucune fiche ni prose Qwen n'est persistée.
-
-La revue humaine et adverse conclut **GO pour le gate représentatif du
-prototype**. Le biais du classement direct a disparu : la sélection ne se
-concentre plus sur la chaîne ancienne des 3 au 6 août. Elle conserve l'état
-récent, les décisions et contrats actifs, l'incident
-`show-mcp-env.py`/`BROKER_SIGNING_ENC_KEY`, le blocage
-`ModuleNotFoundError`, ainsi que les sondes et leçons opérationnelles. La preuve
-détaillée de fin de migration v0.8.14 n'est plus dans le journal compacté, mais
-ses invariants et l'état ultérieur restent dans les fichiers techniques
-inchangés ; cette perte de détail historique ne change pas le sens global de la
-Bank.
-
-Ce GO prouve la viabilité de l'algorithme sur une exécution représentative. Il
-ne remplace pas les trois exécutions consécutives exigées sur chacune des deux
-fixtures, ne rend pas la PR mergeable et n'autorise ni bump, release, canari ou
-production.
-
-## Non-objectifs 2.8.0
-
-- archive hot/cold, RAG, Graph Memory ou recherche sémantique ;
-- résumé génératif persisté ;
-- second compacteur, modèle de secours, retry ou option de stratégie ;
-- rôles ou configuration par nom de fichier ;
-- éditeur Markdown générique ;
-- changement du backup, du stockage S3, de la queue ou de la FIFO ;
-- activation automatique en production avant un canari manuel validé.
-
-## Fondements dans la littérature
-
-La littérature n'est pas utilisée comme preuve que notre implémentation est
-correcte : les recettes réelles et la revue humaine jouent ce rôle. Elle a servi
-à choisir une architecture sobre et à identifier ses limites.
-
-- **Découper avant de réduire.** *SummN* montre l'intérêt d'un pipeline
-  split-then-summarize pour maintenir une taille d'entrée bornée sur les longs
-  documents. Live Memory reprend l'idée minimale d'une première passe locale et
-  d'une passe globale, mais s'arrête à deux niveaux fixes : plusieurs Maps et un
-  Reduce, sans cascade ni résumé intermédiaire persisté. Zhang et al., ACL 2022 :
-  <https://aclanthology.org/2022.acl-long.112/>.
-- **Respecter la structure du document.** *HIBRIDS* établit que la structure
-  hiérarchique est une information utile pour résumer les longs documents. Ici,
-  elle n'est pas apprise : les H3 et items de premier niveau définissent
-  directement les unités indivisibles et leurs frontières. Cao et Wang, ACL
-  2022 : <https://aclanthology.org/2022.acl-long.58/>.
-- **Éviter le contexte monolithique.** *Lost in the Middle* observe que
-  l'utilisation d'une information dépend fortement de sa position dans un long
-  contexte. Les Maps bornées donnent donc à chaque unité une chance locale
-  d'être caractérisée ; le Reduce ne voit ensuite que des fiches courtes et des
-  métadonnées homogènes. Liu et al., TACL 2024 :
+- **Split puis synthèse globale — SummN.** Les longs documents sont segmentés,
+  résumés localement puis agrégés. Live Memory retient deux niveaux fixes :
+  Maps bornées et un Reduce, sans cascade ni état intermédiaire persisté.
+  Zhang et al., ACL 2022 : <https://aclanthology.org/2022.acl-long.112/>.
+- **Structure du document — HIBRIDS.** Les headings et sections portent une
+  information utile pour la synthèse. Ici, aucune architecture entraînée : les
+  frontières Markdown définissent directement des unités indivisibles.
+  Cao et Wang, ACL 2022 : <https://aclanthology.org/2022.acl-long.58/>.
+- **Biais de position — Lost in the Middle.** Une information noyée dans un
+  long contexte est moins bien utilisée. Les Maps donnent à chaque unité une
+  caractérisation locale ; le Reduce voit des fiches homogènes plutôt qu'un
+  journal monolithique. Liu et al., TACL 2024 :
   <https://aclanthology.org/2024.tacl-1.9/>.
-- **Assumer le compromis abstraction/fidélité.** Ladhak et al. montrent que les
-  gains de fidélité des résumés génératifs proviennent souvent d'une plus forte
-  extractivité. Live Memory va au bout de ce choix : Qwen arbitre, mais les seuls
-  octets persistés viennent de la source. *Faithful or Extractive?*, ACL 2022 :
-  <https://aclanthology.org/2022.acl-long.100/>.
-- **Ne pas confondre extraction et fidélité sémantique.** Zhang et al. montrent
-  que des résumés extractifs peuvent encore devenir trompeurs par coréférence ou
-  discours incomplet, et que plusieurs métriques automatiques corrèlent mal avec
-  le jugement humain. Cela justifie les unités complètes, le contexte protégé et
-  le gate humain sur le sens global, plutôt qu'une promesse mécanique de vérité.
-  *Extractive is not Faithful*, ACL 2023 :
+- **Extract-then-abstract.** Une sélection ou caractérisation préalable peut
+  améliorer la fidélité d'une synthèse générative. Nos Maps jouent ce rôle sans
+  ajouter un second modèle ni une phase de persistance. Zhang et al., Findings
+  EMNLP 2023 : <https://aclanthology.org/2023.findings-emnlp.214/>.
+- **Abstraction et fidélité.** Une synthèse plus abstractive fusionne mieux les
+  répétitions mais augmente le risque d'altération. Cela justifie l'absence de
+  retry/réparation, le contrôle des références inventées et le gate humain.
+  Ladhak et al., ACL 2022 : <https://aclanthology.org/2022.acl-long.100/>.
+- **Extraction n'est pas fidélité.** Des extraits exacts peuvent rester
+  trompeurs par contexte incomplet ou coréférence. L'échec extractif réel de
+  `mcp-agent` confirme cette limite : exactitude des octets et préservation du
+  sens sont deux propriétés distinctes. Zhang et al., ACL 2023 :
   <https://aclanthology.org/2023.acl-long.120/>.
-- **Compresser pour réduire le coût du contexte.** *RECOMP* compare compression
-  extractive et abstractive en amont d'un LLM et montre qu'une sélection concise
-  peut alléger fortement le contexte. Live Memory retient seulement le principe
-  de sélection sous budget ; il n'ajoute ni RAG, ni entraînement d'un compresseur,
-  ni augmentation sélective. Xu et al., ICLR 2024 :
+- **Compression de contexte — RECOMP.** La compression extractive ou abstractive
+  réduit le coût du contexte. Live Memory n'en reprend que le principe de
+  compression bornée ; aucun RAG, entraînement, vector store ou augmentation
+  sélective. Xu et al., ICLR 2024 :
   <https://proceedings.iclr.cc/paper_files/paper/2024/hash/bda88ed2892f5e61c9a9bf215c566913-Abstract-Conference.html>.
 
 ### Conséquences architecturales
 
-Ces travaux conduisent à cinq décisions : lots structurels bornés, hiérarchie
-Map/Reduce courte, arbitrage LLM sans autorité d'écriture, persistance
-extractive source-only et validation humaine obligatoire. Les approches
-écartées sont tout aussi importantes : résumé génératif persisté, requête
-monolithique, RAG, modèle entraîné, métrique automatique déclarée arbitre de
-fidélité, retry et cascade multi-étages.
+Ces travaux et les recettes conduisent à six choix sobres : unités Markdown
+complètes, Maps locales bornées, un seul Reduce global, digest généré sous garde
+du code, protections byte-exactes et validation humaine réelle. Sont écartés :
+requête monolithique, archive hot/cold, RAG/Graph, éditeur Markdown générique,
+constrained decoding, modèle entraîné, métrique automatique déclarée juge de
+fidélité, retry, fallback modèle et cascade multi-étages.
+
+## 8. Non-objectifs 2.8.0
+
+- conserver chaque détail ou chaque référence de l'historique ;
+- archive hot/cold, recherche, RAG ou Graph Memory ;
+- second compacteur, modèle de secours, retry ou option de stratégie ;
+- rôles ou configuration par nom de fichier ;
+- éditeur Markdown générique ou plan JSON LLM ;
+- changement de S3, backup, rollback, queue ou FIFO ;
+- activation automatique en production avant canari manuel validé.

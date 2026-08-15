@@ -262,10 +262,11 @@ final metadata/audit update fails after committed batches, the result is
 `partial` and retains their exact metrics—committed batches are not rolled
 back.
 
-### 4.4 Safe Extractive Bank Compaction
+### 4.4 Safe Hierarchical Bank Compaction
 
-Compaction selects complete source Markdown units; it never persists generated
-LLM prose. Every limit is measured in UTF-8 bytes.
+Compaction inventories complete source Markdown units, creates bounded ephemeral
+Map cards, and persists one validated non-exhaustive Reduce digest. Recent and
+protected bytes remain exact. Every limit is measured in UTF-8 bytes.
 
 ```
 bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
@@ -281,7 +282,7 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                          Qwen evaluates this file hierarchically
                          - bounded Map cards, then one Reduce
                          - same-file protected context only
-                         - exact source units retained
+                         - one validated non-exhaustive digest
                                       │
                                       ▼
                          Every candidate ready before backup
@@ -296,7 +297,7 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                          it is not a storage-size ceiling)
 ```
 
-Any ranking or candidate failure cancels the complete job before backup. No
+Any Map, Reduce, digest or candidate failure cancels the complete job before backup. No
 compaction path creates `*.part-NNN.md` objects. A later consolidation
 reconstructs any legacy v2.7.x split family and writes one canonical file.
 No filename has a compaction role. A file is handled in dated mode when at
@@ -304,7 +305,8 @@ least two complete dates occur in structural entry labels; otherwise its
 complete H3 sections are eligible. Recent, undated, code-bearing and HTML-bearing
 units are protected. A file with neither structure fails closed before the
 first LLM call. All Map and worst-case Reduce prompts are preflighted before any
-request, and reports expose the exact resulting `planned_llm_calls`.
+request. The digest replaces all selectable historical units inside one
+recompactable code-owned container; reports expose `planned_llm_calls`.
 Manual compaction jobs are
 observable through `bank_consolidation_status` and
 `bank_consolidation_queues`; automatic pre-consolidation compaction exposes its
