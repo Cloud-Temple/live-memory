@@ -12,7 +12,12 @@ from markdown_it import MarkdownIt
 ISO_DATE_RE = re.compile(r"\b(20\d{2})-(\d{2})-(\d{2})\b")
 FR_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(20\d{2})\b")
 UNIT_ID_RE = re.compile(r"\bU\d{4}\b")
+ANY_UNIT_ID_RE = re.compile(r"\b[UP]\d{4}\b")
 PROTECTED_TOKENS = {"fence", "code_block", "html_block", "html_inline"}
+MAP_BATCH_MAX_BYTES = 40_000
+MAP_BATCH_MAX_UNITS = 32
+MAP_CARD_MAX_BYTES = 240
+MAP_OUTPUT_MAX_TOKENS = 4000
 
 
 @dataclass(frozen=True)
@@ -212,6 +217,75 @@ def parse_ranking(output: str, known: list[MarkdownUnit]) -> list[MarkdownUnit]:
     return ranking
 
 
+def build_map_batches(
+    units: list[MarkdownUnit],
+) -> tuple[tuple[MarkdownUnit, ...], ...]:
+    """Pack complete source units into small, deterministic Map requests."""
+    batches: list[tuple[MarkdownUnit, ...]] = []
+    current: list[MarkdownUnit] = []
+    current_bytes = 0
+    for unit in sorted(units, key=lambda item: item.start_byte):
+        if unit.size > MAP_BATCH_MAX_BYTES:
+            raise ValueError(
+                f"Markdown unit {unit.unit_id} exceeds the Map batch byte limit"
+            )
+        if current and (
+            len(current) >= MAP_BATCH_MAX_UNITS
+            or current_bytes + unit.size > MAP_BATCH_MAX_BYTES
+        ):
+            batches.append(tuple(current))
+            current = []
+            current_bytes = 0
+        current.append(unit)
+        current_bytes += unit.size
+    if current:
+        batches.append(tuple(current))
+    if not batches:
+        raise ValueError("no Markdown unit to map")
+    return tuple(batches)
+
+
+def _bounded_text(value: str, max_bytes: int = MAP_CARD_MAX_BYTES) -> str:
+    normalized = " ".join(value.split())
+    raw = normalized.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return normalized
+    return raw[:max_bytes].decode("utf-8", errors="ignore").rstrip()
+
+
+def _fallback_card(unit: MarkdownUnit) -> str:
+    content = unit.source.decode("utf-8", errors="strict")
+    first_line = next((line.strip() for line in content.splitlines() if line.strip()), "")
+    return _bounded_text(first_line)
+
+
+def parse_map_cards(
+    output: str, known: list[MarkdownUnit]
+) -> tuple[dict[str, str], int, int]:
+    """Parse bounded ephemeral cards; omitted units get a source-owned label."""
+    by_id = {unit.unit_id: unit for unit in known}
+    cards: dict[str, str] = {}
+    for line in output.splitlines():
+        matches = ANY_UNIT_ID_RE.findall(line)
+        if len(matches) != 1:
+            continue
+        unit_id = matches[0]
+        if unit_id not in by_id or unit_id in cards:
+            continue
+        match = ANY_UNIT_ID_RE.search(line)
+        assert match is not None
+        text = (line[: match.start()] + line[match.end() :]).strip(" |:-\t")
+        card = _bounded_text(text)
+        if card:
+            cards[unit_id] = card
+    valid_cards = len(cards)
+    if not valid_cards:
+        raise ValueError("Qwen returned no valid unit card")
+    for unit in known:
+        cards.setdefault(unit.unit_id, _fallback_card(unit))
+    return cards, valid_cards, len(known) - valid_cards
+
+
 def select_under_budget(
     ranking: list[MarkdownUnit], budget: int
 ) -> list[MarkdownUnit]:
@@ -239,23 +313,44 @@ def build_candidate(
     return candidate
 
 
-def compaction_prompt(inventory: UnitInventory) -> str:
-    units = list(inventory.candidates)
-    if inventory.mode == "dated":
-        units.reverse()
+def map_prompt(units: tuple[MarkdownUnit, ...]) -> str:
+    """Render exact, untrusted source units for one bounded Map call."""
     payload = "\n".join(
-        f"<<<{unit.unit_id} bytes={unit.size}>>>\n"
+        f"<<<{unit.unit_id} date="
+        f"{unit.entry_date.isoformat() if unit.entry_date != date.min else 'undated'} "
+        f"bytes={unit.size}>>>\n"
         f"{unit.source.decode('utf-8', errors='strict')}\n<<<END {unit.unit_id}>>>"
         for unit in units
     )
-    protected = "\n".join(
-        f"<<<PROTECTED bytes={unit.size}>>>\n"
-        f"{unit.source.decode('utf-8', errors='strict')}\n<<<END PROTECTED>>>"
-        for unit in inventory.protected_context
-    )
-    return f"""Unités candidates :
-{payload}
+    return f"Unités à caractériser :\n{payload}\n"
 
-Contexte protégé non sélectionnable :
-{protected}
-"""
+
+def reduce_prompt(
+    inventory: UnitInventory,
+    cards: dict[str, str],
+    budget: int,
+) -> str:
+    """Render bounded Map cards and code-owned metadata for one Reduce call."""
+    candidates = {unit.unit_id for unit in inventory.candidates}
+    units = sorted(
+        [*inventory.candidates, *inventory.protected_context],
+        key=lambda item: item.start_byte,
+    )
+    rows = []
+    for unit in units:
+        role = "selectable" if unit.unit_id in candidates else "protected"
+        entry_date = (
+            unit.entry_date.isoformat()
+            if unit.entry_date != date.min
+            else "undated"
+        )
+        rows.append(
+            f"{role} | {unit.unit_id} | date={entry_date} | "
+            f"bytes={unit.size} | {cards[unit.unit_id]}"
+        )
+    return (
+        f"Budget de rétention : {budget} octets UTF-8.\n"
+        "Fiches Map non fiables :\n"
+        + "\n".join(rows)
+        + "\n"
+    )

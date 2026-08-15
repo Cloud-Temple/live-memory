@@ -1,6 +1,6 @@
 # Compactage extractif générique — Live Memory 2.8.0
 
-**Statut : première recette générique NO-GO métier — production gelée**
+**Statut : candidat hiérarchique Map/Reduce non validé — NO-GO produit**
 
 ## Décision
 
@@ -9,11 +9,11 @@ l'inventaire logique canonique de la Memory Bank déjà construit par le serveur
 Chaque fichier Markdown logique qui dépasse `BANK_FILE_MAX_SIZE` est analysé à
 partir de sa structure et de son contenu.
 
-Qwen 35B ne génère jamais le Markdown persisté. Il classe uniquement des IDs
-d'unités Markdown complètes. Le serveur conserve les unités retenues dans leurs
-octets source exacts et supprime les autres. La fidélité recherchée est donc la
-préservation du sens global et des points importants, pas l'exhaustivité de
-l'historique ni de ses répétitions.
+Qwen 35B produit des fiches temporaires puis classe des IDs d'unités Markdown
+complètes ; aucune prose générée n'est persistée. Le serveur conserve les unités
+retenues dans leurs octets source exacts et supprime les autres. La fidélité
+recherchée est donc la préservation du sens global et des points importants, pas
+l'exhaustivité de l'historique ni de ses répétitions.
 
 Les noms tels que `progress.md` ou `systemPatterns.md` n'apparaissent que dans
 les fixtures de recette. Ils ne déclenchent aucun comportement particulier.
@@ -25,11 +25,12 @@ flowchart LR
     A["Inventaire logique canonique de la Bank"] --> B["Fichiers au-dessus de la limite"]
     B --> C["Détection du mode par structure et contenu"]
     C --> D["Préflight de tous les fichiers et prompts"]
-    D --> E["Un classement Qwen par fichier compressible"]
-    E --> F["Candidats exacts tous validés en mémoire"]
-    F --> G["Backup global"]
-    G --> H["Écritures canoniques et relecture"]
-    H --> I["Rollback global au moindre échec"]
+    D --> E["Maps bornées : fiches temporaires par unité"]
+    E --> F["Un Reduce : sous-ensemble d'IDs à retenir"]
+    F --> G["Candidats exacts tous validés en mémoire"]
+    G --> H["Backup global"]
+    H --> I["Écritures canoniques et relecture"]
+    I --> J["Rollback global au moindre échec"]
 ```
 
 ### 1. Inventaire
@@ -67,17 +68,25 @@ est entièrement protégée. Le préambule, les séparateurs, le contenu récent
 non daté et toutes les zones extérieures aux unités candidates restent
 byte-identiques.
 
-Le prompt d'un fichier inclut ses propres unités protégées comme contexte non
-sélectionnable. Aucun autre fichier n'est utilisé comme autorité : le résultat
-d'un fichier doit être défendable par son contenu seul.
+Les Maps d'un fichier incluent ses unités candidates et protégées. Le Reduce
+reçoit leurs fiches bornées, avec un rôle `selectable` ou `protected`. Aucun
+autre fichier n'est utilisé comme autorité : le résultat d'un fichier doit être
+défendable par son contenu seul.
 
 ### 4. Classement et rendu
 
-- Une requête Qwen maximum par fichier surdimensionné et compressible.
-- Qwen reçoit les unités candidates identifiées et le contexte protégé du même
-  fichier ; il retourne seulement un ordre d'IDs.
-- Les IDs inconnus et doublons sont ignorés, mais au moins un ID connu est
-  obligatoire.
+- Les unités complètes sont regroupées dans des Maps de 40 000 octets et 32
+  unités maximum. Une unité dépassant seule cette borne fait échouer le
+  préflight.
+- Chaque Map retourne une fiche temporaire de 240 octets maximum par unité. Une
+  omission reçoit uniquement la première ligne source comme fallback. Les
+  fiches ne sont jamais journalisées, rapportées ou persistées.
+- Un Reduce unique par fichier reçoit seulement `rôle | ID | date | octets |
+  fiche`. La date reste secondaire : une résolution explicite prime sur un état
+  intermédiaire plus récent. Il retourne le sous-ensemble ordonné des IDs à
+  retenir et peut laisser du budget inutilisé.
+- Les IDs inconnus et doublons sont ignorés, mais au moins un ID connu tenant
+  dans le budget est obligatoire. Les IDs omis ne sont pas ajoutés en queue.
 - Le code retient gloutonnement des unités entières jusqu'au budget disponible,
   puis les rend dans leur ordre documentaire en supprimant seulement les unités
   anciennes non retenues.
@@ -97,7 +106,7 @@ L'ordre est obligatoire :
 1. inventorier tous les fichiers logiques ;
 2. préflighter tous les fichiers surdimensionnés, leurs budgets, prompts et
    fenêtres de contexte avant le premier appel Qwen ;
-3. obtenir au plus un classement par fichier ;
+3. obtenir toutes les fiches Map puis un Reduce par fichier ;
 4. construire et valider tous les candidats en mémoire ;
 5. créer le backup global ;
 6. écrire, relire et vérifier les fichiers canoniques ;
@@ -110,17 +119,18 @@ mécanismes de persistance : backup, rollback, écriture canonique et FIFO par
 espace.
 
 Après un préflight réussi, les rapports exposent `planned_llm_calls`, égal au
-nombre de fichiers logiques surdimensionnés et compressibles. Un préflight
-rejeté rapporte zéro appel planifié et provoque effectivement zéro appel. Il
-n'existe pas de plafond global arbitraire. Une famille legacy déjà sous la
-limite est réassemblée byte-exactement sans appel Qwen.
+nombre exact de Maps plus un Reduce par fichier compressible. Ils exposent aussi
+les compteurs de fiches valides et de fallbacks, jamais leur contenu. Un
+préflight rejeté rapporte zéro appel planifié et provoque effectivement zéro
+appel. Une famille legacy déjà sous la limite est réassemblée byte-exactement
+sans appel Qwen.
 
 ## Contrat LLM
 
 - modèle configuré, qualifié avec `qwen3.6:35b` ;
 - température zéro et thinking désactivé ;
-- maximum 2 000 tokens de sortie ;
-- sortie utilisée uniquement comme classement d'IDs ;
+- maximum 4 000 tokens par Map et 2 000 tokens pour le Reduce ;
+- sorties utilisées uniquement comme fiches temporaires puis classement d'IDs ;
 - contexte limité au fichier traité ;
 - aucun retry, modèle secondaire, JSON d'édition ou prose persistée.
 
@@ -172,9 +182,10 @@ surreprésentés.
 
 Conclusion : cette recette valide l'intégrité, le coût et la transaction, mais
 invalide le classement global direct comme arbitre de la valeur future sur un
-gros journal. Seuls le push de la branche et une Draft PR de revue explicitement
-`NO-GO / DO NOT MERGE` sont autorisés. Aucun merge, second run, bump, release,
-canari ou déploiement production n'est autorisé avec cet algorithme inchangé.
+gros journal. Cet algorithme direct ne doit pas être rejoué. Le candidat
+hiérarchique Map/Reduce qui le remplace doit subir une nouvelle recette
+`agentic-platform` et une revue humaine avant tout autre gate. Aucun merge,
+bump, release, canari ou déploiement production n'est autorisé jusque-là.
 
 ## Non-objectifs 2.8.0
 

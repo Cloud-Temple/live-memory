@@ -359,10 +359,11 @@ with the coherent bank. Valid reductions from other files are still applied.
 Only an inconsistent legacy split family or a failed write rollback blocks
 `bank_consolidate`.
 
-> **2.8.0 development status:** the generic extractive replacement is an
-> experimental Draft PR with a semantic **NO-GO** on the representative
-> `agentic-platform` bank. It must not be merged, released, enabled in
-> production, or treated as the current product contract. See the
+> **2.8.0 development status:** direct extractive ranking received a semantic
+> **NO-GO** on the representative `agentic-platform` bank. The Draft PR now
+> contains an unvalidated hierarchical Map/Reduce candidate. It must not be
+> merged, released, enabled in production, or treated as the current product
+> contract. See the
 > [2.8.0 extractive compaction design](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory

@@ -7,22 +7,22 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-> **Experimental 2.8.0 — NO-GO / DO NOT MERGE.** The extractive implementation
-> below is published in a Draft PR for review only. It passed mechanical
-> integrity checks but failed the semantic selection gate on the representative
-> `agentic-platform` bank. It is not releasable and does not replace the 2.7.3
-> product contract.
+> **Experimental 2.8.0 — product NO-GO.** The first direct-ranking prototype
+> passed mechanical integrity checks but failed semantic selection on the
+> representative `agentic-platform` bank. The Draft PR now carries an unvalidated
+> hierarchical Map/Reduce candidate. It is not releasable and does not replace
+> the 2.7.3 product contract.
 
 ### Changed
 
 - Replaced generated JSON/Markdown bank compaction with an extractive
-  hierarchy: Qwen ranks IDs while the server persists only exact source units.
+  hierarchy: bounded Map calls produce ephemeral unit cards, one Reduce ranks
+  IDs, and the server persists only exact source units.
 - Removed filename-specific compaction roles. Every oversized logical Bank file
   is classified from its Markdown structure and content as dated entries or H3
   sections, with protected context taken only from the same file.
-- Preflight now covers every oversized file before the first LLM request, with
-  at most one ranking call per compressible file and `planned_llm_calls` in the
-  result.
+- Preflight now covers every Map and worst-case Reduce prompt before the first
+  LLM request. Results expose the exact Map + Reduce `planned_llm_calls` count.
 - All candidates must succeed before backup or write. Automatic compaction
   failure now blocks the following consolidation instead of allowing a later
   bank mutation against an oversized or partially planned context.

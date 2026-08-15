@@ -447,13 +447,14 @@ Dry-run returns logical sizes in UTF-8 bytes and identifies files above
 same per-space FIFO as consolidation. The job is visible through
 `bank_consolidation_status` and `bank_consolidation_queues`.
 
-The worker asks Qwen only to rank IDs of complete Markdown source units. It
+The worker asks Qwen to create bounded ephemeral cards for complete Markdown
+source units, then to rank their IDs in one Reduce call. It
 processes every oversized logical file from the canonical bank inventory by
 structure and content, without filename-specific roles. Dated structural
 entries or complete H3 sections are candidates; recent, undated, code-bearing
-and HTML-bearing units are protected. The worker preflights every file before
-the first LLM request, uses only same-file protected context, makes at most one
-request per compressible file, persists only exact source content, validates
+and HTML-bearing units are protected. The worker preflights every Map and
+worst-case Reduce prompt before the first LLM request, uses only same-file
+protected context, persists only exact source content, validates
 every candidate, then creates a full-space backup. A
 ranking or candidate failure cancels the whole job before backup. The final
 result exposes `planned_llm_calls`, logical byte sizes, retained-unit metrics,

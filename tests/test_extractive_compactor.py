@@ -6,14 +6,20 @@ from markdown_it import MarkdownIt
 import pytest
 
 from live_mem.core.extractive_compactor import (
+    MAP_BATCH_MAX_BYTES,
+    MAP_BATCH_MAX_UNITS,
+    MAP_CARD_MAX_BYTES,
     MarkdownUnit,
     SelectionPlan,
     build_candidate,
-    compaction_prompt,
+    build_map_batches,
     delete_units,
     extract_markdown_inventory,
+    map_prompt,
     make_plan,
+    parse_map_cards,
     parse_ranking,
+    reduce_prompt,
     select_under_budget,
 )
 
@@ -145,6 +151,48 @@ def test_ranking_ignores_unknown_and_duplicates_but_requires_one_known_id():
         parse_ranking("U9999", known)
 
 
+def test_map_batches_keep_units_indivisible_and_bounded():
+    units = [_unit(f"U{index:04d}", (index - 1) * 1300, 1300) for index in range(1, 35)]
+
+    batches = build_map_batches(units)
+
+    assert [len(batch) for batch in batches] == [30, 4]
+    assert all(len(batch) <= MAP_BATCH_MAX_UNITS for batch in batches)
+    assert all(sum(unit.size for unit in batch) <= MAP_BATCH_MAX_BYTES for batch in batches)
+    assert [unit for batch in batches for unit in batch] == units
+
+
+def test_map_batch_rejects_an_indivisible_unit_above_its_bound():
+    oversized = _unit("U0001", 0, MAP_BATCH_MAX_BYTES + 1)
+
+    with pytest.raises(ValueError, match="exceeds the Map batch"):
+        build_map_batches([oversized])
+
+
+def test_map_cards_are_bounded_and_fallback_omissions_to_source_labels():
+    first = MarkdownUnit(
+        "U0001", 0, 20, b"### 2026-08-01 - first\n", date(2026, 8, 1)
+    )
+    second = MarkdownUnit(
+        "U0002", 20, 40, b"### 2026-08-02 - second\n", date(2026, 8, 2)
+    )
+    output = (
+        "U9999 | unknown\n"
+        "U0001 U9999 | multiple ids rejected\n"
+        "U0001 | " + ("é" * 300) + "\n"
+        "U0001 | duplicate ignored\n"
+    )
+
+    cards, valid, fallback = parse_map_cards(output, [first, second])
+
+    assert valid == 1
+    assert fallback == 1
+    assert len(cards["U0001"].encode("utf-8")) <= MAP_CARD_MAX_BYTES
+    assert cards["U0002"] == "### 2026-08-02 - second"
+    with pytest.raises(ValueError, match="no valid unit card"):
+        parse_map_cards("U0001 U9999 | ambiguous", [first, second])
+
+
 def test_greedy_budget_uses_ranking_then_restores_document_order():
     first = _unit("U0001", 0, 40)
     second = _unit("U0002", 40, 80)
@@ -177,14 +225,23 @@ def test_candidate_is_only_exact_selected_source_plus_untouched_base():
     assert build_candidate(plan, [two], 100) == second + recent
 
 
-def test_prompt_contains_candidates_and_same_file_protected_context_only():
+def test_map_and_reduce_prompts_keep_source_and_ephemeral_cards_separate():
     old = b"- **2026-08-01** : jalon utile\n"
     recent = b"- **2026-08-02** : etat recent intact\n"
     inventory = extract_markdown_inventory(old + recent, PARSER)
+    units = tuple(
+        sorted(
+            [*inventory.candidates, *inventory.protected_context],
+            key=lambda item: item.start_byte,
+        )
+    )
 
-    prompt = compaction_prompt(inventory)
+    source_prompt = map_prompt(units)
+    cards = {"U0001": "décision durable", "P0001": "état final"}
+    ranking_prompt = reduce_prompt(inventory, cards, 100)
 
-    assert "U0001" in prompt
-    assert "etat recent intact" in prompt
-    assert "PROTECTED" in prompt
-    assert "file_edits" not in prompt and "replace_section" not in prompt
+    assert "jalon utile" in source_prompt and "etat recent intact" in source_prompt
+    assert "selectable | U0001 | date=2026-08-01" in ranking_prompt
+    assert "protected | P0001 | date=2026-08-02" in ranking_prompt
+    assert "bytes=" in ranking_prompt and "décision durable" in ranking_prompt
+    assert "jalon utile" not in ranking_prompt and "etat recent intact" not in ranking_prompt
