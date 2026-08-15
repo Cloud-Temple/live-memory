@@ -262,7 +262,7 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
 | `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite logique par fichier en octets UTF-8 |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Seuil en octets UTF-8 déclenchant la compaction sémantique. Le LLM vise 75 % ; manquer cette cible n'est pas un échec et ne crée jamais de fichiers multipart |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Limite universelle en octets UTF-8 d'un fichier Bank logique. Les fichiers surdimensionnés utilisent le Map/Reduce extractif ; en mode daté, 25 % de la place disponible reste réservée à la croissance future |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
@@ -330,14 +330,15 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 Un `bank_compact` appliqué est asynchrone : il rejoint la même file FIFO par
 space que la consolidation et retourne un `job_id`. Pour chaque fichier
-logique dépassant `BANK_FILE_MAX_SIZE`, le LLM retourne un plan JSON strict
-d'opérations par section ; le serveur applique et valide ce plan localement,
-en octets UTF-8, avant toute écriture. La cible de 75 % guide le LLM et est
-exposée par `target_met` ; ce n'est pas une condition de succès. Toute
-réduction sûre et non vide est acceptée et écrite sous l'unique nom canonique,
-même si elle reste au-dessus de la cible. Le serveur crée un backup complet du space,
-vérifie le contenu persisté et tente un rollback en cas d'échec. Si ce rollback
-échoue aussi, le job expose le `backup_id` nécessaire à une restauration
+logique dépassant `BANK_FILE_MAX_SIZE`, des Maps bornées créent des fiches
+éphémères pour des unités Markdown source complètes, puis un Reduce classe les
+IDs à retenir. Le serveur écrit uniquement des octets source exacts, jamais les
+fiches ni un plan d'édition, et exige un candidat sous la limite configurée. En
+mode daté, les anciennes unités utilisent au maximum 75 % de la place restant
+après le contenu protégé ; les 25 % restants constituent une marge de croissance.
+Tous les candidats sont validés avant la création du backup complet du space.
+Le contenu persisté est relu et vérifié ; un échec déclenche un rollback vérifié
+de `bank/`. Si ce rollback échoue aussi, le job expose le `backup_id` nécessaire à une restauration
 manuelle. Aucun nouvel objet `*.part-NNN.md` n'est créé. Les anciennes familles
 multipart v2.7.x restent lisibles sans perte, puis sont réassemblées sous leur
 unique nom canonique par une compaction, une consolidation ou une restauration
@@ -356,11 +357,10 @@ supprimer une note live concurrente. Les résultats terminaux des jobs sont
 persistés pour l'audit après redémarrage ; les jobs actifs/en attente restent
 dans une FIFO en mémoire.
 
-Depuis la v2.7.2, la compaction automatique avant consolidation est une
-maintenance, pas une barrière : un plan LLM invalide ou tronqué laisse ce fichier inchangé et la
-consolidation continue avec la bank cohérente. Les réductions valides des
-autres fichiers sont tout de même appliquées. Seules une ancienne famille découpée
-incohérente ou l'échec d'un rollback d'écriture bloquent `bank_consolidate`.
+Dans le candidat 2.8.0, la compaction automatique avant consolidation est une
+barrière. Tout échec de préflight, Map, Reduce, candidat, backup, persistance ou
+rollback bloque `bank_consolidate` ; aucune note source n'est consommée et
+aucune mutation ultérieure de la Bank ne démarre.
 
 ### Graph (4 outils) — 🌉 Pont vers Graph Memory
 

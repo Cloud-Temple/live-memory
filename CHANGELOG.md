@@ -28,6 +28,10 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   failure now blocks the following consolidation instead of allowing a later
   bank mutation against an oversized or partially planned context.
 - Declared `markdown-it-py` as a direct dependency for the single Markdown view.
+- Aligned the MCP tool description and both READMEs with the extractive
+  Map/Reduce contract: no JSON edit plan or generated prose is persisted, the
+  byte limit is mandatory, and automatic compaction failure blocks
+  consolidation before source notes are consumed.
 
 ### Validation
 

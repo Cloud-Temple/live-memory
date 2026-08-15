@@ -262,7 +262,7 @@ The consolidator uses an LLM (OpenAI-compatible API) to transform live notes int
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Optional post-consolidation check for unattributed claims |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Max examples returned by the validation pass |
 | `COMPACT_THRESHOLD`       | `0.6`             | Legacy compatibility setting; compaction follows the logical UTF-8 byte limit per file |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | UTF-8 byte threshold that triggers semantic compaction. The LLM aims for 75%; missing that target is not a failure and never creates multipart files |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Universal UTF-8 byte limit for a logical Bank file. Oversized files use extractive Map/Reduce compaction; dated files reserve 25% of their available space for future growth |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Max non-MCP response body size before truncation |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Max request body accepted by `/api/tool` |
 
@@ -330,14 +330,15 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 Applied `bank_compact` is asynchronous: it joins the same per-space FIFO as
 consolidation and returns a `job_id`. For each logical file above
-`BANK_FILE_MAX_SIZE`, the LLM returns a strict JSON section-edit plan; the
-server applies and validates that plan locally, in UTF-8 bytes, before any
-write. The 75% target guides the LLM and is reported through `target_met`; it
-is not a success condition. Any non-empty safe reduction is accepted and
-written under the single canonical filename, even when it remains above the
-target. The server creates a full-space backup, verifies persisted content, and attempts
-rollback on failure. If rollback also fails, the job reports the `backup_id`
-needed for manual restore. No new `*.part-NNN.md` object is created. Legacy
+`BANK_FILE_MAX_SIZE`, bounded Map calls create ephemeral cards for complete
+Markdown source units and one Reduce ranks the IDs to retain. The server writes
+only exact source bytes, never generated cards or an edit plan, and requires the
+candidate to fit the configured limit. In dated mode, old units may consume at
+most 75% of the space left after protected content; the remaining 25% is growth
+headroom. All candidates are validated before a full-space backup is created.
+Persisted content is read back and verified; failure triggers a verified
+`bank/` rollback. If rollback also fails, the job reports the `backup_id` needed
+for manual restore. No new `*.part-NNN.md` object is created. Legacy
 v2.7.x multipart families are read losslessly, then reassembled into their
 single canonical file by compaction, consolidation, or an explicit
 `bank_write` restoration.
@@ -353,11 +354,10 @@ Multi-file compaction restores only `bank/`, so a live note created
 concurrently is never removed by rollback. Terminal job results are persisted
 for post-restart audit; active/queued jobs remain an in-memory FIFO.
 
-Since v2.7.2, automatic pre-consolidation compaction is maintenance, not a
-gate: an invalid or truncated LLM plan leaves that file unchanged and consolidation continues
-with the coherent bank. Valid reductions from other files are still applied.
-Only an inconsistent legacy split family or a failed write rollback blocks
-`bank_consolidate`.
+In the 2.8.0 candidate, automatic pre-consolidation compaction is a gate. Any
+preflight, Map, Reduce, candidate, backup, persistence, or rollback failure
+blocks `bank_consolidate`; no source note is consumed and no later Bank mutation
+starts.
 
 > **2.8.0 development status:** the hierarchical Map/Reduce extractive
 > compactor passed one mechanical and human-reviewed run on the representative
