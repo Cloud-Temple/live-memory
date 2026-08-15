@@ -317,7 +317,7 @@ async def test_parseable_truncated_llm_plan_is_never_written():
 
 
 @pytest.mark.asyncio
-async def test_output_without_known_id_is_rejected_without_backup_or_write():
+async def test_unknown_only_outputs_are_rejected_by_reduce_without_write():
     content = _oversized_section_markdown()
     storage = MemoryStorage(
         {
@@ -339,7 +339,7 @@ async def test_output_without_known_id_is_rejected_without_backup_or_write():
     progress_report = next(
         item for item in result["files"] if item["filename"] == "progress.md"
     )
-    assert "no valid unit card" in progress_report["error"]
+    assert "no known unit id" in progress_report["error"]
     storage.put.assert_not_awaited()
     assert not storage.copy_calls
 

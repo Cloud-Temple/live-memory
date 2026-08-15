@@ -148,7 +148,9 @@ défendable par son contenu seul.
   unités maximum. Une unité dépassant seule cette borne fait échouer le
   préflight.
 - Chaque Map retourne une fiche temporaire de 240 octets maximum par unité. Une
-  omission reçoit uniquement la première ligne source comme fallback. Les
+  omission reçoit uniquement la première ligne source comme fallback. Une Map
+  terminée normalement mais entièrement inexploitable dégrade tout son lot vers
+  ces fallbacks source ; timeout, erreur ou troncature restent bloquants. Les
   fiches ne sont jamais journalisées, rapportées ou persistées.
 - Un Reduce unique par fichier reçoit seulement `rôle | ID | date | octets |
   fiche`. La date reste secondaire : une résolution explicite prime sur un état
@@ -239,9 +241,10 @@ raccourci lié aux fixtures.
    valide d'un ID gagne.
 4. Normaliser les espaces de la fiche et la borner à 240 octets UTF-8. Les IDs
    inconnus, lignes ambiguës et doublons sont ignorés.
-5. Si une Map ne fournit aucune fiche valide, arrêter le job. Pour chaque unité
-   omise dans une Map autrement valide, fabriquer une fiche code-owned depuis sa
-   première ligne source non vide, avec la même borne de 240 octets.
+5. Pour chaque unité omise, jusqu'au lot entier si aucune ligne n'est valide,
+   fabriquer une fiche code-owned depuis sa première ligne source non vide,
+   avec la même borne de 240 octets. Ne réutiliser aucun fragment invalide de la
+   sortie Qwen.
 6. Les fiches restent uniquement en mémoire : ni Bank, ni rapport, ni log ne
    contient leur texte.
 

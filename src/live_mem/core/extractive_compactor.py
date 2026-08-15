@@ -277,8 +277,6 @@ def parse_map_cards(
         if card:
             cards[unit_id] = card
     valid_cards = len(cards)
-    if not valid_cards:
-        raise ValueError("Qwen returned no valid unit card")
     for unit in known:
         cards.setdefault(unit.unit_id, _fallback_card(unit))
     return cards, valid_cards, len(known) - valid_cards

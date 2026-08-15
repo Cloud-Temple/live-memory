@@ -214,8 +214,17 @@ def test_map_cards_are_bounded_and_fallback_omissions_to_source_labels():
     assert len(cards["U0001"].encode("utf-8")) <= MAP_CARD_MAX_BYTES
     assert "U0001" not in cards["U0001"]
     assert cards["U0002"] == "### 2026-08-02 - second"
-    with pytest.raises(ValueError, match="no valid unit card"):
-        parse_map_cards("U0001 U9999 | ambiguous", [first, second])
+
+    fallback_cards, fallback_valid, fallback_count = parse_map_cards(
+        "U0001 U9999 | ambiguous", [first, second]
+    )
+
+    assert fallback_valid == 0
+    assert fallback_count == 2
+    assert fallback_cards == {
+        "U0001": "### 2026-08-01 - first",
+        "U0002": "### 2026-08-02 - second",
+    }
 
 
 def test_greedy_budget_uses_ranking_then_restores_document_order():

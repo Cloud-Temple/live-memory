@@ -32,6 +32,9 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Map/Reduce contract: no JSON edit plan or generated prose is persisted, the
   byte limit is mandatory, and automatic compaction failure blocks
   consolidation before source notes are consumed.
+- Made completed Map batches degrade to bounded source-label cards when Qwen
+  returns no parseable card; transport errors and incomplete outputs remain
+  blocking, while strict Reduce and source-only persistence stay unchanged.
 
 ### Validation
 
