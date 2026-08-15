@@ -5,6 +5,21 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## Unreleased
+
+### Changed
+
+- Replaced generated JSON/Markdown bank compaction with an extractive
+  hierarchy: Qwen ranks IDs while the server persists only exact source units.
+- `activeContext.md` is never compacted; `systemPatterns.md` is selected first
+  and becomes, with `activeContext.md`, the authority used to rank `progress.md`.
+- All candidates must succeed before backup or write. Automatic compaction
+  failure now blocks the following consolidation instead of allowing a later
+  bank mutation against an oversized or partially planned context.
+- Declared `markdown-it-py` as a direct dependency for the single Markdown view.
+
+See [`DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md`](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
+
 ## [2.7.3] — 2026-08-13
 
 ### Fixed

@@ -22,6 +22,7 @@ dependencies = [
     "httpx>=0.28",
     "boto3>=1.40",
     "openai>=1.50",
+    "markdown-it-py>=4.0",
     "python-dotenv>=1.0",
 ]
 

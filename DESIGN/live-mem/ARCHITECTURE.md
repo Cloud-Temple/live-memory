@@ -262,27 +262,26 @@ final metadata/audit update fails after committed batches, the result is
 `partial` and retains their exact metrics—committed batches are not rolled
 back.
 
-### 4.4 Safe Bank Compaction (via LLM)
+### 4.4 Safe Extractive Bank Compaction
 
-Compaction is a semantic reduction, not a file truncation or a plain split.
-It operates on logical Markdown files and measures every limit in UTF-8 bytes.
+Compaction selects complete source Markdown units; it never persists generated
+LLM prose. Every limit is measured in UTF-8 bytes.
 
 ```
 bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                                       │
                                       ▼
-                              Read rules + logical bank
+                              Read complete logical bank
                                       │
                                       ▼
-                         LLM returns a short JSON edit plan
-                         (replace_section/delete_section only)
+                         Qwen ranks source-unit IDs
+                         systemPatterns first, then progress
                                       │
                                       ▼
-                         Apply and validate the complete plan
-                         - terminal LLM response (`stop`)
-                         - valid JSON, exact headings, H1 preserved
-                         - result is smaller and stays above 5% of original
-                         - 75% max size is an advisory target (`target_met`)
+                         Keep exact source units under byte budget
+                         - activeContext never compacted
+                         - recent/code/HTML progress protected
+                         - every candidate ready before backup
                                       │
                                       ▼
                          Full-space backup, write, readback
@@ -294,10 +293,9 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                          it is not a storage-size ceiling)
 ```
 
-An invalid plan never mutates its file, but does not discard valid reductions
-planned for other files. No compaction path creates `*.part-NNN.md` objects.
-A later consolidation reconstructs any legacy v2.7.x split family, applies its
-surgical edits once to the logical document, and writes one canonical file.
+Any ranking or candidate failure cancels the complete job before backup. No
+compaction path creates `*.part-NNN.md` objects. A later consolidation
+reconstructs any legacy v2.7.x split family and writes one canonical file.
 Manual compaction jobs are
 observable through `bank_consolidation_status` and
 `bank_consolidation_queues`; automatic pre-consolidation compaction exposes its
@@ -309,10 +307,9 @@ consolidation lock, so restoring the full space could delete a note created
 after the backup. Multi-file rollback verifies the exact final bank keyset and
 content before it is reported as successful.
 
-Since v2.7.2, pre-consolidation compaction is non-blocking while bank coherence
-is proven: rejected/truncated LLM plans keep their originals and note consolidation
-continues. Inconsistent legacy split metadata and failed write rollback remain hard
-failures.
+In 2.8.0, any pre-consolidation compaction failure is blocking: note
+consolidation does not continue against an oversized or incompletely planned
+bank. Originals and live notes remain untouched.
 
 ### 4.5 Graph Push (Bridge to Graph Memory)
 

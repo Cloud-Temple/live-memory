@@ -274,49 +274,39 @@ Removes 20 types of invisible Unicode characters and normalizes 10 types of Unic
 
 ---
 
-## 3ter. Safe Bank Compaction (v2.7.0)
+## 3ter. Safe Extractive Bank Compaction (v2.8.0)
 
-Compaction uses the LLM for semantic reduction, but never asks it to reproduce
-the full Markdown file. For each oversized logical file, the model must return
-exactly one JSON `file_edit` with an `edit` action and only
-`replace_section`/`delete_section` operations. Space rules guide what must be
-preserved; bank content is explicitly treated as untrusted data and cannot
-alter this response contract.
+Qwen ranks IDs of complete Markdown source units; its prose is never persisted.
+`systemPatterns.md` is selected first. Its exact candidate and the untouched
+`activeContext.md` then guide the ranking of historical `progress.md` entries.
+`activeContext.md` itself is never compacted.
 
-The compaction response has a stricter parser than normal consolidation:
+The compaction response contract is deliberately small:
 
-- `finish_reason` must be `stop`; a `length` response gets one bounded retry
-  with a larger available output budget, then remains rejected if incomplete;
-- JSON must parse as returned, with no extraction or repair;
-- every heading must match exactly once and the principal H1 cannot change;
-- the result must be smaller than the input and at least 5% of its original
-  UTF-8 byte size. 75% of `BANK_FILE_MAX_SIZE` is an optimization target,
-  exposed as `target_met`, never a success condition;
-- every valid target is planned before the first storage mutation. Invalid
-  plans keep their originals while valid plans are still applied.
+- `finish_reason` must be `stop`; there is no retry;
+- unknown and duplicate IDs are ignored, but one known ID is mandatory;
+- only exact source units are retained, under the UTF-8 byte limit;
+- recent, undated, fenced, indented-code and HTML progress entries are not
+  candidates;
+- every candidate must succeed before the first storage mutation.
 
-When at least one plan passes, the server creates a standard full-space backup.
-Each valid logical result is written and read back under its single canonical
-filename. `BANK_FILE_MAX_SIZE` is a compaction trigger, not a physical object
-limit, so a safe reduction above the advisory target remains canonical. The
-prompt explicitly removes repeated review passes, superseded states and
-granular execution journals instead of merely densifying them. A failure
+After all candidates pass, the server creates a standard full-space backup.
+Each logical result is written and read back under its single canonical
+filename. A failure
 triggers an attempt to restore the original file or legacy family from the
 backup. A multi-file failure restores and exactly verifies only `bank/`,
 so live notes created concurrently after the backup survive. If that rollback
 also fails, the result explicitly reports the restorable backup id for manual
-recovery. Reports include logical sizes, reduction, operation reasons, SHA-256
-hashes, model finish reason, part count, and backup id.
+recovery. Reports include logical sizes, retained-unit metrics, SHA-256 hashes,
+model finish reason, part count, and backup id.
 
 Applied manual compaction is a `compact` job in the same per-space FIFO as
 consolidation. Automatic compaction runs inside the consolidation job before
 new notes are applied. Both paths therefore share serialization and status
 observability.
 
-Since v2.7.2, automatic compaction failure does not by itself fail
-consolidation: a rejected plan performs no mutation, and note integration continues against the coherent
-original/partially compacted bank. An inconsistent legacy split family or a failed
-write rollback remains blocking because bank coherence is no longer proven.
+In 2.8.0, every automatic compaction failure blocks consolidation. No source
+note is consumed and no later bank mutation starts.
 
 ---
 

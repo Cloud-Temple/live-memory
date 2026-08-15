@@ -430,7 +430,7 @@ Clients can then iterate and call `bank_consolidate(space_id=…)` per stale spa
 
 ### `bank_compact` 🔧
 
-Scans oversized logical bank files or enqueues strict semantic LLM compaction.
+Scans oversized logical bank files or enqueues extractive compaction.
 Requires `manage`; `dry_run` defaults to `true`.
 
 ```python
@@ -447,22 +447,19 @@ Dry-run returns logical sizes in UTF-8 bytes and identifies files above
 same per-space FIFO as consolidation. The job is visible through
 `bank_consolidation_status` and `bank_consolidation_queues`.
 
-The worker obtains a strict JSON section-edit plan from the LLM, validates the
-complete result locally, creates a full-space backup, and persists one verified
-canonical Markdown file. The 75% size target is advisory: any safe,
-non-empty reduction is accepted and reports `target_met` and the overage. A
-`length` response gets one bounded larger-budget retry. Invalid plans preserve
-their own originals without discarding valid plans for other files. The final
-result exposes logical byte sizes, legacy migration counts, hashes, operation reasons,
-failures, targets, and `backup_id`.
+The worker asks Qwen only to rank IDs of complete Markdown source units. It
+prepares `systemPatterns.md` before `progress.md`, persists only exact source
+content, validates every candidate, then creates a full-space backup. A
+ranking or candidate failure cancels the whole job before backup. The final
+result exposes logical byte sizes, retained-unit metrics, legacy migration
+counts, hashes, failures, targets, and `backup_id`.
 A persistence failure triggers an all-planned-files rollback limited to
 `bank/`; exact keys and contents are verified, while concurrent `live/` notes
 remain untouched. If rollback also fails, the reported backup id is the manual
 recovery point.
 
-Since v2.7.2, automatic compaction planning failure does not block
-`bank_consolidate` while the bank remains coherent. Invalid legacy split families and failed write rollbacks
-remain blocking.
+In 2.8.0, automatic compaction failure blocks `bank_consolidate`; source notes
+remain untouched.
 
 ---
 
