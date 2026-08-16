@@ -3023,6 +3023,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                     inventory.mode,
                     prepared["container_budget"],
                     self._get_max_size_for_file(source),
+                    prepared["parser"],
                 )
                 prepared["parser"].parse(
                     candidate_bytes.decode("utf-8", errors="strict")

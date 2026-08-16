@@ -181,9 +181,11 @@ flowchart TD
    répétitions et chroniques de revue.
 5. En mode sections, prioriser mécanismes, invariants, décisions d'architecture
    et risques structurels durables.
-6. Demander un digest Markdown non exhaustif composé uniquement de paragraphes
-   et listes. Le code inline est autorisé. Headings, tables, liens, images,
-   fences, blocs de code, HTML, blockquotes, séparateurs et JSON sont interdits.
+6. Demander de préférence un digest Markdown non exhaustif composé de
+   paragraphes et listes. Le code inline est autorisé. Les headings produits
+   sont acceptés uniquement s'ils restent imbriqués dans l'item code-owned
+   après rendu. Tables, liens, images, fences, blocs de code, HTML, blockquotes,
+   séparateurs et JSON restent interdits.
 7. Interdire les IDs internes U/P. Une référence `#N`, une version `vX.Y[.Z]`
    ou une date ISO/française ne peut apparaître que si elle existe déjà dans le
    fichier source.
@@ -201,9 +203,8 @@ flowchart TD
    activer le contenu protégé, et une définition protégée ne peut pas activer un
    lien ajouté par le digest.
 4. Rejeter sortie vide ou sans token visible, définition de lien, JSON complet,
-   token interdit, racine autre que
-   paragraphe/liste, ID interne, dépassement du budget UTF-8 ou référence
-   inventée.
+   token interdit, racine autre que paragraphe/liste/heading, ID interne,
+   dépassement du budget UTF-8 ou référence inventée.
 5. Ne pas exiger la conservation de toutes les références : le digest est
    volontairement non exhaustif. L'invariant est absence d'invention, pas
    exhaustivité.
@@ -220,9 +221,14 @@ flowchart TD
 5. Indenter chaque ligne du digest de quatre espaces sous l'unique item externe.
    Les puces datées du digest ne deviennent donc jamais des unités de premier
    niveau lors d'une passe suivante.
-6. Le conteneur est volontairement une unité candidate normale. Une future
+6. Après rendu, comparer les headings racine H1 à H6 du conteneur avec ceux du
+   wrapper vide code-owned. Tout heading généré qui s'échappe au niveau racine
+   fait rejeter le candidat. L'inventaire ne considère comme frontières que les
+   headings H1 à H3 de niveau racine ; les headings imbriqués restent dans
+   l'unité conteneur.
+7. Le conteneur est volontairement une unité candidate normale. Une future
    compaction le **remplace** ; elle ne l'imbrique et ne l'accumule jamais.
-7. En mode mixte liste/H3, l'ancre H3 est prioritaire afin que la passe suivante
+8. En mode mixte liste/H3, l'ancre H3 est prioritaire afin que la passe suivante
    conserve le même mode. Le dernier jour et les unités protégées restent exacts.
 
 ### H. Construction atomique
@@ -337,6 +343,14 @@ Ce run valide le fail-closed, pas la qualité du digest. La correction supprime
 la division par cinq et réserve seulement le wrapper minimal exact ; le rendu
 final reste contrôlé en octets, notamment pour l'indentation multiligne. Les
 compteurs de gates réussis restent donc à zéro.
+
+Le run corrigé suivant, `compact_629c7c234b314793b03553ee4de5b8e9`,
+confirme le budget (`5 747 < 20 317` octets) mais rejette `progress.md` parce
+que Qwen produit un heading. `systemPatterns.md` est annulé avant appel et le
+manifeste S3 reste identique. Ce heading n'est pas une invention de fait ni une
+menace lorsqu'il reste imbriqué dans le conteneur ; le contrat est donc amendé
+avec la garde structurelle décrite en G, sans retry ni assouplissement des
+autres tokens interdits. Les compteurs de gates réussis restent à zéro.
 
 ## 7. Fondements dans la littérature
 

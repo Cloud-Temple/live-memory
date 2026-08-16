@@ -10,6 +10,7 @@ from live_mem.core.extractive_compactor import (
     MAP_BATCH_MAX_UNITS,
     MAP_CARD_MAX_BYTES,
     MarkdownUnit,
+    _validate_digest_container_structure,
     build_digest_candidate,
     build_map_batches,
     delete_units,
@@ -239,10 +240,95 @@ def test_digest_validation_allows_technical_markdown_and_rejects_invention():
         validate_digest("- Garder U0001.", source, source, 200, PARSER)
 
 
+def test_digest_heading_stays_nested_and_is_replaced_on_next_pass():
+    first = b"### Pattern A\n" + b"- invariant durable\n" * 5
+    second = b"### Pattern B\n" + b"- autre invariant durable\n" * 5
+    original = b"# Patterns\n" + first + second
+    inventory = extract_markdown_inventory(original, PARSER)
+    plan = make_plan(original, list(inventory.candidates), 500)
+    digest = validate_digest(
+        "## Décisions durables\n\n- Conserver les invariants.",
+        original,
+        delete_units(original, list(plan.units)),
+        300,
+        PARSER,
+    )
+
+    candidate = build_digest_candidate(plan, digest, inventory.mode, 400, 500, PARSER)
+    tokens = PARSER.parse(candidate.decode())
+    generated_heading = next(
+        token
+        for index, token in enumerate(tokens)
+        if token.type == "heading_open"
+        and index + 1 < len(tokens)
+        and tokens[index + 1].content == "Décisions durables"
+    )
+    assert generated_heading.level > 0
+
+    second_inventory = extract_markdown_inventory(candidate, PARSER)
+    assert len(second_inventory.candidates) == 1
+    second_plan = make_plan(candidate, list(second_inventory.candidates), 500)
+    replacement = build_digest_candidate(
+        second_plan, b"- Nouveau digest.", second_inventory.mode, 400, 500, PARSER
+    )
+    assert b"D\xc3\xa9cisions durables" not in replacement
+    assert replacement.count(b"Historique compact") == 1
+
+
+def test_list_digest_heading_stays_nested_and_is_replaced_on_next_pass():
+    old = (
+        b"- **2026-08-01** ancien avec details "
+        + b"historiques repetitifs " * 12
+        + b"\n"
+    )
+    recent = b"- **2026-08-02** recent intact\n"
+    original = b"# Journal\n" + old + recent
+    inventory = extract_markdown_inventory(original, PARSER)
+    plan = make_plan(original, list(inventory.candidates), 500)
+    digest = validate_digest(
+        "## Décisions durables\n\n- Conserver les jalons.",
+        original,
+        delete_units(original, list(plan.units)),
+        300,
+        PARSER,
+    )
+
+    candidate = build_digest_candidate(plan, digest, inventory.mode, 400, 500, PARSER)
+    tokens = PARSER.parse(candidate.decode())
+    generated_heading = next(
+        token
+        for index, token in enumerate(tokens)
+        if token.type == "heading_open"
+        and index + 1 < len(tokens)
+        and tokens[index + 1].content == "Décisions durables"
+    )
+    assert generated_heading.level > 0
+
+    second_inventory = extract_markdown_inventory(candidate, PARSER)
+    assert second_inventory.mode == "dated"
+    assert len(second_inventory.candidates) == 1
+    second_plan = make_plan(candidate, list(second_inventory.candidates), 500)
+    replacement = build_digest_candidate(
+        second_plan, b"- Nouveau digest.", second_inventory.mode, 400, 500, PARSER
+    )
+    assert b"D\xc3\xa9cisions durables" not in replacement
+    assert replacement.count(b"Historique compact") == 1
+
+
+def test_container_structure_rejects_any_extra_root_heading():
+    old = b"### Pattern A\n- invariant\n### Pattern B\n- invariant\n"
+    inventory = extract_markdown_inventory(old, PARSER)
+    plan = make_plan(old, list(inventory.candidates), 500)
+    expected = render_digest_container(plan, b"", inventory.mode)
+    escaped = expected + b"\n###### Heading racine injecte\n"
+
+    with pytest.raises(ValueError, match="root-level Markdown heading"):
+        _validate_digest_container_structure(escaped, expected, PARSER)
+
+
 @pytest.mark.parametrize(
     "output, reason",
     [
-        ("### Heading", "heading_open"),
         ("```sh\necho no\n```", "fence"),
         ("<span>raw</span>", "html_inline"),
         ("> citation", "blockquote_open"),
@@ -273,7 +359,7 @@ def test_mixed_digest_uses_h3_anchor_and_is_recompactable():
     plan = make_plan(original, list(inventory.candidates), 500)
     digest = b"- Decision historique #80."
 
-    candidate = build_digest_candidate(plan, digest, inventory.mode, 300, 500)
+    candidate = build_digest_candidate(plan, digest, inventory.mode, 300, 500, PARSER)
 
     assert digest_insertion_offset(plan) == len(b"# Journal\n")
     assert old_list not in candidate and old_h3 not in candidate
@@ -287,7 +373,7 @@ def test_mixed_digest_uses_h3_anchor_and_is_recompactable():
 
     second_plan = make_plan(candidate, list(second.candidates), 500)
     replacement = build_digest_candidate(
-        second_plan, b"- Nouveau.", second.mode, 300, 500
+        second_plan, b"- Nouveau.", second.mode, 300, 500, PARSER
     )
     assert digest not in replacement
     assert replacement.count(b"Historique compact") == 1
@@ -309,7 +395,7 @@ def test_digest_cannot_activate_a_reference_link_in_protected_content():
         validate_digest("[ref]: https://example.test", original, recent, 200, PARSER)
 
     unsafe = build_digest_candidate(
-        plan, b"[ref]: https://example.test", inventory.mode, 300, 500
+        plan, b"[ref]: https://example.test", inventory.mode, 300, 500, PARSER
     )
     assert any(
         child.type == "link_open"
@@ -334,7 +420,7 @@ def test_sections_digest_hides_dated_internal_lists_from_next_inventory():
     plan = make_plan(original, list(inventory.candidates), 500)
     digest = b"- 2026-08-01 - decision\n- 2026-08-02 - incident"
 
-    candidate = build_digest_candidate(plan, digest, inventory.mode, 400, 500)
+    candidate = build_digest_candidate(plan, digest, inventory.mode, 400, 500, PARSER)
     second_inventory = extract_markdown_inventory(candidate, PARSER)
 
     assert second_inventory.mode == "sections"
@@ -344,7 +430,12 @@ def test_sections_digest_hides_dated_internal_lists_from_next_inventory():
 
     second_plan = make_plan(candidate, list(second_inventory.candidates), 500)
     replacement = build_digest_candidate(
-        second_plan, b"- Nouveau pattern durable.", second_inventory.mode, 400, 500
+        second_plan,
+        b"- Nouveau pattern durable.",
+        second_inventory.mode,
+        400,
+        500,
+        PARSER,
     )
     assert digest not in replacement
     assert replacement.count(b"Historique compact") == 1
@@ -367,6 +458,7 @@ def test_list_digest_is_one_recompactable_dated_item():
         inventory.mode,
         300,
         500,
+        PARSER,
     )
     second = extract_markdown_inventory(candidate, PARSER)
 
@@ -377,7 +469,7 @@ def test_list_digest_is_one_recompactable_dated_item():
 
     second_plan = make_plan(candidate, list(second.candidates), 500)
     replacement = build_digest_candidate(
-        second_plan, b"- Digest remplace.", second.mode, 300, 500
+        second_plan, b"- Digest remplace.", second.mode, 300, 500, PARSER
     )
     assert b"D\xc3\xa9cision ancienne" not in replacement
     assert replacement.count(b"Historique compact") == 1
@@ -393,7 +485,9 @@ def test_digest_container_budget_is_exact_and_never_truncated():
     container = render_digest_container(plan, digest, inventory.mode)
 
     with pytest.raises(ValueError, match="container exceeds"):
-        build_digest_candidate(plan, digest, inventory.mode, len(container) - 1, 500)
+        build_digest_candidate(
+            plan, digest, inventory.mode, len(container) - 1, 500, PARSER
+        )
 
 
 @pytest.mark.parametrize(
@@ -427,7 +521,7 @@ def test_reduce_budget_counts_utf8_bytes_and_final_multiline_indentation():
     multiline = b"\n".join(b"x" for _ in range((budget + 1) // 2))
     assert len(multiline) <= budget
     with pytest.raises(ValueError, match="container exceeds"):
-        build_digest_candidate(plan, multiline, inventory.mode, allowance, 500)
+        build_digest_candidate(plan, multiline, inventory.mode, allowance, 500, PARSER)
 
 
 def test_map_and_reduce_prompts_keep_source_and_ephemeral_cards_separate():

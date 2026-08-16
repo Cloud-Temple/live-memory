@@ -42,6 +42,9 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   minimal wrapper budget. The rendered container remains byte-checked, and
   multi-file failures now identify the actual rejected digest without exposing
   raw model output.
+- Accept generated digest headings only when the code-owned wrapper keeps them
+  nested. Root document boundaries remain code-owned, and a second compaction
+  replaces the whole container without accumulating generated structure.
 
 ### Validation
 
@@ -49,6 +52,9 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   failed closed before backup or write because the small `systemPatterns.md`
   digest exceeded the former one-fifth allowance. The S3 manifest remained
   byte-identical before and after. This run does not count as a successful gate.
+- The budget-corrected run accepted the digest size (`5,747 < 20,317` bytes)
+  and then failed closed on a generated heading. No write occurred; this led to
+  the bounded nested-heading contract above and still does not count as a gate.
 - The earlier extractive candidate passed one representative Docker run on
   `agentic-platform`, then failed the semantic gate on `mcp-agent`; those runs
   remain mechanical evidence only and do not count for the current candidate.

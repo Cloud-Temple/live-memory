@@ -642,7 +642,6 @@ async def test_zero_byte_candidate_is_rejected_before_any_storage_mutation():
     "digest, reason",
     [
         ("- Référence inventée #999.", "invents references"),
-        ("### Heading injecté", "heading_open"),
         ("```sh\necho unsafe\n```", "fence"),
     ],
 )

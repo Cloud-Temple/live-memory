@@ -15,7 +15,6 @@ FR_DATE_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(20\d{2})\b")
 ANY_UNIT_ID_RE = re.compile(r"\b[UP]\d{4}\b")
 PROTECTED_TOKENS = {"fence", "code_block", "html_block", "html_inline"}
 DIGEST_FORBIDDEN_TOKENS = PROTECTED_TOKENS | {
-    "heading_open",
     "blockquote_open",
     "hr",
     "link_open",
@@ -99,6 +98,7 @@ def extract_markdown_inventory(original: bytes, parser: MarkdownIt) -> UnitInven
         token
         for token in tokens
         if token.type == "heading_open"
+        and token.level == 0
         and token.tag in {"h1", "h2", "h3"}
         and token.map is not None
     ]
@@ -328,6 +328,8 @@ def _validate_digest_markdown(
             if isinstance(inline_json, (dict, list)):
                 raise ValueError("Qwen returned JSON instead of a Markdown digest")
     allowed_roots = {
+        "heading_open",
+        "heading_close",
         "paragraph_open",
         "paragraph_close",
         "bullet_list_open",
@@ -409,17 +411,46 @@ def digest_output_budget(
     return budget
 
 
+def _root_heading_signature(markdown: bytes, parser: MarkdownIt) -> tuple:
+    tokens = parser.parse(markdown.decode("utf-8", errors="strict"))
+    headings = []
+    for index, token in enumerate(tokens):
+        if token.type != "heading_open" or token.level != 0:
+            continue
+        content = (
+            tokens[index + 1].content
+            if index + 1 < len(tokens) and tokens[index + 1].type == "inline"
+            else ""
+        )
+        headings.append((token.tag, content))
+    return tuple(headings)
+
+
+def _validate_digest_container_structure(
+    container: bytes, expected_empty_container: bytes, parser: MarkdownIt
+) -> None:
+    """Reject any generated heading that escapes the code-owned wrapper."""
+    if _root_heading_signature(container, parser) != _root_heading_signature(
+        expected_empty_container, parser
+    ):
+        raise ValueError("digest introduces a root-level Markdown heading")
+
+
 def build_digest_candidate(
     plan: SelectionPlan,
     digest: bytes,
     mode: str,
     insertion_allowance: int,
     limit: int,
+    parser: MarkdownIt,
 ) -> bytes:
     """Replace every selectable unit with one bounded digest container."""
     base = delete_units(plan.original, list(plan.units))
     offset = digest_insertion_offset(plan)
     container = render_digest_container(plan, digest, mode)
+    _validate_digest_container_structure(
+        container, render_digest_container(plan, b"", mode), parser
+    )
     if len(container) > insertion_allowance:
         raise ValueError("digest container exceeds its UTF-8 byte budget")
     candidate = base[:offset] + container + base[offset:]
