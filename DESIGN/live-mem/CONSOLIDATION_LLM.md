@@ -1,6 +1,6 @@
 # LLM Consolidation Pipeline — Live Memory
 
-> **Version**: 2.7.3 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.8.0 | **Date**: 2026-08-16 | **Author**: Cloud Temple
 
 ---
 
@@ -274,49 +274,48 @@ Removes 20 types of invisible Unicode characters and normalizes 10 types of Unic
 
 ---
 
-## 3ter. Safe Bank Compaction (v2.7.0)
+## 3ter. Safe Hierarchical Bank Compaction (v2.8.0)
 
-Compaction uses the LLM for semantic reduction, but never asks it to reproduce
-the full Markdown file. For each oversized logical file, the model must return
-exactly one JSON `file_edit` with an `edit` action and only
-`replace_section`/`delete_section` operations. Space rules guide what must be
-preserved; bank content is explicitly treated as untrusted data and cannot
-alter this response contract.
+The dedicated compaction model first produces bounded ephemeral cards for
+complete Markdown source units, then produces a compact, non-exhaustive
+Markdown digest in one Reduce call. `mistral-small4:119b` is the qualified
+2.8.0 recommendation; `gpt-oss:120b` is not supported for this path because it
+does not complete under the product Map output ceiling.
+The compacteur has no filename-specific roles. For every oversized logical
+file from the canonical bank inventory, it detects either dated structural
+entries or complete H3 sections from the content itself. Protected units from
+that same file provide context for recognizing superseded states; another file
+is never an authority for the digest.
 
-The compaction response has a stricter parser than normal consolidation:
+The compaction response contract is deliberately small:
 
-- `finish_reason` must be `stop`; a `length` response gets one bounded retry
-  with a larger available output budget, then remains rejected if incomplete;
-- JSON must parse as returned, with no extraction or repair;
-- every heading must match exactly once and the principal H1 cannot change;
-- the result must be smaller than the input and at least 5% of its original
-  UTF-8 byte size. 75% of `BANK_FILE_MAX_SIZE` is an optimization target,
-  exposed as `target_met`, never a success condition;
-- every valid target is planned before the first storage mutation. Invalid
-  plans keep their originals while valid plans are still applied.
+- `finish_reason` must be `stop`; there is no retry;
+- Map omissions fall back to bounded source labels; Map cards stay ephemeral;
+- the digest contains paragraphs/lists only and no invented reference;
+- in dated mode, recent and undated units are not candidates;
+- fenced, indented-code and HTML-bearing units are always protected;
+- every oversized file is preflighted before the first LLM request;
+- Map batches contain at most 40 000 source bytes and 32 units, followed by one
+  Reduce call; the exact call count is reported through `planned_llm_calls`;
+- every candidate must succeed before the first storage mutation.
 
-When at least one plan passes, the server creates a standard full-space backup.
-Each valid logical result is written and read back under its single canonical
-filename. `BANK_FILE_MAX_SIZE` is a compaction trigger, not a physical object
-limit, so a safe reduction above the advisory target remains canonical. The
-prompt explicitly removes repeated review passes, superseded states and
-granular execution journals instead of merely densifying them. A failure
+After all candidates pass, the server creates a standard full-space backup.
+Each logical result is written and read back under its single canonical
+filename. A failure
 triggers an attempt to restore the original file or legacy family from the
 backup. A multi-file failure restores and exactly verifies only `bank/`,
 so live notes created concurrently after the backup survive. If that rollback
 also fails, the result explicitly reports the restorable backup id for manual
-recovery. Reports include logical sizes, reduction, operation reasons, SHA-256
-hashes, model finish reason, part count, and backup id.
+recovery. Reports include logical sizes, digest metrics, SHA-256 hashes,
+model finish reason, part count, and backup id.
 
 Applied manual compaction is a `compact` job in the same per-space FIFO as
 consolidation. Automatic compaction runs inside the consolidation job before
 new notes are applied. Both paths therefore share serialization and status
 observability.
 
-Since v2.7.2, automatic compaction failure does not by itself fail
-consolidation: a rejected plan performs no mutation, and note integration continues against the coherent
-original/partially compacted bank. An inconsistent legacy split family or a failed
-write rollback remains blocking because bank coherence is no longer proven.
+In 2.8.0, every automatic compaction failure blocks consolidation. No source
+note is consumed and no later bank mutation starts.
 
 ---
 
@@ -591,6 +590,7 @@ Attempt 2 → classic retry (messages + explicit reminder)
 LLMAAS_API_URL=https://api.ai.cloud-temple.com/v1
 LLMAAS_API_KEY=your_key
 LLMAAS_MODEL=qwen3.5:27b
+LLMAAS_COMPACTION_MODEL=mistral-small4:119b
 LLMAAS_MAX_TOKENS=100000
 LLMAAS_TEMPERATURE=0.3
 CONSOLIDATION_TIMEOUT=600
@@ -663,4 +663,4 @@ Input: 3 notes, 6 bank files
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.3*
+*Document updated August 16, 2026 — Live Memory v2.8.0*

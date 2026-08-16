@@ -245,8 +245,8 @@ Manually named files such as `progress-2.md` remain ordinary independent files.
 | `bank_read_all` | LIST `bank/*`, GET all | 1 LIST + N GETs |
 | `bank_list` | LIST `bank/*` | 1 LIST |
 | `bank_consolidate` | GET rules + GET live/* + GET bank/* + PUT bank/* + DELETE live/* + PUT _synthesis + PUT terminal job audit | Many |
-| `bank_compact` dry-run | GET meta + rules + bank/* | 1 LIST + N GETs |
-| `bank_compact` apply | GET meta + rules + bank/* + full backup copy + PUT/GET/DELETE bank parts + PUT terminal job audit | Many |
+| `bank_compact` dry-run | GET meta + bank/* | 1 LIST + N GETs |
+| `bank_compact` apply | GET meta + bank/* + full backup copy + PUT/GET/DELETE bank parts + PUT terminal job audit | Many |
 | `graph_connect` | GET+PUT `_meta.json` (add graph_memory config) | 1 GET + 1 PUT |
 | `graph_push` | LIST `bank/*`, GET `bank/*`, GET+PUT `_meta.json` | N GETs + 1 PUT |
 | `graph_status` | GET `_meta.json` | 1 GET |

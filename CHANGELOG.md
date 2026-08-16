@@ -5,6 +5,93 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## Unreleased
+
+## [2.8.0] — 2026-08-16
+
+> **Release-ready — accepted by the product owner, not deployed.**
+> The bounded Map/Reduce implementation meets its byte, integrity, backup and
+> rollback targets. Its explicitly lossy semantic contract was accepted against
+> the materially weaker 2.7.3 compaction baseline; production activation still
+> requires a manual canary.
+
+### Changed
+
+- Added `LLMAAS_COMPACTION_MODEL` so consolidation and compaction can use
+  different models. Empty/unset keeps backward compatibility by reusing
+  `LLMAAS_MODEL`; no runtime model fallback was added.
+- Qualified `mistral-small4:119b` as the recommended 2.8.0 compaction model.
+  `enable_thinking=false` is sent only when the configured compaction model is
+  Qwen.
+
+- Replaced generated JSON edit plans with a hierarchical digest pipeline:
+  bounded Map calls produce ephemeral unit cards and one Reduce produces the
+  only generated Markdown persisted by the compactor.
+- Removed filename-specific compaction roles. Every oversized logical Bank file
+  is classified from its Markdown structure and content as dated entries or H3
+  sections, with protected context taken only from the same file.
+- The server validates the raw and normalized digest, rejects invented
+  references and active Markdown structures, and replaces all historical
+  candidates with one code-owned container that is replaced on later passes.
+- Preflight covers every Map and worst-case Reduce prompt before the first LLM
+  request. Results expose the exact Map + Reduce `planned_llm_calls` count.
+- All candidates must succeed before backup or write. Automatic compaction
+  failure now blocks the following consolidation instead of allowing a later
+  bank mutation against an oversized or partially planned context.
+- Declared `markdown-it-py` as a direct dependency for the single Markdown view.
+- Aligned the MCP tool description, READMEs and design documents with the
+  hierarchical digest contract: the byte limit is mandatory, recent/protected
+  content remains byte-identical, and automatic compaction failure blocks
+  consolidation before source notes are consumed.
+- Made completed Map batches degrade to bounded source-label cards when Qwen
+  returns no parseable card; transport errors and incomplete outputs remain
+  blocking, while the Reduce digest and its validation stay strict.
+- Replaced the overly conservative one-fifth digest allowance with the exact
+  minimal wrapper budget. The rendered container remains byte-checked, and
+  multi-file failures now identify the actual rejected digest without exposing
+  raw model output.
+- Accept generated digest headings only when the code-owned wrapper keeps them
+  nested. Root document boundaries remain code-owned, and a second compaction
+  replaces the whole container without accumulating generated structure.
+
+### Validation
+
+- Comparative real-corpus qualification ranked Mistral Small 4 119B ahead of
+  Qwen 3.6 35B and 27B for preservation of global meaning and important
+  operational points. Its output is not perfect, but the product owner accepted
+  that residual risk under the deliberately non-exhaustive compaction contract.
+- `gpt-oss:120b` is not suitable for the 2.8.0 compaction path. It stopped with
+  `finish_reason=length` under the product Map ceiling of 4,000 tokens. A single
+  local R&D rerun at 8,000 tokens completed but was about three times slower and
+  introduced more material semantic errors; the product ceiling was not changed.
+
+- Final Docker gates with `qwen3.6:35b` were mechanically successful on the
+  restored real corpora: `mcp-agent/progress.md` 120,534 → 10,523 bytes and
+  `systemPatterns.md` 37,133 → 33,022 bytes; `agentic-platform/progress.md`
+  195,489 → 5,942 bytes. Backups and verified writes succeeded with no partial
+  mutation.
+- Human and independent semantic review rejected the candidates: examples
+  included an inverted Mission/Vault deployment order, a stale admin-token
+  revocation state, an over-generalized no-retry rule and an inaccurate secret
+  scrubbing mechanism. Both DEV spaces were restored to their exact source
+  snapshots. At that stage, no production change, tag or release was made.
+
+- The first `mcp-agent` abstractive run consumed the planned 12 Qwen calls and
+  failed closed before backup or write because the small `systemPatterns.md`
+  digest exceeded the former one-fifth allowance. The S3 manifest remained
+  byte-identical before and after. This run does not count as a successful gate.
+- The budget-corrected run accepted the digest size (`5,747 < 20,317` bytes)
+  and then failed closed on a generated heading. No write occurred; this led to
+  the bounded nested-heading contract above and still does not count as a gate.
+- The earlier extractive candidate passed one representative Docker run on
+  `agentic-platform`, then failed the semantic gate on `mcp-agent`; those runs
+  remain mechanical evidence only and do not count for the current candidate.
+- Added mutation-focused tests for unsafe digests, invented references,
+  multi-file atomicity, mixed H3/list journals and replacement rather than
+  accumulation during a second compaction pass.
+
+See [`DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md`](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
+
 ## [2.7.3] — 2026-08-13
 
 ### Fixed

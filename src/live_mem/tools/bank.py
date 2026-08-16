@@ -1258,21 +1258,23 @@ def register(mcp: FastMCP) -> int:
             bool,
             Field(
                 default=True,
-                description="True = scan seul, False = enfile une compaction sémantique LLM",
+                description="True = scan seul, False = enfile une compaction hiérarchique Map/Reduce",
             ),
         ] = True,
     ) -> dict:
         """
-        Compacte via LLM les fichiers bank surdimensionnés (manage).
+        Compacte hiérarchiquement les fichiers bank surdimensionnés (manage).
 
-        Les tailles sont mesurées en octets UTF-8. Le LLM produit uniquement
-        un plan JSON d'opérations par section ; le serveur l'applique en
-        mémoire et exige une taille logique sous 75 % de la limite. Une
-        réponse tronquée ou invalide est refusée sans écriture.
+        Les tailles sont mesurées en octets UTF-8. Qwen produit des fiches
+        temporaires bornées puis un digest Markdown compact et non exhaustif.
+        Le serveur valide le digest et l'insère dans un unique conteneur
+        recompactable ; le contenu récent et protégé reste byte-identique. Une
+        réponse tronquée, une référence inventée, une structure interdite ou un
+        candidat au-dessus de la limite bloque le job avant backup et écriture.
 
-        Avant tout remplacement, un snapshot complet standard de l'espace est
-        créé. Les écritures sont relues et vérifiées ; tout
-        échec déclenche un rollback vers ce backup.
+        Tous les candidats sont validés en mémoire avant la création d'un
+        snapshot standard complet. Les écritures sont relues et vérifiées ;
+        tout échec déclenche un rollback vérifié de bank/ vers ce backup.
 
         ⚠️ Par défaut dry_run=True : scanne et rapporte sans modifier.
         Passez dry_run=False pour compacter effectivement.

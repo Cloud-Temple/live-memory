@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: 2.7.3 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: 2.8.0 | **Date**: 2026-08-16 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -42,7 +42,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 | **Input**         | Documents (PDF, DOCX, MD, CSV) | Agent text notes                              |
 | **Storage**       | Neo4j + Qdrant + S3            | **S3 only**                                   |
 | **Intelligence**  | Entity/relation extraction     | Consolidation & synthesis                     |
-| **LLM used**      | gpt-oss:120b (extraction)      | qwen3.5:27b (consolidation)                   |
+| **LLM used**      | gpt-oss:120b (extraction)      | `LLMAAS_MODEL` (consolidation) + `LLMAAS_COMPACTION_MODEL` (compaction; Mistral 119B recommended) |
 | **Search**        | Hybrid Graph + vector RAG      | Direct file reading + text search             |
 | **Agents**        | 1 agent per request            | **Multi-agent collaborative**                 |
 | **Bridge**        | —                              | **Graph Bridge** pushes bank → graph-memory   |
@@ -262,27 +262,30 @@ final metadata/audit update fails after committed batches, the result is
 `partial` and retains their exact metrics—committed batches are not rolled
 back.
 
-### 4.4 Safe Bank Compaction (via LLM)
+### 4.4 Safe Hierarchical Bank Compaction
 
-Compaction is a semantic reduction, not a file truncation or a plain split.
-It operates on logical Markdown files and measures every limit in UTF-8 bytes.
+Compaction inventories complete source Markdown units, creates bounded ephemeral
+Map cards, and persists one validated non-exhaustive Reduce digest. Recent and
+protected bytes remain exact. Every limit is measured in UTF-8 bytes.
 
 ```
 bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                                       │
                                       ▼
-                              Read rules + logical bank
+                              Read complete logical bank
                                       │
                                       ▼
-                         LLM returns a short JSON edit plan
-                         (replace_section/delete_section only)
+                         Detect each oversized file mode
+                         from Markdown structure and content
                                       │
                                       ▼
-                         Apply and validate the complete plan
-                         - terminal LLM response (`stop`)
-                         - valid JSON, exact headings, H1 preserved
-                         - result is smaller and stays above 5% of original
-                         - 75% max size is an advisory target (`target_met`)
+                         Dedicated compaction model evaluates the file
+                         - bounded Map cards, then one Reduce
+                         - same-file protected context only
+                         - one validated non-exhaustive digest
+                                      │
+                                      ▼
+                         Every candidate ready before backup
                                       │
                                       ▼
                          Full-space backup, write, readback
@@ -294,10 +297,16 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                          it is not a storage-size ceiling)
 ```
 
-An invalid plan never mutates its file, but does not discard valid reductions
-planned for other files. No compaction path creates `*.part-NNN.md` objects.
-A later consolidation reconstructs any legacy v2.7.x split family, applies its
-surgical edits once to the logical document, and writes one canonical file.
+Any Map, Reduce, digest or candidate failure cancels the complete job before backup. No
+compaction path creates `*.part-NNN.md` objects. A later consolidation
+reconstructs any legacy v2.7.x split family and writes one canonical file.
+No filename has a compaction role. A file is handled in dated mode when at
+least two complete dates occur in structural entry labels; otherwise its
+complete H3 sections are eligible. Recent, undated, code-bearing and HTML-bearing
+units are protected. A file with neither structure fails closed before the
+first LLM call. All Map and worst-case Reduce prompts are preflighted before any
+request. The digest replaces all selectable historical units inside one
+recompactable code-owned container; reports expose `planned_llm_calls`.
 Manual compaction jobs are
 observable through `bank_consolidation_status` and
 `bank_consolidation_queues`; automatic pre-consolidation compaction exposes its
@@ -309,10 +318,9 @@ consolidation lock, so restoring the full space could delete a note created
 after the backup. Multi-file rollback verifies the exact final bank keyset and
 content before it is reported as successful.
 
-Since v2.7.2, pre-consolidation compaction is non-blocking while bank coherence
-is proven: rejected/truncated LLM plans keep their originals and note consolidation
-continues. Inconsistent legacy split metadata and failed write rollback remain hard
-failures.
+In 2.8.0, any pre-consolidation compaction failure is blocking: note
+consolidation does not continue against an oversized or incompletely planned
+bank. Originals and live notes remain untouched.
 
 ### 4.5 Graph Push (Bridge to Graph Memory)
 
@@ -489,6 +497,7 @@ S3_REGION_NAME=fr1
 LLMAAS_API_URL=https://api.ai.cloud-temple.com/v1
 LLMAAS_API_KEY=your_key
 LLMAAS_MODEL=qwen3.5:27b
+LLMAAS_COMPACTION_MODEL=mistral-small4:119b
 LLMAAS_MAX_TOKENS=100000
 LLMAAS_TEMPERATURE=0.3
 
@@ -519,4 +528,4 @@ PROXY_URL=http://10.0.0.1:3128
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.3*
+*Document updated August 16, 2026 — Live Memory v2.8.0*

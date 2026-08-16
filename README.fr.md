@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.7.3-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.8.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -239,11 +239,13 @@ python scripts/test_recette.py
 
 ### Variables optionnelles — LLM
 
-Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les notes live en fichiers bank structurés.
+Le service peut utiliser deux modèles compatibles OpenAI distincts pour la
+consolidation et le compactage hiérarchique.
 
 | Variable                  | Défaut            | Description                     |
 | ------------------------- | ----------------- | ------------------------------- |
-| `LLMAAS_MODEL`            | `qwen3.5:27b`     | Nom du modèle LLM tel qu'exposé par le fournisseur |
+| `LLMAAS_MODEL`            | `qwen3.5:27b`     | Modèle utilisé pour la consolidation des notes |
+| `LLMAAS_COMPACTION_MODEL` | `LLMAAS_MODEL`    | Modèle Map/Reduce dédié au compactage. `mistral-small4:119b` est recommandé pour la 2.8.0 |
 | `LLMAAS_CONTEXT_WINDOW`   | `131072`          | Context window TOTAL du modèle (input + output combinés, en tokens). Qwen3 235B = 128K |
 | `LLMAAS_MAX_TOKENS`       | `16384`           | Budget de SORTIE max par requête (en tokens). Le consolidateur l'ajuste dynamiquement : `output = min(MAX_TOKENS, CONTEXT_WINDOW - input)` |
 | `LLMAAS_TEMPERATURE`      | `0.3`             | Créativité du LLM (0.0 = déterministe, 1.0 = très créatif) |
@@ -262,7 +264,7 @@ Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les not
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
 | `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite logique par fichier en octets UTF-8 |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Seuil en octets UTF-8 déclenchant la compaction sémantique. Le LLM vise 75 % ; manquer cette cible n'est pas un échec et ne crée jamais de fichiers multipart |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Limite universelle en octets UTF-8 d'un fichier Bank logique. Les fichiers surdimensionnés utilisent un digest Map/Reduce hiérarchique ; en mode daté, 25 % de la place disponible reste réservée à la croissance future |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
@@ -330,14 +332,17 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 Un `bank_compact` appliqué est asynchrone : il rejoint la même file FIFO par
 space que la consolidation et retourne un `job_id`. Pour chaque fichier
-logique dépassant `BANK_FILE_MAX_SIZE`, le LLM retourne un plan JSON strict
-d'opérations par section ; le serveur applique et valide ce plan localement,
-en octets UTF-8, avant toute écriture. La cible de 75 % guide le LLM et est
-exposée par `target_met` ; ce n'est pas une condition de succès. Toute
-réduction sûre et non vide est acceptée et écrite sous l'unique nom canonique,
-même si elle reste au-dessus de la cible. Le serveur crée un backup complet du space,
-vérifie le contenu persisté et tente un rollback en cas d'échec. Si ce rollback
-échoue aussi, le job expose le `backup_id` nécessaire à une restauration
+logique dépassant `BANK_FILE_MAX_SIZE`, des Maps bornées créent des fiches
+éphémères pour des unités Markdown source complètes, puis un Reduce écrit un
+digest Markdown compact et non exhaustif. Le serveur valide ce digest, remplace
+toutes les unités historiques éligibles par un unique conteneur code-owned et
+recompactable, et exige un candidat sous la limite configurée. Le contenu récent,
+non daté, avec code ou HTML, ainsi que l'extérieur, reste byte-identique. En mode
+daté, le digest utilise au maximum 75 % de la place restant après le contenu
+protégé ; les 25 % restants constituent une marge de croissance.
+Tous les candidats sont validés avant la création du backup complet du space.
+Le contenu persisté est relu et vérifié ; un échec déclenche un rollback vérifié
+de `bank/`. Si ce rollback échoue aussi, le job expose le `backup_id` nécessaire à une restauration
 manuelle. Aucun nouvel objet `*.part-NNN.md` n'est créé. Les anciennes familles
 multipart v2.7.x restent lisibles sans perte, puis sont réassemblées sous leur
 unique nom canonique par une compaction, une consolidation ou une restauration
@@ -356,11 +361,21 @@ supprimer une note live concurrente. Les résultats terminaux des jobs sont
 persistés pour l'audit après redémarrage ; les jobs actifs/en attente restent
 dans une FIFO en mémoire.
 
-Depuis la v2.7.2, la compaction automatique avant consolidation est une
-maintenance, pas une barrière : un plan LLM invalide ou tronqué laisse ce fichier inchangé et la
-consolidation continue avec la bank cohérente. Les réductions valides des
-autres fichiers sont tout de même appliquées. Seules une ancienne famille découpée
-incohérente ou l'échec d'un rollback d'écriture bloquent `bank_consolidate`.
+Dans la 2.8.0, la compaction automatique avant consolidation est une
+barrière. Tout échec de préflight, Map, Reduce, candidat, backup, persistance ou
+rollback bloque `bank_consolidate` ; aucune note source n'est consommée et
+aucune mutation ultérieure de la Bank ne démarre.
+
+> **2.8.0 prête à publier — acceptée par le propriétaire produit, non déployée :** les
+> Maps bornées et le Reduce unique ont franchi les gates mécaniques sur les
+> corpus réels. La comparaison a retenu `mistral-small4:119b` comme modèle de
+> compactage recommandé : il préserve mieux le sens global et les points
+> opérationnels importants que les modèles Qwen testés. `gpt-oss:120b` n'est
+> pas supporté pour ce chemin : il termine par `finish_reason=length` avec le
+> plafond Map produit de 4 000 tokens et reste plus lent et moins fidèle lors
+> du rejeu R&D à 8 000 tokens. La compaction est volontairement avec perte et
+> un canari manuel reste obligatoire avant la production. Voir le
+> [design du compactage hiérarchique 2.8.0](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 
 ### Graph (4 outils) — 🌉 Pont vers Graph Memory
 
@@ -736,7 +751,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dépendances et config projet (uv)
 ├── uv.lock                    # lockfile uv
-├── VERSION                    # 2.7.3
+├── VERSION                    # 2.8.0
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -815,4 +830,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.7.3 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.8.0 — Mémoire de travail partagée pour agents IA collaboratifs*

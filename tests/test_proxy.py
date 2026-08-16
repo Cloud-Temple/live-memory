@@ -147,6 +147,39 @@ class TestConsolidatorServiceProxy:
         svc = self._make_consolidator(None)
         assert svc._http_client is None
 
+    def test_compaction_model_is_distinct_from_consolidation_model(self):
+        settings = _make_settings(
+            llmaas_model="consolidation-model",
+            llmaas_compaction_model="mistral-small4:119b",
+        )
+        with (
+            patch("live_mem.core.consolidator.get_settings", return_value=settings),
+            patch("live_mem.core.consolidator.AsyncOpenAI"),
+        ):
+            from live_mem.core.consolidator import ConsolidatorService
+
+            svc = ConsolidatorService()
+
+        assert svc._model == "consolidation-model"
+        assert svc._compaction_model == "mistral-small4:119b"
+
+    @pytest.mark.parametrize("configured", ["", "   "])
+    def test_empty_compaction_model_falls_back_to_consolidation_model(self, configured):
+        settings = _make_settings(
+            llmaas_model="consolidation-model",
+            llmaas_compaction_model=configured,
+        )
+        with (
+            patch("live_mem.core.consolidator.get_settings", return_value=settings),
+            patch("live_mem.core.consolidator.AsyncOpenAI"),
+        ):
+            from live_mem.core.consolidator import ConsolidatorService
+
+            svc = ConsolidatorService()
+
+        assert svc._model == "consolidation-model"
+        assert svc._compaction_model == "consolidation-model"
+
     def test_close_calls_aclose_and_resets_to_none(self):
         """close() doit appeler aclose() sur _http_client et le remettre à None."""
         svc = self._make_consolidator("http://proxy.example.com:3128")
@@ -261,7 +294,9 @@ class TestLLMaaSHealthProxy:
             result = asyncio.run(mcp.tools["system_health"]())
 
         mock_httpx_client.assert_called_once()
-        assert str(mock_httpx_client.call_args.kwargs["proxy"].url) == settings.proxy_url
+        assert (
+            str(mock_httpx_client.call_args.kwargs["proxy"].url) == settings.proxy_url
+        )
         assert mock_httpx_client.call_args.kwargs["timeout"] == 30
         assert mock_openai.call_args.kwargs["http_client"] is http_client
         client.chat.completions.create.assert_awaited_once()
@@ -296,7 +331,9 @@ class TestLLMaaSHealthProxy:
             asyncio.run(StaticFilesMiddleware(app=AsyncMock())._handle_health(send))
 
         mock_httpx_client.assert_called_once()
-        assert str(mock_httpx_client.call_args.kwargs["proxy"].url) == settings.proxy_url
+        assert (
+            str(mock_httpx_client.call_args.kwargs["proxy"].url) == settings.proxy_url
+        )
         assert mock_httpx_client.call_args.kwargs["timeout"] == 5
         assert mock_openai.call_args.kwargs["http_client"] is http_client
         client.models.list.assert_awaited_once()
