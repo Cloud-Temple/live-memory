@@ -354,13 +354,19 @@ def validate_digest(
     _validate_digest_markdown(output, parser, preserved_context)
     normalized = ANY_UNIT_ID_RE.sub("", output).strip()
     _validate_digest_markdown(normalized, parser, preserved_context)
-    raw = normalized.encode("utf-8", errors="strict")
-    if len(raw) > max_bytes:
-        raise ValueError("digest exceeds its UTF-8 byte budget")
     source_text = source.decode("utf-8", errors="strict")
     invented = _references(normalized) - _references(source_text)
     if invented:
         raise ValueError(f"digest invents references: {sorted(invented)}")
+    raw = normalized.encode("utf-8", errors="strict")
+    if len(raw) > max_bytes:
+        prefix = raw[: max_bytes - len("…".encode())].decode("utf-8", errors="ignore")
+        words = prefix.rsplit(maxsplit=1)
+        if len(words) < 2:
+            raise ValueError("digest exceeds its UTF-8 byte budget")
+        normalized = words[0].rstrip(" ,;:-") + "…"
+        _validate_digest_markdown(normalized, parser, preserved_context)
+        raw = normalized.encode("utf-8", errors="strict")
     return raw
 
 

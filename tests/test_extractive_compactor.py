@@ -507,6 +507,10 @@ def test_reduce_budget_uses_exact_minimal_wrapper(source):
     with pytest.raises(ValueError, match="byte budget"):
         validate_digest("x" * (budget + 1), source + recent, recent, budget, PARSER)
 
+    fitted = validate_digest("mot " * budget, source + recent, recent, budget, PARSER)
+    assert len(fitted) <= budget
+    assert fitted.decode().endswith("…")
+
 
 def test_reduce_budget_counts_utf8_bytes_and_final_multiline_indentation():
     old = b"- **2026-08-01** ancien historique " + b"x" * 300 + b"\n"

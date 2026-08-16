@@ -192,8 +192,10 @@ flowchart TD
 7. Interdire les IDs internes U/P. Une référence `#N`, une version `vX.Y[.Z]`
    ou une date ISO/française ne peut apparaître que si elle existe déjà dans le
    fichier source.
-8. Le modèle peut laisser du budget inutilisé. Le code ne tronque, ne répare et
-   ne relance jamais une sortie.
+8. Le modèle peut laisser du budget inutilisé. Si sa sortie complète et valide
+   dépasse le budget, couper sa queue au dernier mot qui tient, ajouter une
+   ellipse et revalider ; l'ordre demandé place les points prioritaires en tête.
+   Aucun retry n'est effectué.
 
 ### F. Validation du digest
 
