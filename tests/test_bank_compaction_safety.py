@@ -663,7 +663,6 @@ async def test_zero_byte_candidate_is_rejected_before_any_storage_mutation():
 @pytest.mark.parametrize(
     "digest, reason",
     [
-        ("- Référence inventée #999.", "invents references"),
         ("```sh\necho unsafe\n```", "fence"),
     ],
 )

@@ -355,9 +355,13 @@ def validate_digest(
     normalized = ANY_UNIT_ID_RE.sub("", output).strip()
     _validate_digest_markdown(normalized, parser, preserved_context)
     source_text = source.decode("utf-8", errors="strict")
-    invented = _references(normalized) - _references(source_text)
-    if invented:
-        raise ValueError(f"digest invents references: {sorted(invented)}")
+    references_removed = False
+    while invented := _references(normalized) - _references(source_text):
+        references_removed = True
+        for reference in sorted(invented, key=len, reverse=True):
+            normalized = normalized.replace(reference, "")
+    if references_removed:
+        _validate_digest_markdown(normalized, parser, preserved_context)
     raw = normalized.encode("utf-8", errors="strict")
     if len(raw) > max_bytes:
         prefix = raw[: max_bytes - len("…".encode())].decode("utf-8", errors="ignore")

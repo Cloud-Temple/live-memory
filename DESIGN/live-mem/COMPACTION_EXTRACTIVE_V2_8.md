@@ -209,8 +209,8 @@ flowchart TD
    lien ajouté par le digest.
 4. Rejeter sortie vide ou sans token visible, définition de lien, JSON complet,
    token interdit, racine autre que paragraphe/liste/heading, puis retirer les
-   ID internes Map/Reduce avant une seconde validation Markdown,
-   dépassement du budget UTF-8 ou référence inventée.
+   ID internes Map/Reduce et les références absentes de la source avant une
+   seconde validation Markdown, puis appliquer le budget UTF-8.
 5. Ne pas exiger la conservation de toutes les références : le digest est
    volontairement non exhaustif. L'invariant est absence d'invention, pas
    exhaustivité.

@@ -234,10 +234,19 @@ def test_digest_validation_allows_technical_markdown_and_rejects_invention():
 
     assert validate_digest(output, source, source, 200, PARSER) == output.encode()
 
-    with pytest.raises(ValueError, match="invents references"):
+    assert (
         validate_digest("- Décision #81.", source, source, 200, PARSER)
+        == b"- D\xc3\xa9cision ."
+    )
     assert (
         validate_digest("- Garder U0001.", source, source, 200, PARSER) == b"- Garder ."
+    )
+    assert b"v1.2.3" not in validate_digest(
+        "- Transition v1.2#81.3.",
+        b"Transition v1.2.",
+        b"Transition v1.2.",
+        200,
+        PARSER,
     )
 
 
