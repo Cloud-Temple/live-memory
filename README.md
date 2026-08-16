@@ -239,11 +239,13 @@ Edit `.env`. All variables are documented in `.env.example`.
 
 ### Optional Variables — LLM
 
-The consolidator uses an LLM (OpenAI-compatible API) to transform live notes into structured bank files.
+The service can use distinct OpenAI-compatible models for consolidation and
+hierarchical compaction.
 
 | Variable                  | Default           | Description                     |
 | ------------------------- | ----------------- | ------------------------------- |
-| `LLMAAS_MODEL`            | `qwen3.5:27b` | LLM model name as exposed by the provider |
+| `LLMAAS_MODEL`            | `qwen3.5:27b` | Consolidation model name as exposed by the provider |
+| `LLMAAS_COMPACTION_MODEL` | `LLMAAS_MODEL` | Dedicated Map/Reduce compaction model. `mistral-small4:119b` is recommended for 2.8.0 |
 | `LLMAAS_CONTEXT_WINDOW`   | `131072`          | TOTAL context window of the model (input + output combined, in tokens). Qwen3 235B = 128K |
 | `LLMAAS_MAX_TOKENS`       | `16384`           | Max OUTPUT tokens per request. The consolidator adjusts dynamically: `output = min(MAX_TOKENS, CONTEXT_WINDOW - input)` |
 | `LLMAAS_TEMPERATURE`      | `0.3`             | LLM creativity (0.0 = deterministic, 1.0 = very creative) |
@@ -361,12 +363,15 @@ preflight, Map, Reduce, candidate, backup, persistence, or rollback failure
 blocks `bank_consolidate`; no source note is consumed and no later Bank mutation
 starts.
 
-> **2.8.0 development status — final R&D NO-GO:** bounded Maps plus one Reduce
-> passed the real-corpus size, integrity, backup and rollback gates on
-> `mcp-agent` and `agentic-platform`, but semantic review still found material
-> operational misstatements. The experiment is stopped: the Draft PR must not
-> be merged, released, enabled in production, or treated as the current product
-> contract. Version 2.7.3 remains authoritative. See the
+> **2.8.0 release candidate — product-owner accepted, not deployed:** bounded
+> Maps plus one Reduce passed the real-corpus mechanical gates. Comparative
+> review selected `mistral-small4:119b` as the recommended compaction model: it
+> preserved the global meaning and important operational points better than the
+> tested Qwen models. `gpt-oss:120b` is not supported for this compaction path:
+> it reached `finish_reason=length` with the product Map ceiling of 4,000 tokens
+> and remained slower and less faithful in an 8,000-token R&D rerun. Compaction
+> is intentionally lossy and still requires a manual canary before production.
+> See the
 > [2.8.0 hierarchical compaction design](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory

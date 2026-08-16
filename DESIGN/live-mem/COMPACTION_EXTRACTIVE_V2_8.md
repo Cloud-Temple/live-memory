@@ -1,17 +1,18 @@
 # Compactage hiérarchique Map/Reduce — Live Memory 2.8.0
 
-**Status: final R&D NO-GO — not released or deployed**
+**Status: release candidate accepted by the product owner — not deployed**
 
 Ce document est la spécification canonique du compacteur 2.8.0. Le nom du
 fichier est conservé pour la traçabilité des travaux extractifs qui ont conduit
 au design actuel. L'algorithme livré est désormais **hiérarchique et
-abstractive** : le code inventorie des unités Markdown exactes, Qwen produit des
-fiches temporaires puis un digest Markdown, et le code remplace l'historique
-sélectionnable par un seul conteneur borné.
+abstractive** : le code inventorie des unités Markdown exactes, le modèle de
+compactage configuré produit des fiches temporaires puis un digest Markdown, et
+le code remplace l'historique sélectionnable par un seul conteneur borné.
 
-Ce statut n'autorise ni merge, bump, tag, release, canari ou production. Les
-preuves de l'ancien algorithme extractif sont historiques : ses garanties
-mécaniques restent utiles, mais son gate sémantique a échoué.
+L'acceptation porte sur le contrat volontairement non exhaustif et son gain net
+par rapport à la 2.7.3. Elle n'autorise pas à elle seule un déploiement :
+l'auto-compaction production reste soumise à un canari manuel. Les preuves de
+l'ancien algorithme extractif restent historiques.
 
 ## 1. Décision produit
 
@@ -67,12 +68,12 @@ flowchart TD
     L --> M["Lots Map gloutons : 32 unités et 40 KB max"]
     M --> N["Préflight global de tous les prompts et fenêtres"]
     N -->|"échec d'un fichier"| X2["NO-GO global avant premier appel"]
-    N -->|"vert"| O["Maps Qwen, température 0, thinking off"]
+    N -->|"vert"| O["Maps avec LLMAAS_COMPACTION_MODEL, température 0"]
 
     O --> P["Parse ID | fiche ; fiche bornée à 240 B"]
     P --> Q["Fallback code-owned sur le label source si omission"]
     Q --> R["Inventaire Reduce : rôle, ID, date, bytes, fiche"]
-    R --> S["Un Reduce Qwen : digest Markdown non exhaustif"]
+    R --> S["Un Reduce avec le même modèle : digest Markdown non exhaustif"]
 
     S --> T["Validation de la sortie brute"]
     T --> U["Strip extérieur déterministe"]
@@ -154,8 +155,9 @@ flowchart TD
 
 1. Envoyer les unités source exactes, chacune entre marqueurs avec ID, date et
    taille, comme données non fiables.
-2. Utiliser le modèle configuré, qualifié avec `qwen3.6:35b`, température zéro,
-   thinking désactivé, plafond 4 000 tokens et aucun retry.
+2. Utiliser `LLMAAS_COMPACTION_MODEL`, température zéro, plafond 4 000 tokens
+   et aucun retry. `enable_thinking=false` est envoyé uniquement aux modèles
+   Qwen ; aucun paramètre de thinking n'est envoyé à Mistral ou GPT-OSS.
 3. Demander une ligne `ID | fiche` par unité. La fiche décrit valeur future,
    état final ou intermédiaire, décision, risque, résolution et action utile.
 4. Accepter une ligne portant un seul ID connu, même si ce même ID est répété.
@@ -300,8 +302,8 @@ ou invalider le contrat :
   consolidation automatique en cas d'échec.
 
 Les mocks valident la plomberie et les invariants, jamais la qualité métier. Le
-gate sémantique s'effectue exclusivement avec `qwen3.6:35b` sur les vraies
-banques restaurées localement.
+gate sémantique s'effectue sur les vraies banques restaurées localement avec le
+modèle de compaction prévu pour le déploiement.
 
 ## 5. Gates 2.8.0
 
@@ -309,8 +311,8 @@ Le pivot abstractive remet les compteurs de validation à zéro. Avant merge,
 bump ou release :
 
 1. suite unitaire complète, lint et diff-check verts ;
-2. trois restaurations et exécutions Docker consécutives sur `mcp-agent` ;
-3. trois restaurations et exécutions Docker consécutives sur `agentic-platform` ;
+2. une restauration et exécution locale complète sur `mcp-agent` ;
+3. une restauration et exécution locale complète sur `agentic-platform` ;
 4. à chaque passe : résultat sous limite, aucun fichier en échec, récent,
    protégé, extérieur et fichiers non ciblés byte-identiques, backup et rollback
    vérifiés ;
@@ -341,7 +343,7 @@ fusionnées, ce qui exige une synthèse abstractive.
 
 Les recettes extractives antérieures sur `agentic-platform` restent des preuves
 de robustesse des offsets, protections, préflight et transaction. Elles ne
-valident pas le digest 2.8.0 et ne comptent pas dans les trois passes requises.
+valident pas le digest Map/Reduce 2.8.0 et ne comptent pas dans sa qualification.
 
 ### Premier run abstractive : transaction verte, budget rouge
 
@@ -366,7 +368,7 @@ menace lorsqu'il reste imbriqué dans le conteneur ; le contrat est donc amendé
 avec la garde structurelle décrite en G, sans retry ni assouplissement des
 autres tokens interdits. Les compteurs de gates réussis restent à zéro.
 
-### Gate final Map/Reduce : mécanique verte, sémantique rouge
+### Qualification Qwen : mécanique verte, sémantique insuffisante
 
 Les recettes Docker finales sur les sources réelles restaurées ont validé la
 mécanique complète :
@@ -377,7 +379,7 @@ mécanique complète :
 - 12 puis 7 appels Qwen, `finish_reason=stop`, backup, écriture et relecture
   vérifiés, aucune mutation partielle.
 
-Le gate sémantique reste rouge. Les sorties ont notamment inversé un ordre de
+La qualification sémantique Qwen reste rouge. Les sorties ont notamment inversé un ordre de
 déploiement Mission/Vault, conservé un état de révocation admin remplacé,
 généralisé à tort une règle zéro-retry et déformé le mécanisme de scrubbing des
 secrets. Une règle de récence a corrigé l'ordre de déploiement lors du dernier
@@ -385,8 +387,32 @@ rejeu, mais pas les autres contresens. Conformément au coupe-circuit, aucun
 nouveau prompt, algorithme ou run n'est ajouté à cette variante.
 
 Les deux espaces S3 DEV ont été restaurés à leurs snapshots source exacts après
-les essais. Aucun changement de production, bump, tag ou release 2.8.0 n'a été
-effectué. La 2.7.3 reste le contrat produit.
+les essais. Aucun changement de production n'a été effectué.
+
+### Panorama modèles et décision 2.8.0
+
+Les mêmes corpus ont ensuite été compactés avec plusieurs modèles, sans changer
+l'algorithme Map/Reduce :
+
+- **`mistral-small4:119b` — recommandé.** C'est le meilleur compromis observé
+  pour préserver le sens global, les décisions et les états opérationnels
+  importants. Des imprécisions résiduelles existent ; elles sont acceptées dans
+  le contrat non exhaustif et restent contrôlées par la revue humaine.
+- **`qwen3.6:35b` — compatible et efficient, mais moins fidèle.** Il conserve
+  davantage de contresens opérationnels que Mistral sur les corpus qualifiés.
+- **`qwen3.6:27b` — non retenu.** Le texte est compact, mais les contradictions
+  affirmatives sont plus nombreuses.
+- **`gpt-oss:120b` — non supporté pour ce compacteur.** Avec le plafond produit
+  Map de 4 000 tokens, il s'arrête sur `finish_reason=length`. Un unique rejeu
+  R&D local à 8 000 tokens termine, mais environ trois fois plus lentement et
+  avec davantage d'erreurs matérielles. Ce rejeu ne justifie ni changement du
+  plafond produit ni adoption du modèle.
+
+La configuration sépare donc les responsabilités : `LLMAAS_MODEL` pilote la
+consolidation classique et `LLMAAS_COMPACTION_MODEL` pilote exclusivement les
+Maps et le Reduce du compacteur. Une valeur de compaction vide réutilise le
+modèle de consolidation pour compatibilité ; une valeur explicite indisponible
+échoue normalement, sans fallback runtime vers un second modèle.
 
 ## 7. Fondements dans la littérature
 

@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     llmaas_api_url: str = ""
     llmaas_api_key: str = ""
     llmaas_model: str = "qwen3.5:27b"
+    # Optional dedicated model for hierarchical Bank compaction. Empty keeps
+    # backward compatibility by reusing LLMAAS_MODEL.
+    llmaas_compaction_model: str = ""
     llmaas_context_window: int = (
         131072  # Taille totale du context window du modèle (input + output)
     )
@@ -121,8 +124,6 @@ class Settings(BaseSettings):
     # Cap on reported claims (only the first few are returned, to bound
     # the payload size sent back to the MCP caller).
     consolidation_validation_max_examples: int = 20
-
-
 
     # ─── Bank Compaction ──────────────────────────────────────
     # Conservé pour compatibilité ; la limite logique par fichier est le

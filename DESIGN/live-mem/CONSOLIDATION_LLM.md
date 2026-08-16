@@ -276,8 +276,11 @@ Removes 20 types of invisible Unicode characters and normalizes 10 types of Unic
 
 ## 3ter. Safe Hierarchical Bank Compaction (v2.8.0 candidate)
 
-Qwen first produces bounded ephemeral cards for complete Markdown source units,
-then produces a compact, non-exhaustive Markdown digest in one Reduce call.
+The dedicated compaction model first produces bounded ephemeral cards for
+complete Markdown source units, then produces a compact, non-exhaustive
+Markdown digest in one Reduce call. `mistral-small4:119b` is the qualified
+2.8.0 recommendation; `gpt-oss:120b` is not supported for this path because it
+does not complete under the product Map output ceiling.
 The compacteur has no filename-specific roles. For every oversized logical
 file from the canonical bank inventory, it detects either dated structural
 entries or complete H3 sections from the content itself. Protected units from
@@ -587,6 +590,7 @@ Attempt 2 → classic retry (messages + explicit reminder)
 LLMAAS_API_URL=https://api.ai.cloud-temple.com/v1
 LLMAAS_API_KEY=your_key
 LLMAAS_MODEL=qwen3.5:27b
+LLMAAS_COMPACTION_MODEL=mistral-small4:119b
 LLMAAS_MAX_TOKENS=100000
 LLMAAS_TEMPERATURE=0.3
 CONSOLIDATION_TIMEOUT=600

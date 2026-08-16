@@ -609,6 +609,9 @@ class ConsolidatorService:
             http_client=self._http_client,
         )
         self._model = settings.llmaas_model
+        self._compaction_model = (
+            settings.llmaas_compaction_model.strip() or settings.llmaas_model
+        )
         self._context_window = settings.llmaas_context_window
         self._max_tokens = settings.llmaas_max_tokens
         self._temperature = settings.llmaas_temperature
@@ -2807,18 +2810,18 @@ indiqué et tu peux laisser du budget inutilisé."""
         """Run one bounded Map or Reduce call without logging its ephemeral text."""
         try:
             request = {
-                "model": self._model,
+                "model": self._compaction_model,
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "temperature": 0,
             }
-            if self._model.lower().startswith("qwen"):
+            if self._compaction_model.lower().startswith("qwen"):
                 request["extra_body"] = {"enable_thinking": False}
             response = await self._client.chat.completions.create(**request)
             choice = response.choices[0]
             if choice.finish_reason != "stop":
                 return None, {
-                    "error": f"incomplete Qwen {label} output ({choice.finish_reason})",
+                    "error": f"incomplete LLM {label} output ({choice.finish_reason})",
                     "llm_attempts": 1,
                 }
             output = choice.message.content or ""
@@ -2826,9 +2829,9 @@ indiqué et tu peux laisser du budget inutilisé."""
             return None, {"error": str(exc), "llm_attempts": 1}
         except Exception as exc:
             logger.error("COMPACT %s CALL FAILED: %s", label, exc)
-            return None, {"error": f"Qwen {label} call failed", "llm_attempts": 1}
+            return None, {"error": f"LLM {label} call failed", "llm_attempts": 1}
         return output, {
-            "model": self._model,
+            "model": self._compaction_model,
             "llm_attempts": 1,
             "finish_reason": "stop",
         }

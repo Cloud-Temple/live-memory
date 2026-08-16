@@ -447,8 +447,9 @@ Dry-run returns logical sizes in UTF-8 bytes and identifies files above
 same per-space FIFO as consolidation. The job is visible through
 `bank_consolidation_status` and `bank_consolidation_queues`.
 
-The worker asks Qwen to create bounded ephemeral cards for complete Markdown
-source units, then to produce one non-exhaustive Markdown digest in a Reduce. It
+The worker asks the configured compaction model to create bounded ephemeral
+cards for complete Markdown source units, then to produce one non-exhaustive
+Markdown digest in a Reduce. It
 processes every oversized logical file from the canonical bank inventory by
 structure and content, without filename-specific roles. Dated structural
 entries or complete H3 sections are candidates; recent, undated, code-bearing

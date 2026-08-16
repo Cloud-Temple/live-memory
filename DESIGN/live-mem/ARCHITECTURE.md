@@ -42,7 +42,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 | **Input**         | Documents (PDF, DOCX, MD, CSV) | Agent text notes                              |
 | **Storage**       | Neo4j + Qdrant + S3            | **S3 only**                                   |
 | **Intelligence**  | Entity/relation extraction     | Consolidation & synthesis                     |
-| **LLM used**      | gpt-oss:120b (extraction)      | qwen3.5:27b (consolidation)                   |
+| **LLM used**      | gpt-oss:120b (extraction)      | `LLMAAS_MODEL` (consolidation) + `LLMAAS_COMPACTION_MODEL` (compaction; Mistral 119B recommended) |
 | **Search**        | Hybrid Graph + vector RAG      | Direct file reading + text search             |
 | **Agents**        | 1 agent per request            | **Multi-agent collaborative**                 |
 | **Bridge**        | —                              | **Graph Bridge** pushes bank → graph-memory   |
@@ -279,7 +279,7 @@ bank_compact(dry_run=False) ──► per-space FIFO (`job_type="compact"`)
                          from Markdown structure and content
                                       │
                                       ▼
-                         Qwen evaluates this file hierarchically
+                         Dedicated compaction model evaluates the file
                          - bounded Map cards, then one Reduce
                          - same-file protected context only
                          - one validated non-exhaustive digest
@@ -497,6 +497,7 @@ S3_REGION_NAME=fr1
 LLMAAS_API_URL=https://api.ai.cloud-temple.com/v1
 LLMAAS_API_KEY=your_key
 LLMAAS_MODEL=qwen3.5:27b
+LLMAAS_COMPACTION_MODEL=mistral-small4:119b
 LLMAAS_MAX_TOKENS=100000
 LLMAAS_TEMPERATURE=0.3
 

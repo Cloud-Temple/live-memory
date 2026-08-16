@@ -295,7 +295,7 @@ def _validate_digest_markdown(
     value: str, parser: MarkdownIt, preserved_context: str
 ) -> None:
     if not value.strip():
-        raise ValueError("Qwen returned an empty digest")
+        raise ValueError("LLM returned an empty digest")
     if LINK_DEFINITION_RE.search(value):
         raise ValueError("digest contains a forbidden Markdown link definition")
     try:
@@ -303,7 +303,7 @@ def _validate_digest_markdown(
     except json.JSONDecodeError:
         decoded = None
     if isinstance(decoded, (dict, list)):
-        raise ValueError("Qwen returned JSON instead of a Markdown digest")
+        raise ValueError("LLM returned JSON instead of a Markdown digest")
     environment: dict = {}
     parser.parse(preserved_context, environment)
     references_before = set(environment.get("references", {}))
@@ -317,7 +317,7 @@ def _validate_digest_markdown(
     ):
         raise ValueError("digest contains a forbidden Markdown link definition")
     if not tokens:
-        raise ValueError("Qwen returned a digest without visible Markdown content")
+        raise ValueError("LLM returned a digest without visible Markdown content")
     for token in _token_tree(tokens):
         if token.type in DIGEST_FORBIDDEN_TOKENS:
             raise ValueError(f"digest contains forbidden Markdown token: {token.type}")
@@ -327,7 +327,7 @@ def _validate_digest_markdown(
             except json.JSONDecodeError:
                 inline_json = None
             if isinstance(inline_json, (dict, list)):
-                raise ValueError("Qwen returned JSON instead of a Markdown digest")
+                raise ValueError("LLM returned JSON instead of a Markdown digest")
     allowed_roots = {
         "heading_open",
         "heading_close",

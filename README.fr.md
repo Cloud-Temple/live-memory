@@ -239,11 +239,13 @@ python scripts/test_recette.py
 
 ### Variables optionnelles — LLM
 
-Le consolidateur utilise un LLM (API compatible OpenAI) pour transformer les notes live en fichiers bank structurés.
+Le service peut utiliser deux modèles compatibles OpenAI distincts pour la
+consolidation et le compactage hiérarchique.
 
 | Variable                  | Défaut            | Description                     |
 | ------------------------- | ----------------- | ------------------------------- |
-| `LLMAAS_MODEL`            | `qwen3.5:27b`     | Nom du modèle LLM tel qu'exposé par le fournisseur |
+| `LLMAAS_MODEL`            | `qwen3.5:27b`     | Modèle utilisé pour la consolidation des notes |
+| `LLMAAS_COMPACTION_MODEL` | `LLMAAS_MODEL`    | Modèle Map/Reduce dédié au compactage. `mistral-small4:119b` est recommandé pour la 2.8.0 |
 | `LLMAAS_CONTEXT_WINDOW`   | `131072`          | Context window TOTAL du modèle (input + output combinés, en tokens). Qwen3 235B = 128K |
 | `LLMAAS_MAX_TOKENS`       | `16384`           | Budget de SORTIE max par requête (en tokens). Le consolidateur l'ajuste dynamiquement : `output = min(MAX_TOKENS, CONTEXT_WINDOW - input)` |
 | `LLMAAS_TEMPERATURE`      | `0.3`             | Créativité du LLM (0.0 = déterministe, 1.0 = très créatif) |
@@ -364,12 +366,15 @@ barrière. Tout échec de préflight, Map, Reduce, candidat, backup, persistance
 rollback bloque `bank_consolidate` ; aucune note source n'est consommée et
 aucune mutation ultérieure de la Bank ne démarre.
 
-> **Statut de développement 2.8.0 — NO-GO R&D final :** les Maps bornées et le
-> Reduce unique ont franchi les gates réels de taille, intégrité, backup et
-> rollback sur `mcp-agent` et `agentic-platform`, mais la revue sémantique a
-> encore trouvé des contresens opérationnels matériels. L'expérience est arrêtée :
-> la Draft PR ne doit pas être mergée, publiée ou activée en production. La 2.7.3
-> reste le contrat de référence. Voir le
+> **Candidat 2.8.0 — accepté par le propriétaire produit, non déployé :** les
+> Maps bornées et le Reduce unique ont franchi les gates mécaniques sur les
+> corpus réels. La comparaison a retenu `mistral-small4:119b` comme modèle de
+> compactage recommandé : il préserve mieux le sens global et les points
+> opérationnels importants que les modèles Qwen testés. `gpt-oss:120b` n'est
+> pas supporté pour ce chemin : il termine par `finish_reason=length` avec le
+> plafond Map produit de 4 000 tokens et reste plus lent et moins fidèle lors
+> du rejeu R&D à 8 000 tokens. La compaction est volontairement avec perte et
+> un canari manuel reste obligatoire avant la production. Voir le
 > [design du compactage hiérarchique 2.8.0](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 
 ### Graph (4 outils) — 🌉 Pont vers Graph Memory

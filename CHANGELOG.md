@@ -7,13 +7,20 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-> **Experimental 2.8.0 — final R&D NO-GO.**
+> **2.8.0 release candidate — accepted by the product owner, not deployed.**
 > The bounded Map/Reduce implementation meets its byte, integrity, backup and
-> rollback targets, but the final real-corpus gate still produced material
-> operational misstatements. It is not releasable and does not replace the
-> 2.7.3 product contract.
+> rollback targets. Its explicitly lossy semantic contract was accepted against
+> the materially weaker 2.7.3 compaction baseline; production activation still
+> requires a manual canary.
 
 ### Changed
+
+- Added `LLMAAS_COMPACTION_MODEL` so consolidation and compaction can use
+  different models. Empty/unset keeps backward compatibility by reusing
+  `LLMAAS_MODEL`; no runtime model fallback was added.
+- Qualified `mistral-small4:119b` as the recommended 2.8.0 compaction model.
+  `enable_thinking=false` is sent only when the configured compaction model is
+  Qwen.
 
 - Replaced generated JSON edit plans with a hierarchical digest pipeline:
   bounded Map calls produce ephemeral unit cards and one Reduce produces the
@@ -46,6 +53,15 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   replaces the whole container without accumulating generated structure.
 
 ### Validation
+
+- Comparative real-corpus qualification ranked Mistral Small 4 119B ahead of
+  Qwen 3.6 35B and 27B for preservation of global meaning and important
+  operational points. Its output is not perfect, but the product owner accepted
+  that residual risk under the deliberately non-exhaustive compaction contract.
+- `gpt-oss:120b` is not suitable for the 2.8.0 compaction path. It stopped with
+  `finish_reason=length` under the product Map ceiling of 4,000 tokens. A single
+  local R&D rerun at 8,000 tokens completed but was about three times slower and
+  introduced more material semantic errors; the product ceiling was not changed.
 
 - Final Docker gates with `qwen3.6:35b` were mechanically successful on the
   restored real corpora: `mcp-agent/progress.md` 120,534 → 10,523 bytes and
