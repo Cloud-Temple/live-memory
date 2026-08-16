@@ -236,6 +236,10 @@ async def live_read(
 ) -> dict:
 ```
 
+The response keeps `total` as the number of returned notes and exposes
+`matched_total` as the full number matching the filters before `limit` is
+applied. `has_more` indicates whether notes were omitted by the limit.
+
 ---
 
 ### `live_search` 🔑

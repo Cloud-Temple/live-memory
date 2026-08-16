@@ -440,7 +440,7 @@ async function loadExplorerSpace(sid){
     const nl=notes.notes||[],fl=bank.files||[],lane=(queues.lanes||[])[0]||{space_id:sid,lane_state:'idle',queued_count:0,latest_jobs:[]};
     el.innerHTML=`${renderExplorerLane(lane)}
         <div class="explorer-grid">
-        <div class="explorer-col"><h3>📝 Live Notes <span class="badge blue">${nl.length}</span></h3>
+        <div class="explorer-col"><h3>📝 Live Notes <span class="badge blue">${notes.matched_total??nl.length}</span></h3>
             ${nl.length?nl.map(n=>`<div class="note-card"><div class="note-meta"><span class="badge blue">${esc(n.category||'?')}</span> <strong>${esc(n.agent||'?')}</strong> <span class="text-muted">${fmtTime(n.timestamp)}</span></div><div class="note-text">${esc((n.content||'').substring(0,300))}${(n.content||'').length>300?'…':''}</div></div>`).join(''):'<div class="empty">No live notes.</div>'}
         </div>
         <div class="explorer-col"><h3>📘 Bank Files <span class="badge green">${fl.length}</span></h3>
