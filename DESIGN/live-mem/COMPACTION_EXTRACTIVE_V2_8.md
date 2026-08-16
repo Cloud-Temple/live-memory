@@ -170,25 +170,25 @@ flowchart TD
 ### E. Reduce : synthèse globale
 
 1. Appeler exactement un Reduce par fichier, avec le plafond dynamique vérifié
-   au préflight et borné à 8 000 octets de digest, sans retry.
+   au préflight et borné à 6 000 octets de digest, sans retry.
 2. Lui transmettre uniquement, pour chaque unité, le rôle `selectable` ou
    `protected`, l'ID, la date, la taille et la fiche Map. Le texte source complet
    n'est pas relu par le Reduce.
 3. Le contexte `protected` sert uniquement à détecter les états remplacés. Il
    ne doit ni être résumé ni répété.
-4. En mode daté, prioriser expositions de sécurité, blocages ouverts, actions
-   correctives, décisions, incidents, résolutions et jalons. Pour un même sujet,
-   l'état explicite le plus récent fait foi ; une résolution, fermeture ou fusion
-   annule les anciens blocages et actions. Si un conflit reste ambigu, omettre le
-   statut et l'action plutôt que fabriquer un état courant. Pénaliser fortement
-   répétitions et chroniques de revue.
+4. En mode daté, conserver uniquement les causes et mitigations durables,
+   décisions, invariants, risques structurels et leçons encore applicables.
+   Exclure états successifs, jalons, actions, métriques et chroniques de revue ;
+   les zones récentes/protégées exactes restent l'autorité sur l'état courant.
 5. En mode sections, prioriser mécanismes, invariants, décisions d'architecture
    et risques structurels durables.
-6. Demander de préférence un digest Markdown non exhaustif composé de
-   paragraphes et listes, avec vingt points maximum : jusqu'à cinq états
-   finaux/jalons, cinq risques/actions ouverts, cinq décisions/invariants et
-   cinq incidents/leçons, uniquement si la matière existe. Le code inline est
-   autorisé. Les headings produits
+6. Demander un digest Markdown non exhaustif de douze puces maximum.
+   L'historique ne détermine aucun statut courant : il conserve seulement les
+   faits encore applicables, décisions, invariants, risques structurels et
+   leçons durables. Les statuts de PR/issues, chroniques de releases/revues,
+   prochaines actions et décomptes de tests restent exclus ; les zones
+   récentes/protégées exactes en sont l'autorité. Le code inline est autorisé.
+   Les headings produits
    sont acceptés uniquement s'ils restent imbriqués dans l'item code-owned
    après rendu. Tables, liens, images, fences, blocs de code, HTML, blockquotes,
    séparateurs et JSON restent interdits.
