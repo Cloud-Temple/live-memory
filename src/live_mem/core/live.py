@@ -173,7 +173,8 @@ class LiveService:
             since: ISO datetime — notes après cette date (optionnel)
 
         Returns:
-            {"status": "ok", "notes": [...], "total": N, "has_more": bool}
+            {"status": "ok", "notes": [...], "total": N,
+             "matched_total": M, "has_more": bool}
         """
         # VULN-10 fix : borner le limit
         limit = min(limit, MAX_LIVE_READ_LIMIT)
@@ -217,6 +218,7 @@ class LiveService:
             "space_id": space_id,
             "notes": notes,
             "total": len(notes),
+            "matched_total": total,
             "has_more": total > limit,
         }
 

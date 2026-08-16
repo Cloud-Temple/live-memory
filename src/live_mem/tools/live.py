@@ -144,7 +144,9 @@ def register(mcp: FastMCP) -> int:
             since: Notes après cette date ISO (optionnel)
 
         Returns:
-            Liste des notes avec métadonnées et contenu
+            Liste des notes avec métadonnées et contenu. ``total`` indique
+            le nombre retourné et ``matched_total`` le nombre réel avant
+            application de ``limit``.
         """
         from ..auth.context import check_access
         from ..core.live import get_live_service

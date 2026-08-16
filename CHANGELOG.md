@@ -7,6 +7,12 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- The `/admin` Explorer keeps its 30-note display limit but now shows the real
+  number of matching live notes instead of presenting the truncated list length
+  as the total.
+
 ## [2.8.0] — 2026-08-16
 
 > **Release-ready — accepted by the product owner, not deployed.**
