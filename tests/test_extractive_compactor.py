@@ -396,20 +396,38 @@ def test_digest_container_budget_is_exact_and_never_truncated():
         build_digest_candidate(plan, digest, inventory.mode, len(container) - 1, 500)
 
 
-def test_reduce_budget_reserves_wrapper_and_worst_case_line_indentation():
+@pytest.mark.parametrize(
+    "source", [b"### 2026-08-01\nancien\n", b"- **2026-08-01** ancien\n"]
+)
+def test_reduce_budget_uses_exact_minimal_wrapper(source):
+    recent = b"- **2026-08-02** recent\n" if source.startswith(b"-") else b""
+    inventory = extract_markdown_inventory(source + recent, PARSER)
+    plan = make_plan(source + recent, list(inventory.candidates), 500)
+    allowance = 160
+    budget = digest_output_budget(plan, inventory.mode, allowance)
+    digest = b"x" * budget
+
+    assert len(render_digest_container(plan, digest, inventory.mode)) == allowance
+    validate_digest(digest.decode(), source + recent, recent, budget, PARSER)
+    with pytest.raises(ValueError, match="byte budget"):
+        validate_digest("x" * (budget + 1), source + recent, recent, budget, PARSER)
+
+
+def test_reduce_budget_counts_utf8_bytes_and_final_multiline_indentation():
     old = b"- **2026-08-01** ancien historique " + b"x" * 300 + b"\n"
     recent = b"- **2026-08-02** recent\n"
     inventory = extract_markdown_inventory(old + recent, PARSER)
     plan = make_plan(old + recent, list(inventory.candidates), 500)
     allowance = 100
     budget = digest_output_budget(plan, inventory.mode, allowance)
-    worst_case_lines = b"\n".join(b"x" for _ in range((budget + 1) // 2))
+    multibyte = "é" * (budget // 2)
+    digest = validate_digest(multibyte, old + recent, recent, budget, PARSER)
 
-    assert len(worst_case_lines) <= budget
-    container = render_digest_container(plan, worst_case_lines, inventory.mode)
-    assert len(container) <= allowance
-    with pytest.raises(ValueError, match="byte budget"):
-        validate_digest("x" * 100, old + recent, recent, budget, PARSER)
+    assert len(digest) <= budget
+    multiline = b"\n".join(b"x" for _ in range((budget + 1) // 2))
+    assert len(multiline) <= budget
+    with pytest.raises(ValueError, match="container exceeds"):
+        build_digest_candidate(plan, multiline, inventory.mode, allowance, 500)
 
 
 def test_map_and_reduce_prompts_keep_source_and_ephemeral_cards_separate():

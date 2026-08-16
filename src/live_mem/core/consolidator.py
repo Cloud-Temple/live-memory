@@ -2928,6 +2928,24 @@ indiqué et tu peux laisser du budget inutilisé."""
             item["unit"]["source"]: len(item["batches"]) + 1 for item in preflight
         }
         attempts_by_source = {unit["source"]: 0 for unit in action_units}
+
+        def cancelled_reports(
+            failed_source: str, reason: str, extra: dict | None = None
+        ) -> dict[str, dict]:
+            return {
+                item["source"]: {
+                    "error": (
+                        reason
+                        if item["source"] == failed_source
+                        else f"compaction cancelled because {failed_source} failed"
+                    ),
+                    "planned_llm_calls": planned_by_source.get(item["source"], 0),
+                    "llm_attempts": attempts_by_source[item["source"]],
+                    **((extra or {}) if item["source"] == failed_source else {}),
+                }
+                for item in action_units
+            }
+
         for index, prepared in enumerate(preflight, 1):
             unit = prepared["unit"]
             source = unit["source"]
@@ -2959,31 +2977,13 @@ indiqué et tu peux laisser du budget inutilisé."""
                 )
                 if output is None:
                     reason = details.get("error", "hierarchical Map failed")
-                    return None, {
-                        item["source"]: {
-                            "error": reason,
-                            "planned_llm_calls": planned_by_source.get(
-                                item["source"], 0
-                            ),
-                            "llm_attempts": attempts_by_source[item["source"]],
-                        }
-                        for item in action_units
-                    }
+                    return None, cancelled_reports(source, reason)
                 try:
                     batch_cards, batch_valid, batch_fallback = parse_map_cards(
                         output, list(batch)
                     )
                 except ValueError as exc:
-                    return None, {
-                        item["source"]: {
-                            "error": str(exc),
-                            "planned_llm_calls": planned_by_source.get(
-                                item["source"], 0
-                            ),
-                            "llm_attempts": attempts_by_source[item["source"]],
-                        }
-                        for item in action_units
-                    }
+                    return None, cancelled_reports(source, str(exc))
                 cards.update(batch_cards)
                 valid_cards += batch_valid
                 fallback_cards += batch_fallback
@@ -2999,15 +2999,12 @@ indiqué et tu peux laisser du budget inutilisé."""
             )
             if output is None:
                 reason = details.get("error", "hierarchical Reduce failed")
-                return None, {
-                    item["source"]: {
-                        "error": reason,
-                        "planned_llm_calls": planned_by_source.get(item["source"], 0),
-                        "llm_attempts": attempts_by_source[item["source"]],
-                    }
-                    for item in action_units
-                }
+                return None, cancelled_reports(source, reason)
+            digest_actual_bytes = None
             try:
+                digest_actual_bytes = len(
+                    output.strip().encode("utf-8", errors="strict")
+                )
                 digest_bytes = validate_digest(
                     output,
                     prepared["plan"].original,
@@ -3031,14 +3028,18 @@ indiqué et tu peux laisser du budget inutilisé."""
                     candidate_bytes.decode("utf-8", errors="strict")
                 )
             except ValueError as exc:
-                return None, {
-                    item["source"]: {
-                        "error": str(exc),
-                        "planned_llm_calls": planned_by_source.get(item["source"], 0),
-                        "llm_attempts": attempts_by_source[item["source"]],
-                    }
-                    for item in action_units
-                }
+                return None, cancelled_reports(
+                    source,
+                    str(exc),
+                    {
+                        "digest_budget_bytes": prepared["digest_budget"],
+                        **(
+                            {"digest_bytes": digest_actual_bytes}
+                            if digest_actual_bytes is not None
+                            else {}
+                        ),
+                    },
+                )
             candidates[source] = candidate_bytes.decode("utf-8")
             details_by_source[source] = {
                 **details,

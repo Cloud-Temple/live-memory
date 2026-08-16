@@ -132,10 +132,10 @@ flowchart TD
    `available <= 0`.
 6. Réserver 25 % de `available` à la croissance future en mode daté : le budget
    du conteneur vaut `floor(available × 3/4)`. En mode sections, il vaut
-   `available`. Avant le Reduce, soustraire le wrapper code-owned puis diviser
-   le reste par cinq : un octet de digest peut entraîner au pire quatre octets
-   d'indentation si chaque ligne est minimale. Ce plafond brut garantit que le
-   digest et son wrapper tiennent sans retry.
+   `available`. Avant le Reduce, soustraire le wrapper code-owned minimal exact.
+   Ce plafond brut est exact pour une sortie monoligne. Une sortie multiligne
+   ajoute quatre octets d'indentation par ligne ; le code contrôle donc aussi la
+   taille exacte du conteneur rendu et rejette tout dépassement, sans retry.
 
 ### C. Préflight global
 
@@ -256,6 +256,9 @@ flowchart TD
   `digest_container_bytes`, `digest_budget_bytes`,
   `digest_container_budget_bytes`, tailles et SHA avant/après,
   cible et backup. Aucun prompt, fiche ou raw LLM.
+- En cas d'annulation multi-fichiers, seul le fichier réellement fautif porte
+  son erreur et ses tailles digest ; les autres sont explicitement marqués
+  annulés par cet échec.
 
 ## 4. Invariants testés
 
@@ -319,6 +322,21 @@ fusionnées, ce qui exige une synthèse abstractive.
 Les recettes extractives antérieures sur `agentic-platform` restent des preuves
 de robustesse des offsets, protections, préflight et transaction. Elles ne
 valident pas le digest 2.8.0 et ne comptent pas dans les trois passes requises.
+
+### Premier run abstractive : transaction verte, budget rouge
+
+Le job `compact_30d58505613f41d4aaeca3f8b130f5a8` sur la copie S3 DEV de
+`mcp-agent` a exécuté les 12 appels prévus. Le candidat `progress.md` a été
+préparé en mémoire, puis `systemPatterns.md` a dépassé le plafond brut obtenu
+par la division conservatrice par cinq. Le job global a été annulé avant backup
+et écriture. La capture S3 après échec est strictement identique au manifeste
+avant exécution : 29 objets, 225 619 octets, SHA-256 d'arbre
+`9a63e0f8ce763d606b166d04bd5cf0999a8b3bca659b003f2c172e1d20feaaed`.
+
+Ce run valide le fail-closed, pas la qualité du digest. La correction supprime
+la division par cinq et réserve seulement le wrapper minimal exact ; le rendu
+final reste contrôlé en octets, notamment pour l'indentation multiligne. Les
+compteurs de gates réussis restent donc à zéro.
 
 ## 7. Fondements dans la littérature
 

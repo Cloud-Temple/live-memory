@@ -762,11 +762,96 @@ async def test_second_file_failure_cancels_all_candidates_before_backup():
     reports = {item["filename"]: item for item in result["files"]}
     assert reports["progress.md"]["planned_llm_calls"] == 4
     assert reports["progress.md"]["llm_attempts"] == 4
+    assert reports["progress.md"]["error"] == (
+        "compaction cancelled because systemPatterns.md failed"
+    )
     assert reports["systemPatterns.md"]["planned_llm_calls"] == 3
     assert reports["systemPatterns.md"]["llm_attempts"] == 1
+    assert "incomplete Qwen Map" in reports["systemPatterns.md"]["error"]
     assert not storage.copy_calls
     assert storage.objects["sp/bank/progress.md"] == progress
     assert storage.objects["sp/bank/systemPatterns.md"] == patterns
+
+
+@pytest.mark.asyncio
+async def test_digest_budget_rejection_reports_only_the_actual_failed_file():
+    progress = _oversized_section_markdown()
+    patterns = _oversized_patterns_markdown()
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/bank/progress.md": progress,
+            "sp/bank/systemPatterns.md": patterns,
+        }
+    )
+    service = _service()
+    call_count = 0
+
+    def oversized_second_reduce(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 7:
+            return _llm_plan_response(content="x" * 5000)
+        return _hierarchical_llm(*args, **kwargs)
+
+    service._client.chat.completions.create.side_effect = oversized_second_reduce
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    reports = {item["filename"]: item for item in result["files"]}
+    cancelled = reports["progress.md"]
+    failed = reports["systemPatterns.md"]
+    assert result["status"] == "error"
+    assert cancelled["error"] == (
+        "compaction cancelled because systemPatterns.md failed"
+    )
+    assert "digest_bytes" not in cancelled
+    assert "digest_budget_bytes" not in cancelled
+    assert failed["error"] == "digest exceeds its UTF-8 byte budget"
+    assert failed["digest_bytes"] == 5000
+    assert failed["digest_bytes"] > failed["digest_budget_bytes"]
+    assert not storage.copy_calls
+
+
+@pytest.mark.asyncio
+async def test_invalid_digest_unicode_keeps_per_file_failure_report():
+    progress = _oversized_section_markdown()
+    patterns = _oversized_patterns_markdown()
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/bank/progress.md": progress,
+            "sp/bank/systemPatterns.md": patterns,
+        }
+    )
+    storage.put = AsyncMock(side_effect=storage.put)
+    service = _service()
+    call_count = 0
+
+    def invalid_unicode_second_reduce(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 7:
+            return _llm_plan_response(content="\ud800")
+        return _hierarchical_llm(*args, **kwargs)
+
+    service._client.chat.completions.create.side_effect = invalid_unicode_second_reduce
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    reports = {item["filename"]: item for item in result["files"]}
+    assert result["status"] == "error"
+    assert reports["progress.md"]["error"] == (
+        "compaction cancelled because systemPatterns.md failed"
+    )
+    assert "digest_bytes" not in reports["progress.md"]
+    assert "surrogates not allowed" in reports["systemPatterns.md"]["error"]
+    assert "digest_bytes" not in reports["systemPatterns.md"]
+    assert "digest_budget_bytes" in reports["systemPatterns.md"]
+    assert not storage.copy_calls
+    storage.put.assert_not_awaited()
 
 
 @pytest.mark.asyncio

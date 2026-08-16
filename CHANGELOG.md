@@ -7,7 +7,7 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-> **Experimental 2.8.0 — abstractive gates not started, product NO-GO.**
+> **Experimental 2.8.0 — abstractive gates started, product NO-GO.**
 > The source-only Map/Reduce candidate met its byte and integrity targets but
 > failed semantic review on `mcp-agent`: repeated review chains displaced
 > important incidents and decisions. The current candidate keeps the bounded
@@ -38,9 +38,17 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Made completed Map batches degrade to bounded source-label cards when Qwen
   returns no parseable card; transport errors and incomplete outputs remain
   blocking, while the Reduce digest and its validation stay strict.
+- Replaced the overly conservative one-fifth digest allowance with the exact
+  minimal wrapper budget. The rendered container remains byte-checked, and
+  multi-file failures now identify the actual rejected digest without exposing
+  raw model output.
 
 ### Validation
 
+- The first `mcp-agent` abstractive run consumed the planned 12 Qwen calls and
+  failed closed before backup or write because the small `systemPatterns.md`
+  digest exceeded the former one-fifth allowance. The S3 manifest remained
+  byte-identical before and after. This run does not count as a successful gate.
 - The earlier extractive candidate passed one representative Docker run on
   `agentic-platform`, then failed the semantic gate on `mcp-agent`; those runs
   remain mechanical evidence only and do not count for the current candidate.

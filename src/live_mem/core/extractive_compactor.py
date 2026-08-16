@@ -401,10 +401,9 @@ def render_digest_container(
 def digest_output_budget(
     plan: SelectionPlan, mode: str, container_allowance: int
 ) -> int:
-    """Reserve wrapper and worst-case four-byte indentation for every line."""
-    empty_container = render_digest_container(plan, b"", mode)
-    fixed_overhead = len(empty_container) - 4
-    budget = (container_allowance - fixed_overhead) // 5
+    """Return the raw budget after reserving the exact minimal wrapper."""
+    wrapper_bytes = len(render_digest_container(plan, b"", mode))
+    budget = container_allowance - wrapper_bytes
     if budget <= 0:
         raise ValueError("digest container has no usable UTF-8 output budget")
     return budget
