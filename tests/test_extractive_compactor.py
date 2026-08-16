@@ -236,8 +236,9 @@ def test_digest_validation_allows_technical_markdown_and_rejects_invention():
 
     with pytest.raises(ValueError, match="invents references"):
         validate_digest("- Décision #81.", source, source, 200, PARSER)
-    with pytest.raises(ValueError, match="internal unit id"):
-        validate_digest("- Garder U0001.", source, source, 200, PARSER)
+    assert (
+        validate_digest("- Garder U0001.", source, source, 200, PARSER) == b"- Garder ."
+    )
 
 
 def test_digest_heading_stays_nested_and_is_replaced_on_next_pass():

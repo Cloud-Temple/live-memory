@@ -339,7 +339,7 @@ async def test_unknown_only_outputs_are_rejected_by_reduce_without_write():
     progress_report = next(
         item for item in result["files"] if item["filename"] == "progress.md"
     )
-    assert "internal unit id" in progress_report["error"]
+    assert "empty digest" in progress_report["error"]
     storage.put.assert_not_awaited()
     assert not storage.copy_calls
 

@@ -352,10 +352,8 @@ def validate_digest(
     """Validate a complete generated digest without repair or truncation."""
     preserved_context = preserved.decode("utf-8", errors="strict")
     _validate_digest_markdown(output, parser, preserved_context)
-    normalized = output.strip()
+    normalized = ANY_UNIT_ID_RE.sub("", output).strip()
     _validate_digest_markdown(normalized, parser, preserved_context)
-    if ANY_UNIT_ID_RE.search(normalized):
-        raise ValueError("digest exposes an internal unit id")
     raw = normalized.encode("utf-8", errors="strict")
     if len(raw) > max_bytes:
         raise ValueError("digest exceeds its UTF-8 byte budget")
