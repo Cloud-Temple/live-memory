@@ -3010,13 +3010,18 @@ indiqué et tu peux laisser du budget inutilisé."""
                 digest_actual_bytes = len(
                     output.strip().encode("utf-8", errors="strict")
                 )
+                digest_content_budget = prepared["digest_budget"] - (
+                    4 * output.strip().count("\n")
+                )
+                if digest_content_budget <= 0:
+                    raise ValueError("digest container has no usable content budget")
                 digest_bytes = validate_digest(
                     output,
                     prepared["plan"].original,
                     delete_units(
                         prepared["plan"].original, list(prepared["plan"].units)
                     ),
-                    prepared["digest_budget"],
+                    digest_content_budget,
                     prepared["parser"],
                 )
                 container = render_digest_container(

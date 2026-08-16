@@ -551,6 +551,28 @@ async def test_reduce_output_budget_must_fit_context_before_any_llm_call():
 
 
 @pytest.mark.asyncio
+async def test_multiline_reduce_reserves_container_indentation():
+    content = _oversized_section_markdown()
+    service = _service()
+
+    def multiline_reduce(*args, **kwargs):
+        if "<<<BEGIN_UNTRUSTED_MAP_CARDS>>>" in kwargs["messages"][-1]["content"]:
+            return _llm_plan_response(content="- point utile\n" * 200)
+        return _hierarchical_llm(*args, **kwargs)
+
+    service._client.chat.completions.create.side_effect = multiline_reduce
+    units = _build_compaction_units(
+        "sp", [{"key": "sp/bank/anything.md", "content": content}]
+    )
+
+    plans, reports = await service._prepare_hierarchical_plans(units, None)
+
+    assert plans is not None, reports
+    details = plans[0][2]
+    assert details["digest_container_bytes"] <= details["digest_container_budget_bytes"]
+
+
+@pytest.mark.asyncio
 async def test_ephemeral_map_card_never_reaches_reports_logs_or_bank(caplog):
     content = _oversized_section_markdown()
     sentinel = "EPHEMERAL-SENSITIVE-CARD-7f91"

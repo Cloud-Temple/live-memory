@@ -196,6 +196,8 @@ flowchart TD
    dépasse le budget, couper sa queue au dernier mot qui tient, ajouter une
    ellipse et revalider ; l'ordre demandé place les points prioritaires en tête.
    Aucun retry n'est effectué.
+9. Réserver avant cette coupe quatre octets par retour à la ligne du digest,
+   correspondant à son indentation exacte dans le conteneur Markdown.
 
 ### F. Validation du digest
 
