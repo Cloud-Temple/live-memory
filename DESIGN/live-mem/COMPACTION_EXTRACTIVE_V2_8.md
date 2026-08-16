@@ -265,6 +265,9 @@ flowchart TD
 - En cas d'annulation multi-fichiers, seul le fichier réellement fautif porte
   son erreur et ses tailles digest ; les autres sont explicitement marqués
   annulés par cet échec.
+- Le plafond de sortie Reduce vaut `min(max_tokens configuré, budget brut du
+  digest)` ; cette valeur exacte est vérifiée au préflight puis réutilisée pour
+  l'appel, sans réduction silencieuse ni retry.
 
 ## 4. Invariants testés
 

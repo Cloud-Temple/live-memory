@@ -525,7 +525,28 @@ async def test_generic_prompt_uses_same_file_context_and_validated_call_paramete
     assert all(
         call.kwargs["extra_body"] == {"enable_thinking": False} for call in calls
     )
-    assert [call.kwargs["max_tokens"] for call in calls] == [4000, 4000, 4000, 2000]
+    assert [call.kwargs["max_tokens"] for call in calls] == [
+        4000,
+        4000,
+        4000,
+        min(service._max_tokens, details["digest_budget_bytes"]),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reduce_output_budget_must_fit_context_before_any_llm_call():
+    content = _oversized_section_markdown()
+    service = _service()
+    service._context_window = 9000
+    units = _build_compaction_units(
+        "sp", [{"key": "sp/bank/anything.md", "content": content}]
+    )
+
+    plans, reports = await service._prepare_hierarchical_plans(units, None)
+
+    assert plans is None
+    assert "Map/Reduce prompt exceeds model context" in reports["anything.md"]["error"]
+    service._client.chat.completions.create.assert_not_awaited()
 
 
 @pytest.mark.asyncio

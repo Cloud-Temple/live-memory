@@ -2877,6 +2877,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                 digest_budget = digest_output_budget(
                     plan, inventory.mode, container_budget
                 )
+                reduce_max_tokens = min(self._max_tokens, digest_budget)
                 all_units = sorted(
                     [*inventory.candidates, *inventory.protected_context],
                     key=lambda item: item.start_byte,
@@ -2893,7 +2894,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                 )
                 for messages, output_tokens in [
                     *((messages, MAP_OUTPUT_MAX_TOKENS) for messages in map_messages),
-                    (worst_reduce_messages, min(self._max_tokens, 2000)),
+                    (worst_reduce_messages, reduce_max_tokens),
                 ]:
                     prompt_bytes = sum(
                         len(message["content"].encode("utf-8")) for message in messages
@@ -2909,6 +2910,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                         "plan": plan,
                         "container_budget": container_budget,
                         "digest_budget": digest_budget,
+                        "reduce_max_tokens": reduce_max_tokens,
                         "parser": parser,
                         "batches": batches,
                         "map_messages": map_messages,
@@ -2995,7 +2997,7 @@ indiqué et tu peux laisser du budget inutilisé."""
             attempts_by_source[source] += 1
             file_attempts += 1
             output, details = await self._call_hierarchical_llm(
-                reduce_messages, f"Reduce {source}", min(self._max_tokens, 2000)
+                reduce_messages, f"Reduce {source}", prepared["reduce_max_tokens"]
             )
             if output is None:
                 reason = details.get("error", "hierarchical Reduce failed")
