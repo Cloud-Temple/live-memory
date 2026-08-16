@@ -7,12 +7,11 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-> **Experimental 2.8.0 — abstractive gates started, product NO-GO.**
-> The source-only Map/Reduce candidate met its byte and integrity targets but
-> failed semantic review on `mcp-agent`: repeated review chains displaced
-> important incidents and decisions. The current candidate keeps the bounded
-> Maps and uses one Reduce to produce a validated, non-exhaustive Markdown
-> digest. It is not releasable and does not replace the 2.7.3 product contract.
+> **Experimental 2.8.0 — final R&D NO-GO.**
+> The bounded Map/Reduce implementation meets its byte, integrity, backup and
+> rollback targets, but the final real-corpus gate still produced material
+> operational misstatements. It is not releasable and does not replace the
+> 2.7.3 product contract.
 
 ### Changed
 
@@ -47,6 +46,17 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   replaces the whole container without accumulating generated structure.
 
 ### Validation
+
+- Final Docker gates with `qwen3.6:35b` were mechanically successful on the
+  restored real corpora: `mcp-agent/progress.md` 120,534 → 10,523 bytes and
+  `systemPatterns.md` 37,133 → 33,022 bytes; `agentic-platform/progress.md`
+  195,489 → 5,942 bytes. Backups and verified writes succeeded with no partial
+  mutation.
+- Human and independent semantic review rejected the candidates: examples
+  included an inverted Mission/Vault deployment order, a stale admin-token
+  revocation state, an over-generalized no-retry rule and an inaccurate secret
+  scrubbing mechanism. Both DEV spaces were restored to their exact source
+  snapshots. No production change, version bump, tag or release was made.
 
 - The first `mcp-agent` abstractive run consumed the planned 12 Qwen calls and
   failed closed before backup or write because the small `systemPatterns.md`

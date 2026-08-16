@@ -1,6 +1,6 @@
 # Compactage hiérarchique Map/Reduce — Live Memory 2.8.0
 
-**Status: implementation candidate — not released or deployed**
+**Status: final R&D NO-GO — not released or deployed**
 
 Ce document est la spécification canonique du compacteur 2.8.0. Le nom du
 fichier est conservé pour la traçabilité des travaux extractifs qui ont conduit
@@ -365,6 +365,28 @@ manifeste S3 reste identique. Ce heading n'est pas une invention de fait ni une
 menace lorsqu'il reste imbriqué dans le conteneur ; le contrat est donc amendé
 avec la garde structurelle décrite en G, sans retry ni assouplissement des
 autres tokens interdits. Les compteurs de gates réussis restent à zéro.
+
+### Gate final Map/Reduce : mécanique verte, sémantique rouge
+
+Les recettes Docker finales sur les sources réelles restaurées ont validé la
+mécanique complète :
+
+- `mcp-agent/progress.md` : 120 534 → 10 523 octets ;
+- `mcp-agent/systemPatterns.md` : 37 133 → 33 022 octets ;
+- `agentic-platform/progress.md` : 195 489 → 5 942 octets ;
+- 12 puis 7 appels Qwen, `finish_reason=stop`, backup, écriture et relecture
+  vérifiés, aucune mutation partielle.
+
+Le gate sémantique reste rouge. Les sorties ont notamment inversé un ordre de
+déploiement Mission/Vault, conservé un état de révocation admin remplacé,
+généralisé à tort une règle zéro-retry et déformé le mécanisme de scrubbing des
+secrets. Une règle de récence a corrigé l'ordre de déploiement lors du dernier
+rejeu, mais pas les autres contresens. Conformément au coupe-circuit, aucun
+nouveau prompt, algorithme ou run n'est ajouté à cette variante.
+
+Les deux espaces S3 DEV ont été restaurés à leurs snapshots source exacts après
+les essais. Aucun changement de production, bump, tag ou release 2.8.0 n'a été
+effectué. La 2.7.3 reste le contrat produit.
 
 ## 7. Fondements dans la littérature
 

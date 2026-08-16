@@ -364,13 +364,12 @@ barrière. Tout échec de préflight, Map, Reduce, candidat, backup, persistance
 rollback bloque `bank_consolidate` ; aucune note source n'est consommée et
 aucune mutation ultérieure de la Bank ne démarre.
 
-> **Statut de développement 2.8.0 :** l'ancien candidat extractif Map/Reduce a
-> franchi son gate mécanique mais échoué à la revue sémantique sur `mcp-agent` :
-> des chaînes de revues répétitives ont évincé des faits transverses importants.
-> Le candidat actuel conserve les Maps bornées et utilise un Reduce pour produire
-> un digest validé et non exhaustif, tout en préservant exactement le contenu
-> récent et protégé. Ses gates sur corpus réel repartent de zéro ; la Draft PR ne
-> doit pas encore être mergée, publiée ou activée en production. Voir le
+> **Statut de développement 2.8.0 — NO-GO R&D final :** les Maps bornées et le
+> Reduce unique ont franchi les gates réels de taille, intégrité, backup et
+> rollback sur `mcp-agent` et `agentic-platform`, mais la revue sémantique a
+> encore trouvé des contresens opérationnels matériels. L'expérience est arrêtée :
+> la Draft PR ne doit pas être mergée, publiée ou activée en production. La 2.7.3
+> reste le contrat de référence. Voir le
 > [design du compactage hiérarchique 2.8.0](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 
 ### Graph (4 outils) — 🌉 Pont vers Graph Memory

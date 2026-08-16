@@ -361,14 +361,12 @@ preflight, Map, Reduce, candidate, backup, persistence, or rollback failure
 blocks `bank_consolidate`; no source note is consumed and no later Bank mutation
 starts.
 
-> **2.8.0 development status:** the previous extractive Map/Reduce candidate
-> passed its mechanical gate but failed semantic review on `mcp-agent` because
-> repeated review chains displaced important cross-cutting facts. The current
-> candidate uses the same bounded Maps and one Reduce to produce a validated,
-> non-exhaustive digest while preserving recent and protected content exactly.
-> Its real-corpus gates restart from zero, so the Draft
-> PR must not yet be merged, released, enabled in production, or treated as the
-> current product contract. See the
+> **2.8.0 development status — final R&D NO-GO:** bounded Maps plus one Reduce
+> passed the real-corpus size, integrity, backup and rollback gates on
+> `mcp-agent` and `agentic-platform`, but semantic review still found material
+> operational misstatements. The experiment is stopped: the Draft PR must not
+> be merged, released, enabled in production, or treated as the current product
+> contract. Version 2.7.3 remains authoritative. See the
 > [2.8.0 hierarchical compaction design](DESIGN/live-mem/COMPACTION_EXTRACTIVE_V2_8.md).
 
 ### Graph (4 tools) — 🌉 Link to Graph Memory
