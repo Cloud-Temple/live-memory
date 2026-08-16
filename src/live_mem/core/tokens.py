@@ -43,6 +43,11 @@ TOKENS_KEY = "_system/tokens.json"
 # Hiérarchie inclusive : admin ⊃ manage ⊃ write ⊃ read
 VALID_PERMISSIONS = {"read", "write", "manage", "admin"}
 
+# Contrat V1 des badges de mission. Ces bornes sont fixes : elles ne sont pas
+# des paramètres d'API ni de configuration afin d'éviter une IAM parallèle.
+SPACE_BADGE_TTL = timedelta(hours=24)
+SPACE_BADGE_MAX_ACTIVE = 50
+
 
 class TokenService:
     """
@@ -346,6 +351,7 @@ class TokenService:
             tokens_list.append(
                 {
                     "hash": t.hash,  # Hash complet pour identification
+                    "kind": t.kind,
                     "name": t.name,
                     "email": t.email,
                     "permissions": t.permissions,
@@ -1094,6 +1100,11 @@ class TokenService:
 
             for t in store.tokens:
                 if t.hash == token_hash:
+                    if t.kind == "space_badge":
+                        return {
+                            "status": "error",
+                            "message": "Un badge de mission ne peut pas recevoir un autre espace",
+                        }
                     # Si le space est déjà dans la liste, rien à faire
                     if space_id in t.space_ids:
                         return {
@@ -1110,6 +1121,109 @@ class TokenService:
                     }
 
             return {"status": "not_found", "message": "Token not found"}
+
+    async def mint_space_badge(self, space_id: str, client_name: str) -> dict:
+        """Crée ou remplace le badge individuel d'un agent de mission.
+
+        Cette primitive interne ne prend volontairement ni permissions, ni
+        liste d'espaces, ni TTL : un badge est toujours limité à un seul space
+        et aux permissions décidées par le type ``space_badge``.
+        """
+        name = client_name.strip()
+        if not name:
+            return {"status": "error", "message": "client_name requis"}
+
+        raw_token = TOKEN_PREFIX + secrets.token_urlsafe(32)
+        token_hash = "sha256:" + hashlib.sha256(raw_token.encode()).hexdigest()
+        now = datetime.now(timezone.utc)
+        expires_at = (now + SPACE_BADGE_TTL).isoformat()
+        replaced_hashes: list[str] = []
+
+        async with get_lock_manager().tokens:
+            store = await self._load_store()
+
+            # Les expirés ne comptent jamais dans le plafond, même si leur
+            # nettoyage physique est différé au mécanisme générique de purge.
+            for token in store.tokens:
+                if (
+                    token.kind == "space_badge"
+                    and token.space_ids == [space_id]
+                    and not token.revoked
+                    and token.expires_at
+                    and token.expires_at <= now.isoformat()
+                ):
+                    token.revoked = True
+                    replaced_hashes.append(token.hash)
+
+            # Un seul badge actif par libellé : le re-mint révoque le précédent
+            # avant le contrôle du plafond puis persiste le remplaçant.
+            for token in store.tokens:
+                if (
+                    token.kind == "space_badge"
+                    and token.space_ids == [space_id]
+                    and token.name == name
+                    and not token.revoked
+                ):
+                    token.revoked = True
+                    replaced_hashes.append(token.hash)
+
+            active_count = sum(
+                1
+                for token in store.tokens
+                if token.kind == "space_badge"
+                and token.space_ids == [space_id]
+                and not token.revoked
+                and (not token.expires_at or token.expires_at > now.isoformat())
+            )
+            if active_count >= SPACE_BADGE_MAX_ACTIVE:
+                return {
+                    "status": "error",
+                    "message": f"Plafond de {SPACE_BADGE_MAX_ACTIVE} badges actifs atteint pour '{space_id}'",
+                }
+
+            store.tokens.append(
+                TokenInfo(
+                    hash=token_hash,
+                    kind="space_badge",
+                    name=name,
+                    permissions=[],
+                    space_ids=[space_id],
+                    created_at=now.isoformat(),
+                    expires_at=expires_at,
+                )
+            )
+            await self._save_store(store)
+
+        self._invalidate_in_fresh_store(replaced_hashes)
+        return {
+            "status": "created",
+            "token": raw_token,
+            "token_kind": "space_badge",
+            "client_name": name,
+            "space_id": space_id,
+            "expires_at": expires_at,
+            "replaced": bool(replaced_hashes),
+            "warning": "⚠️ Ce badge ne sera PLUS JAMAIS affiché !",
+        }
+
+    async def revoke_space_badges(self, space_id: str) -> dict:
+        """Révoque tous les badges actifs d'un space avant sa suppression."""
+        revoked_hashes: list[str] = []
+        async with get_lock_manager().tokens:
+            store = await self._load_store()
+            for token in store.tokens:
+                if (
+                    token.kind == "space_badge"
+                    and token.space_ids == [space_id]
+                    and not token.revoked
+                ):
+                    token.revoked = True
+                    revoked_hashes.append(token.hash)
+            if revoked_hashes:
+                await self._save_store(store)
+
+        self._invalidate_in_fresh_store(revoked_hashes)
+        return {"status": "ok", "revoked": len(revoked_hashes)}
 
     async def validate_token(self, raw_token: str) -> Optional[dict]:
         """
@@ -1148,6 +1262,13 @@ class TokenService:
             if t.expires_at and t.expires_at < now:
                 return None
 
+            # Un badge corrompu ou modifié hors de sa primitive dédiée ne doit
+            # jamais récupérer les droits d'un token standard.
+            if t.kind == "space_badge" and (
+                t.permissions or len(t.space_ids) != 1 or not t.expires_at
+            ):
+                return None
+
             # Token valide — mise à jour last_used_at différée (en mémoire)
             # VULN-01 fix : on ne fait plus _save_store() ici pour éviter
             # la race condition avec create/revoke/update qui sont sous lock.
@@ -1155,10 +1276,12 @@ class TokenService:
 
             return {
                 "type": "token",
+                "token_kind": t.kind,
                 "client_name": t.name,
                 "permissions": t.permissions,
                 "allowed_resources": t.space_ids,
                 "token_hash": t.hash,
+                "expires_at": t.expires_at,
             }
 
         return None  # Token inconnu

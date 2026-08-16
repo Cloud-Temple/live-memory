@@ -8,9 +8,9 @@ Ce fichier :
 3. Assemble la chaîne de middlewares ASGI
 4. Démarre le serveur Uvicorn
 
-Architecture des outils (43 outils, 7 catégories) :
+Architecture des outils (44 outils, 7 catégories) :
     tools/system.py → system_health, system_about, system_whoami (3)
-    tools/space.py  → space_create, space_update, space_info, ... (9)
+    tools/space.py  → space_create, space_badge_mint, space_update, ... (10)
     tools/live.py   → live_note, live_read, live_search (3)
     tools/bank.py   → bank_read, bank_consolidate, bank_stale_spaces, ... (11)
     tools/graph.py  → graph_connect, graph_push, ... (4)

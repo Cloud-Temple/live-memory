@@ -186,13 +186,21 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Liste des backups avec backup_id et timestamp
         """
-        from ..auth.context import current_token_info, check_access
+        from ..auth.context import (
+            _get_effective_token_info,
+            check_access,
+            reject_space_badge,
+        )
         from ..core.backup import get_backup_service
 
         try:
-            token_info = current_token_info.get()
+            token_info = _get_effective_token_info()
             if token_info is None:
                 return {"status": "error", "message": "Authentification requise"}
+
+            badge_err = reject_space_badge()
+            if badge_err:
+                return badge_err
 
             # Si un espace est spécifié, vérifier l'accès
             if space_id:

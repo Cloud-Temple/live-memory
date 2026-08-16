@@ -17,7 +17,7 @@ import json
 import time
 import logging
 from typing import Optional
-from .context import current_token_info, check_access, update_fresh_token
+from .context import current_token_info, check_access, is_space_badge, update_fresh_token
 from ..config import get_settings
 from ..middleware import current_request_id
 
@@ -108,6 +108,34 @@ class AuthMiddleware:
             return await self.app(scope, receive, send)
 
         path = scope.get("path", "")
+
+        # Les routes publiques web restent anonymes, mais un badge présenté
+        # explicitement ne doit jamais être accepté par une surface `/api/*`.
+        # Sans ce contrôle, `/api/login` et `/api/logout` court-circuiteraient
+        # l'injection du contexte avant StaticFilesMiddleware.
+        if path in self.PUBLIC_PATHS and path.startswith("/api/"):
+            token = self._extract_token(scope)
+            if token:
+                token_info = await self._validate_token(token)
+                if is_space_badge(token_info):
+                    body = json.dumps(
+                        {
+                            "status": "error",
+                            "message": "Les badges de mission ne sont pas utilisables via l'API web",
+                        }
+                    ).encode()
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 403,
+                            "headers": [
+                                (b"content-type", b"application/json"),
+                                (b"content-length", str(len(body)).encode()),
+                            ],
+                        }
+                    )
+                    await send({"type": "http.response.body", "body": body})
+                    return
 
         # Routes publiques → pas d'auth
         if path in self.PUBLIC_PATHS:
@@ -220,6 +248,7 @@ class AuthMiddleware:
         if hmac.compare_digest(token, settings.admin_bootstrap_key):
             return {
                 "type": "bootstrap",
+                "token_kind": "bootstrap",
                 "client_name": "admin",
                 "permissions": ["admin", "read", "write"],
                 "allowed_resources": [],  # vide = accès total
@@ -323,6 +352,19 @@ class StaticFilesMiddleware:
 
         path = scope.get("path", "")
         method = scope.get("method", "GET")
+
+        # Un badge est exclusivement un credential MCP live. Les routes API
+        # doivent rester inaccessibles, y compris via le proxy d'outils admin.
+        if path.startswith("/api/") and is_space_badge(current_token_info.get()):
+            await self._send_json(
+                send,
+                {
+                    "status": "error",
+                    "message": "Les badges de mission ne sont pas utilisables via l'API web",
+                },
+                403,
+            )
+            return
 
         # Health check — réponse directe (pas de MCP, pas d'auth)
         if path == "/health":
@@ -690,6 +732,29 @@ class StaticFilesMiddleware:
                     send,
                     {"status": "error", "message": "Token invalide"},
                     401,
+                )
+                return
+
+            if is_space_badge(token_info):
+                audit_logger.info(
+                    json.dumps(
+                        {
+                            "event": "login_failed",
+                            "request_id": current_request_id.get(),
+                            "path": "/api/login",
+                            "status": 403,
+                            "reason": "space_badge_not_web",
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                await self._send_json(
+                    send,
+                    {
+                        "status": "error",
+                        "message": "Les badges de mission ne sont pas utilisables via l'API web",
+                    },
+                    403,
                 )
                 return
 

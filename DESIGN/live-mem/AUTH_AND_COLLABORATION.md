@@ -1,6 +1,6 @@
 # Authentication & Multi-Agent Collaboration — Live Memory
 
-> **Version**: 1.6.0 | **Date**: 2026-04-25 | **Author**: Cloud Temple
+> **Version**: Unreleased v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 
 ---
 
@@ -31,11 +31,12 @@ Agent (Cline, Claude, etc.)
 
 ### 1.2 Token Types
 
-| Type       | Permissions          | Usage                    | Example Tools                                      |
-| ---------- | -------------------- | ------------------------ | -------------------------------------------------- |
-| **Reader** | `read`               | Read-only access         | `bank_read_all`, `live_read`, `space_list`         |
-| **Writer** | `read, write`        | Read + write access      | + `live_note`, `bank_consolidate`, `space_create`, `graph_push` |
-| **Admin**  | `read, write, admin` | Full access              | + `admin_*`, `space_delete`, `backup_restore`, `admin_gc_notes` |
+| Type | Permissions | Usage | Example Tools |
+| --- | --- | --- | --- |
+| **Reader** | `read` | Read-only access | `bank_read_all`, `live_read`, `space_list` |
+| **Writer** | `read, write` | Read + write access | + `live_note`, `bank_consolidate`, `space_create`, `graph_push` |
+| **Admin** | `read, write, admin` | Full access | + `admin_*`, `space_delete`, `backup_restore`, `admin_gc_notes` |
+| **Mission badge** | aucune permission générale | Échanges live d'un seul space de mission | `system_whoami`, `live_read`, `live_note` |
 
 ### 1.3 Bootstrap Key
 
@@ -51,8 +52,11 @@ Startup → ADMIN_BOOTSTRAP_KEY → admin_create_token → Admin token
 ### 1.4 Space Access Control
 
 Each token has a `space_ids` list:
-- `[]` (empty) = access to **all** spaces
+- `[]` (empty) = **no** existing space for a non-admin token
 - `["project-alpha", "project-beta"]` = restricted to these spaces
+
+Only an admin bypasses this list. This strict default lets a write token create
+its own space without automatically receiving access to other spaces.
 
 When a tool receives a `space_id`, the `check_access()` helper verifies:
 
@@ -68,9 +72,9 @@ def check_access(resource_id: str) -> Optional[dict]:
     if "admin" in token_info.get("permissions", []):
         return None
     
-    # Verify the space is in the allowed list
+    # Empty list means no access for a non-admin token.
     allowed = token_info.get("allowed_resources", [])
-    if allowed and resource_id not in allowed:
+    if not allowed or resource_id not in allowed:
         return {"status": "error", "message": f"Access denied to space '{resource_id}'"}
     
     return None  # OK
@@ -109,6 +113,50 @@ token = "lm_" + secrets.token_urlsafe(32)
 import hashlib
 token_hash = "sha256:" + hashlib.sha256(token.encode()).hexdigest()
 ```
+
+### 1.7 Mission-space badges (v2.9.0)
+
+This is a deliberately narrow capability for a just-in-time mission space. It
+does not introduce an ACL, a shared mission token, an invitation flow, or an
+agent registry.
+
+- The exact standard token that created the space is recorded as
+  `creator_token_hash` in `_meta.json`; `owner` is informational only.
+- `_meta.json` is written last. A legacy or bootstrap-created space without a
+  non-empty creator hash is not mintable: fail closed.
+- `space_badge_mint(space_id, client_name)` is callable only by that creator.
+  It returns the secret once, stores only its hash, fixes its TTL to 24 hours,
+  scopes it to exactly one space, and gives it no general permission.
+- One active badge exists per `(space_id, client_name)`; re-mint atomically
+  revokes the old badge. At most 50 active badges exist in one space.
+- A badge can call only `system_whoami`, `live_read`, and `live_note` in its
+  exact space. It cannot list spaces, search notes, read a Bank, invoke Graph,
+  create backups, consolidate, administer, or use `/api/*` (including login).
+- Creation, mint, and deletion share the existing mono-instance space lock.
+  Deletion persists badge revocation before removing S3 objects, so a later
+  recreation of the same `space_id` cannot revive an old badge.
+
+```mermaid
+sequenceDiagram
+    participant M as mcp-mission
+    participant LM as Live Memory
+    participant A as mcp-agent instance
+
+    M->>LM: space_create(mis_X) with creator token
+    LM->>LM: write rules/keep then _meta creator hash
+    A->>M: authenticated mission request + runtime agent_id
+    M->>LM: space_badge_mint(mis_X, agent_id)
+    LM->>LM: creator proof + space lock + token lock
+    LM-->>M: badge secret once (hash persisted)
+    M-->>A: internal badge field
+    A->>LM: live_read / live_note only
+    Note over LM: re-mint revokes old badge; delete revokes all badges first
+```
+
+`mcp-agent` owns the unique runtime `agent_id` and its internal badge transport.
+`mcp-mission` authenticates the mission, derives the space, and reserves each
+`(mission_id, agent_id)` before asking Live Memory to mint. Live Memory never
+needs to know the future fan-out of sub-agents.
 
 ---
 
@@ -209,7 +257,8 @@ Agent B → live_note(category="decision", "No, JSON only")
 | `space_rules`        | read     | ✅           |                                        |
 | `space_summary`      | read     | ✅           |                                        |
 | `space_export`       | read     | ✅           |                                        |
-| `space_delete`       | admin    | ✅           | Irreversible                           |
+| `space_delete`       | manage   | ✅           | Irreversible; revokes mission badges first |
+| `space_badge_mint`   | write + creator proof | ✅ | Mint/re-mint one mission badge |
 | **Live**             |          |              |                                        |
 | `live_note`          | write    | ✅           | Write                                  |
 | `live_read`          | read     | ✅           | Read                                   |
@@ -239,6 +288,10 @@ Agent B → live_note(category="decision", "No, JSON only")
 | **System**           |          |              |                                        |
 | `system_health`      | public   | —            | No auth required                       |
 | `system_about`       | public   | —            | No auth required                       |
+
+When a mission badge is presented, the public MCP tools above are still
+refused: its authenticated allowlist remains exactly the three tools defined in
+§1.7. Anonymous health/about probes remain public.
 
 ### Summary: Who Can Do What
 
@@ -316,4 +369,4 @@ Each HTTP request is logged to `stderr` via `LoggingMiddleware`:
 
 ---
 
-*Document updated April 25, 2026 — Live Memory v1.6.0*
+*Document updated August 17, 2026 — Live Memory v2.9.0 (unreleased)*

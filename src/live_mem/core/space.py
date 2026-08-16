@@ -17,10 +17,12 @@ import re
 import base64
 import tarfile
 import io
+import hmac
 from datetime import datetime, timezone
 from typing import Optional
 
 from .storage import get_storage, bank_relpath
+from .locks import get_lock_manager
 from .models import SpaceMeta, mask_meta_secrets
 
 
@@ -54,17 +56,22 @@ class SpaceService:
         description: str,
         rules: str,
         owner: str = "",
+        creator_token_hash: Optional[str] = None,
     ) -> dict:
         """
         Crée un nouvel espace mémoire avec ses rules.
 
-        Opérations S3 : 4 PUTs (_meta.json, _rules.md, live/.keep, bank/.keep)
+        Opérations S3 : 4 PUTs (_rules.md, live/.keep, bank/.keep, _meta.json).
+        Le meta est écrit en dernier : il matérialise l'existence complète.
 
         Args:
             space_id: Identifiant unique (alphanum + tirets, max 64 chars)
             description: Description courte de l'espace
             rules: Contenu Markdown des rules (structure de la bank)
             owner: Propriétaire (optionnel, informatif)
+            creator_token_hash: preuve technique du créateur (optionnelle pour
+                compatibilité bootstrap ; sans elle, la frappe de badge est
+                refusée de manière sûre)
 
         Returns:
             {"status": "created", "space_id": ..., ...} ou erreur
@@ -93,27 +100,34 @@ class SpaceService:
 
         storage = get_storage()
 
-        # Vérifier que l'espace n'existe pas déjà
-        if await storage.exists(f"{space_id}/_meta.json"):
-            return {
-                "status": "already_exists",
-                "message": f"L'espace '{space_id}' existe déjà",
-            }
+        # Le même verrou mono-instance protège création, frappe et suppression
+        # d'un space. Ainsi deux créations concurrentes ne peuvent pas écraser
+        # la preuve du créateur, ni intercaler un badge avec une suppression.
+        async with get_lock_manager().consolidation(space_id):
+            # Vérifier que l'espace n'existe pas déjà
+            if await storage.exists(f"{space_id}/_meta.json"):
+                return {
+                    "status": "already_exists",
+                    "message": f"L'espace '{space_id}' existe déjà",
+                }
 
-        # Créer les métadonnées
-        now = datetime.now(timezone.utc).isoformat()
-        meta = SpaceMeta(
-            space_id=space_id,
-            description=description,
-            owner=owner,
-            created_at=now,
-        )
+            # Créer les métadonnées
+            now = datetime.now(timezone.utc).isoformat()
+            meta = SpaceMeta(
+                space_id=space_id,
+                description=description,
+                owner=owner,
+                creator_token_hash=creator_token_hash or None,
+                created_at=now,
+            )
 
-        # Écrire les 4 fichiers constitutifs de l'espace
-        await storage.put_json(f"{space_id}/_meta.json", meta.model_dump())
-        await storage.put(f"{space_id}/_rules.md", rules)
-        await storage.put(f"{space_id}/live/.keep", "")
-        await storage.put(f"{space_id}/bank/.keep", "")
+            # Écrire les constituants avant le marqueur final. Une panne laisse
+            # éventuellement des objets orphelins, mais jamais un space que les
+            # outils puissent considérer comme créé.
+            await storage.put(f"{space_id}/_rules.md", rules)
+            await storage.put(f"{space_id}/live/.keep", "")
+            await storage.put(f"{space_id}/bank/.keep", "")
+            await storage.put_json(f"{space_id}/_meta.json", meta.model_dump())
 
         return {
             "status": "created",
@@ -122,6 +136,87 @@ class SpaceService:
             "rules_size": len(rules.encode("utf-8")),
             "created_at": now,
         }
+
+    async def caller_is_creator(self, space_id: str, caller_token_hash: Optional[str]) -> bool:
+        """Vérifie la seule preuve autorisant la frappe : le hash créateur.
+
+        Les deux valeurs doivent être présentes ; notamment ``None == None``
+        ne doit jamais donner au bootstrap un droit implicite sur un space.
+        """
+        if not caller_token_hash:
+            return False
+
+        storage = get_storage()
+        async with get_lock_manager().consolidation(space_id):
+            meta = await storage.get_json(f"{space_id}/_meta.json")
+            stored_hash = meta.get("creator_token_hash") if isinstance(meta, dict) else None
+            return bool(
+                stored_hash
+                and isinstance(stored_hash, str)
+                and hmac.compare_digest(stored_hash, caller_token_hash)
+            )
+
+    async def ensure_creator_access(
+        self, space_id: str, caller_token_hash: Optional[str]
+    ) -> dict:
+        """Vérifie le créateur et persiste son accès sans interstice.
+
+        L'ordre est toujours space puis tokens : une suppression ou une
+        recréation ne peut pas s'intercaler entre la preuve stockée dans le
+        meta et l'auto-ajout dans le token du créateur.
+        """
+        if not caller_token_hash:
+            return {"status": "forbidden", "message": "Preuve créateur absente"}
+
+        storage = get_storage()
+        async with get_lock_manager().consolidation(space_id):
+            meta = await storage.get_json(f"{space_id}/_meta.json")
+            stored_hash = meta.get("creator_token_hash") if isinstance(meta, dict) else None
+            if not (
+                stored_hash
+                and isinstance(stored_hash, str)
+                and hmac.compare_digest(stored_hash, caller_token_hash)
+            ):
+                return {
+                    "status": "forbidden",
+                    "message": "Seul le créateur technique du space peut réparer son accès",
+                }
+
+            from .tokens import get_token_service
+
+            return await get_token_service().add_space_to_token(
+                token_hash=caller_token_hash,
+                space_id=space_id,
+            )
+
+    async def mint_badge(
+        self, space_id: str, caller_token_hash: Optional[str], client_name: str
+    ) -> dict:
+        """Frappe un badge sous le verrou du space, après preuve créateur."""
+        if not caller_token_hash:
+            return {
+                "status": "error",
+                "message": "Preuve créateur absente : frappe de badge refusée",
+            }
+
+        storage = get_storage()
+        async with get_lock_manager().consolidation(space_id):
+            meta = await storage.get_json(f"{space_id}/_meta.json")
+            stored_hash = meta.get("creator_token_hash") if isinstance(meta, dict) else None
+            if not (
+                stored_hash
+                and isinstance(stored_hash, str)
+                and hmac.compare_digest(stored_hash, caller_token_hash)
+            ):
+                return {
+                    "status": "error",
+                    "message": "Seul le créateur technique du space peut frapper un badge",
+                }
+
+            # Ordre de verrou unique : space puis tokens. Voir delete().
+            from .tokens import get_token_service
+
+            return await get_token_service().mint_space_badge(space_id, client_name)
 
     async def update(
         self,
@@ -419,9 +514,9 @@ class SpaceService:
         """
         Exporte un espace complet en archive tar.gz (base64).
 
-        LM2-03 fix : le ``_meta.json`` inclus dans l'archive est masqué
-        (token Graph Memory remplacé par ``<prefix>...``) avant ajout
-        au tar. L'archive téléchargée n'expose donc plus le secret.
+        Le ``_meta.json`` inclus dans l'archive est masqué avant ajout au tar.
+        S'il est illisible, l'archive contient un objet vide plutôt que ses
+        octets bruts : elle n'expose alors ni token Graph ni hash créateur.
 
         Args:
             space_id: Identifiant de l'espace
@@ -461,9 +556,9 @@ class SpaceService:
                             meta_masked, indent=2, ensure_ascii=False
                         )
                     except (_json.JSONDecodeError, TypeError):
-                        # Si le meta n'est pas parsable, on ne le masque pas
-                        # mais on logge un warning silencieux (best-effort).
-                        pass
+                        # Ne jamais exporter un meta brut non parsable : il
+                        # peut contenir un secret que le masquage ne voit pas.
+                        content = "{}"
 
                 data = content.encode("utf-8")
                 info = tarfile.TarInfo(name=arcname)
@@ -492,24 +587,36 @@ class SpaceService:
         """
         storage = get_storage()
 
-        # Vérifier l'existence
-        if not await storage.exists(f"{space_id}/_meta.json"):
-            return {
-                "status": "not_found",
-                "message": f"Espace '{space_id}' introuvable",
-            }
+        async with get_lock_manager().consolidation(space_id):
+            # Vérifier l'existence
+            if not await storage.exists(f"{space_id}/_meta.json"):
+                return {
+                    "status": "not_found",
+                    "message": f"Espace '{space_id}' introuvable",
+                }
 
-        # Lister TOUS les fichiers de l'espace
-        all_objects = await storage.list_objects(f"{space_id}/")
-        all_keys = [o["Key"] for o in all_objects]
+            # Fail closed : persister la révocation AVANT toute suppression
+            # S3. Une suppression partielle peut laisser un space inerte mais
+            # ne doit jamais laisser un badge vivant réutilisable après une
+            # recréation du même identifiant.
+            from .tokens import get_token_service
 
-        # Supprimer en batch
-        deleted = await storage.delete_many(all_keys)
+            badge_result = await get_token_service().revoke_space_badges(space_id)
+            if badge_result.get("status") != "ok":
+                return badge_result
+
+            # Lister TOUS les fichiers de l'espace
+            all_objects = await storage.list_objects(f"{space_id}/")
+            all_keys = [o["Key"] for o in all_objects]
+
+            # Supprimer en batch
+            deleted = await storage.delete_many(all_keys)
 
         return {
             "status": "deleted",
             "space_id": space_id,
             "files_deleted": deleted,
+            "badges_revoked": badge_result["revoked"],
         }
 
 

@@ -11,12 +11,12 @@ Live Memory is deployed via Docker Compose with 2 services:
 | Service         | Role                                     | Image          | Internal Port |
 | --------------- | ---------------------------------------- | -------------- | ------------- |
 | **WAF**         | Secure reverse proxy (Caddy + Coraza)    | Custom (build) | 8080          |
-| **MCP Service** | Python MCP server (43 tools)             | Custom (build) | 8002          |
+| **MCP Service** | Python MCP server (44 tools)             | Custom (build) | 8002          |
 
 **Difference with graph-memory**: No Neo4j or Qdrant → much lighter deployment.
 
 **Exposed features**:
-- 43 MCP tools via Streamable HTTP (`/mcp`)
+- 44 MCP tools via Streamable HTTP (`/mcp`)
 - Web visualization interface (`/live`)
 - 5 REST API endpoints (`/api/*`)
 
