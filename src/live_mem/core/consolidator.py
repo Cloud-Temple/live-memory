@@ -36,6 +36,7 @@ from openai import AsyncOpenAI
 from ..config import get_settings
 from .storage import get_storage, bank_relpath
 from .extractive_compactor import (
+    DIGEST_MAX_BYTES,
     MAP_CARD_MAX_BYTES,
     MAP_OUTPUT_MAX_TOKENS,
     build_digest_candidate,
@@ -2782,6 +2783,11 @@ pas et ne les répète pas. Seule la matière `selectable` alimente le digest.
 Ne présente jamais comme actuel un blocage ou une action contredit par un état
 ultérieur. Si les fiches ne permettent pas de résoudre un conflit, omets le
 statut et l'action obsolète, puis conserve seulement la leçon durable.
+Produis au maximum vingt points utiles : jusqu'à cinq états finaux ou jalons,
+jusqu'à cinq risques ou actions réellement ouverts, jusqu'à cinq décisions ou
+invariants durables, et jusqu'à cinq incidents ou leçons, uniquement si la
+matière existe. N'ajoute pas une catégorie vide et ne raconte pas les passes de
+revue successives.
 Retourne uniquement du Markdown compact, sous forme de paragraphes ou listes,
 sans heading, tableau, lien, image, bloc de code, HTML ni JSON. Le code inline est
 autorisé. Ne recopie pas les IDs internes U/P. Toute référence #, version ou date
@@ -2880,6 +2886,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                 digest_budget = digest_output_budget(
                     plan, inventory.mode, container_budget
                 )
+                digest_budget = min(digest_budget, DIGEST_MAX_BYTES)
                 reduce_max_tokens = min(self._max_tokens, digest_budget)
                 all_units = sorted(
                     [*inventory.candidates, *inventory.protected_context],

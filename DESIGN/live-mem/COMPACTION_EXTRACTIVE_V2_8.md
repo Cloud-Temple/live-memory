@@ -170,7 +170,7 @@ flowchart TD
 ### E. Reduce : synthèse globale
 
 1. Appeler exactement un Reduce par fichier, avec le plafond dynamique vérifié
-   au préflight, sans retry.
+   au préflight et borné à 8 000 octets de digest, sans retry.
 2. Lui transmettre uniquement, pour chaque unité, le rôle `selectable` ou
    `protected`, l'ID, la date, la taille et la fiche Map. Le texte source complet
    n'est pas relu par le Reduce.
@@ -185,7 +185,10 @@ flowchart TD
 5. En mode sections, prioriser mécanismes, invariants, décisions d'architecture
    et risques structurels durables.
 6. Demander de préférence un digest Markdown non exhaustif composé de
-   paragraphes et listes. Le code inline est autorisé. Les headings produits
+   paragraphes et listes, avec vingt points maximum : jusqu'à cinq états
+   finaux/jalons, cinq risques/actions ouverts, cinq décisions/invariants et
+   cinq incidents/leçons, uniquement si la matière existe. Le code inline est
+   autorisé. Les headings produits
    sont acceptés uniquement s'ils restent imbriqués dans l'item code-owned
    après rendu. Tables, liens, images, fences, blocs de code, HTML, blockquotes,
    séparateurs et JSON restent interdits.
