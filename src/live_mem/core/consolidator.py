@@ -2806,13 +2806,15 @@ indiqué et tu peux laisser du budget inutilisé."""
     ) -> tuple[str | None, dict]:
         """Run one bounded Map or Reduce call without logging its ephemeral text."""
         try:
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0,
-                extra_body={"enable_thinking": False},
-            )
+            request = {
+                "model": self._model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0,
+            }
+            if self._model.lower().startswith("qwen"):
+                request["extra_body"] = {"enable_thinking": False}
+            response = await self._client.chat.completions.create(**request)
             choice = response.choices[0]
             if choice.finish_reason != "stop":
                 return None, {
