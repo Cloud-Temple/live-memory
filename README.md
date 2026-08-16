@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.7.3-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.8.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -358,12 +358,12 @@ Multi-file compaction restores only `bank/`, so a live note created
 concurrently is never removed by rollback. Terminal job results are persisted
 for post-restart audit; active/queued jobs remain an in-memory FIFO.
 
-In the 2.8.0 candidate, automatic pre-consolidation compaction is a gate. Any
+In 2.8.0, automatic pre-consolidation compaction is a gate. Any
 preflight, Map, Reduce, candidate, backup, persistence, or rollback failure
 blocks `bank_consolidate`; no source note is consumed and no later Bank mutation
 starts.
 
-> **2.8.0 release candidate — product-owner accepted, not deployed:** bounded
+> **2.8.0 release-ready — product-owner accepted, not deployed:** bounded
 > Maps plus one Reduce passed the real-corpus mechanical gates. Comparative
 > review selected `mistral-small4:119b` as the recommended compaction model: it
 > preserved the global meaning and important operational points better than the
@@ -748,7 +748,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dependencies & project config (uv)
 ├── uv.lock                    # uv lockfile
-├── VERSION                    # 2.7.3
+├── VERSION                    # 2.8.0
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -826,4 +826,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.7.3 — Shared working memory for collaborative AI agents*
+*Live Memory v2.8.0 — Shared working memory for collaborative AI agents*

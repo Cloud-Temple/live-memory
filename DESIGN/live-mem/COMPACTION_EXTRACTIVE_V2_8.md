@@ -1,6 +1,6 @@
 # Compactage hiérarchique Map/Reduce — Live Memory 2.8.0
 
-**Status: release candidate accepted by the product owner — not deployed**
+**Status: release-ready, accepted by the product owner — not deployed**
 
 Ce document est la spécification canonique du compacteur 2.8.0. Le nom du
 fichier est conservé pour la traçabilité des travaux extractifs qui ont conduit
@@ -305,12 +305,11 @@ Les mocks valident la plomberie et les invariants, jamais la qualité métier. L
 gate sémantique s'effectue sur les vraies banques restaurées localement avec le
 modèle de compaction prévu pour le déploiement.
 
-## 5. Gates 2.8.0
+## 5. Qualification et gates 2.8.0
 
-Le pivot abstractive remet les compteurs de validation à zéro. Avant merge,
-bump ou release :
+La qualification locale acceptée par le propriétaire produit couvre :
 
-1. suite unitaire complète, lint et diff-check verts ;
+1. suite unitaire complète, lint des fichiers modifiés et diff-check verts ;
 2. une restauration et exécution locale complète sur `mcp-agent` ;
 3. une restauration et exécution locale complète sur `agentic-platform` ;
 4. à chaque passe : résultat sous limite, aucun fichier en échec, récent,
@@ -318,7 +317,10 @@ bump ou release :
    vérifiés ;
 5. revue humaine du sens global et des points importants ;
 6. revue adverse indépendante favorable ;
-7. recette Docker locale complète puis revue release distincte.
+7. recette Docker locale de l'image finale.
+
+Ces gates sont satisfaits pour la préparation 2.8.0 documentée ci-dessous. La
+publication reste conditionnée à la CI de la PR et à une revue release distincte.
 
 L'auto-compaction production reste gelée jusqu'à un canari manuel explicitement
 autorisé et validé. Un GO de code n'autorise pas un run réel ; un GO de run

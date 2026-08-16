@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.7.3-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.8.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -361,12 +361,12 @@ supprimer une note live concurrente. Les résultats terminaux des jobs sont
 persistés pour l'audit après redémarrage ; les jobs actifs/en attente restent
 dans une FIFO en mémoire.
 
-Dans le candidat 2.8.0, la compaction automatique avant consolidation est une
+Dans la 2.8.0, la compaction automatique avant consolidation est une
 barrière. Tout échec de préflight, Map, Reduce, candidat, backup, persistance ou
 rollback bloque `bank_consolidate` ; aucune note source n'est consommée et
 aucune mutation ultérieure de la Bank ne démarre.
 
-> **Candidat 2.8.0 — accepté par le propriétaire produit, non déployé :** les
+> **2.8.0 prête à publier — acceptée par le propriétaire produit, non déployée :** les
 > Maps bornées et le Reduce unique ont franchi les gates mécaniques sur les
 > corpus réels. La comparaison a retenu `mistral-small4:119b` comme modèle de
 > compactage recommandé : il préserve mieux le sens global et les points
@@ -751,7 +751,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dépendances et config projet (uv)
 ├── uv.lock                    # lockfile uv
-├── VERSION                    # 2.7.3
+├── VERSION                    # 2.8.0
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -830,4 +830,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.7.3 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.8.0 — Mémoire de travail partagée pour agents IA collaboratifs*

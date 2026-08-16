@@ -7,7 +7,9 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-> **2.8.0 release candidate — accepted by the product owner, not deployed.**
+## [2.8.0] — 2026-08-16
+
+> **Release-ready — accepted by the product owner, not deployed.**
 > The bounded Map/Reduce implementation meets its byte, integrity, backup and
 > rollback targets. Its explicitly lossy semantic contract was accepted against
 > the materially weaker 2.7.3 compaction baseline; production activation still
@@ -72,7 +74,7 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   included an inverted Mission/Vault deployment order, a stale admin-token
   revocation state, an over-generalized no-retry rule and an inaccurate secret
   scrubbing mechanism. Both DEV spaces were restored to their exact source
-  snapshots. No production change, version bump, tag or release was made.
+  snapshots. At that stage, no production change, tag or release was made.
 
 - The first `mcp-agent` abstractive run consumed the planned 12 Qwen calls and
   failed closed before backup or write because the small `systemPatterns.md`
