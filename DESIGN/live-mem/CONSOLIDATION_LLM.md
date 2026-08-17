@@ -1,6 +1,6 @@
 # LLM Consolidation Pipeline — Live Memory
 
-> **Version**: 2.9.1 (draft) | **Date**: 2026-08-17 | **Author**: Cloud Temple
+> **Version**: 2.9.1 | **Date**: 2026-08-18 | **Author**: Cloud Temple
 
 ---
 

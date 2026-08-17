@@ -5,7 +5,7 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [2.9.1] — Unreleased
+## [2.9.1] — 2026-08-18
 
 ### Fixed
 
