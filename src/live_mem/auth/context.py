@@ -25,6 +25,7 @@ Voir AUTH_AND_COLLABORATION.md pour la matrice des permissions.
 
 import re
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from typing import Optional
 
 # VULN-08 fix : regex de validation du space_id, appliquée dans check_access()
@@ -56,6 +57,32 @@ current_token_info: ContextVar[Optional[dict]] = ContextVar(
 # (permissions, space_ids) même depuis le session task.
 _fresh_token_store: dict[str, dict] = {}
 
+# Un hash invalidé doit prévaloir sur le ContextVar figé d'une session MCP.
+# Le store reste séparé pour préserver la sémantique historique observable
+# (l'invalidation retire toujours l'entrée fraîche), tandis que ce tombstone
+# empêche tout fallback vers les droits périmés.
+_invalidated_token_hashes: set[str] = set()
+
+
+def is_space_badge(token_info: Optional[dict]) -> bool:
+    """Retourne True uniquement pour un badge de mission validé."""
+    return bool(token_info and token_info.get("token_kind") == "space_badge")
+
+
+def reject_space_badge() -> Optional[dict]:
+    """Refuse les outils qui ne font pas partie de l'allowlist badge.
+
+    Les appels anonymes aux outils publics restent possibles. En revanche, un
+    appel authentifié par badge ne doit jamais obtenir une surface plus large
+    simplement parce qu'un outil n'a pas de ``space_id`` à vérifier.
+    """
+    if is_space_badge(_get_effective_token_info()):
+        return {
+            "status": "error",
+            "message": "Badge de mission limité à system_whoami, live_read et live_note",
+        }
+    return None
+
 
 def update_fresh_token(token_info: dict) -> None:
     """Met à jour le store global avec les infos fraîches du token.
@@ -70,6 +97,13 @@ def update_fresh_token(token_info: dict) -> None:
     """
     token_hash = token_info.get("token_hash")
     if token_hash:
+        # Un badge remplacé ou supprimé ne peut jamais redevenir valide avec
+        # le même secret. Une requête qui avait validé ce badge juste avant
+        # sa révocation ne doit donc pas pouvoir effacer son tombstone en
+        # publiant tardivement son contexte stale.
+        if is_space_badge(token_info) and token_hash in _invalidated_token_hashes:
+            return
+        _invalidated_token_hashes.discard(token_hash)
         _fresh_token_store[token_hash] = token_info
 
 
@@ -93,6 +127,8 @@ def invalidate_token_in_store(token_hash: str) -> None:
     suivante de l'agent obtiendra un 401 sur le pipeline normal.
     """
     _fresh_token_store.pop(token_hash, None)
+    if token_hash:
+        _invalidated_token_hashes.add(token_hash)
 
 
 def _get_effective_token_info() -> Optional[dict]:
@@ -110,13 +146,33 @@ def _get_effective_token_info() -> Optional[dict]:
 
     # Rafraîchir depuis le store global si disponible
     token_hash = token_info.get("token_hash")
-    if token_hash and token_hash in _fresh_token_store:
-        return _fresh_token_store[token_hash]
+    if token_hash and token_hash in _invalidated_token_hashes:
+        return None
+    effective = _fresh_token_store.get(token_hash, token_info) if token_hash else token_info
 
-    return token_info
+    # Un badge est une capability temporaire : le ContextVar d'une session
+    # MCP peut survivre longtemps, donc son expiration ne doit pas dépendre
+    # d'un nouveau passage dans AuthMiddleware. Une date absente ou illisible
+    # est refusée de manière sûre.
+    if is_space_badge(effective):
+        expires_at = effective.get("expires_at")
+        try:
+            expires = datetime.fromisoformat(expires_at) if expires_at else None
+        except (TypeError, ValueError):
+            expires = None
+        if (
+            expires is None
+            or expires.tzinfo is None
+            or expires <= datetime.now(timezone.utc)
+        ):
+            if token_hash:
+                invalidate_token_in_store(token_hash)
+            return None
+
+    return effective
 
 
-def check_access(resource_id: str) -> Optional[dict]:
+def check_access(resource_id: str, *, allow_space_badge: bool = False) -> Optional[dict]:
     """
     Vérifie que le token courant a accès à la ressource (espace).
 
@@ -146,6 +202,20 @@ def check_access(resource_id: str) -> Optional[dict]:
             "message": f"Identifiant d'espace invalide : '{resource_id}'",
         }
 
+    if is_space_badge(token_info):
+        if not allow_space_badge:
+            return {
+                "status": "error",
+                "message": "Badge de mission limité à system_whoami, live_read et live_note",
+            }
+        allowed = token_info.get("allowed_resources", [])
+        if len(allowed) != 1 or allowed[0] != resource_id:
+            return {
+                "status": "error",
+                "message": f"Accès refusé à l'espace '{resource_id}'",
+            }
+        return None
+
     # Admin → accès total (pas de restriction par espace)
     if "admin" in token_info.get("permissions", []):
         return None
@@ -164,7 +234,7 @@ def check_access(resource_id: str) -> Optional[dict]:
     return None  # OK
 
 
-def check_write_permission() -> Optional[dict]:
+def check_write_permission(*, allow_space_badge: bool = False) -> Optional[dict]:
     """
     Vérifie que le token courant a la permission d'écriture.
 
@@ -180,6 +250,14 @@ def check_write_permission() -> Optional[dict]:
 
     if token_info is None:
         return {"status": "error", "message": "Authentification requise"}
+
+    if is_space_badge(token_info):
+        if allow_space_badge:
+            return None
+        return {
+            "status": "error",
+            "message": "Badge de mission limité à system_whoami, live_read et live_note",
+        }
 
     permissions = token_info.get("permissions", [])
     if "write" in permissions or "manage" in permissions or "admin" in permissions:

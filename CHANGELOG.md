@@ -5,7 +5,29 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## Unreleased
+## [2.9.0] — 2026-08-17
+
+### Added
+
+- **Mission-space badges (v2.9.0)** — `space_badge_mint` lets the exact
+  standard token that created a space mint a private, one-space capability for
+  one agent instance. The badge has no general permissions, can call only
+  `system_whoami`, `live_read`, and `live_note`, expires after 24 hours, and is
+  replaced atomically when the same agent identity is minted again. A space
+  holds at most 50 active badges.
+- **Inspectable badge kind** — token administration now identifies
+  `space_badge` credentials explicitly.
+
+### Changed
+
+- **Mission-space lifecycle safety** — `space_create` records the creator
+  token hash only after its space objects exist and can repair the creator's
+  own access on an idempotent retry. `space_delete` revokes its mission badges
+  before deleting S3 objects, preventing a badge from surviving a recreation
+  of the same space ID.
+- **Badge isolation** — mission badges are refused by the web API (including
+  login), admin console, and every MCP surface other than their three allowed
+  calls. Existing standard tokens retain their current behavior.
 
 ### Fixed
 

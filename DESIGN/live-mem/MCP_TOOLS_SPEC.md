@@ -1,17 +1,17 @@
 # MCP Tools Specification — Live Memory
 
-> **Version**: 2.8.0 | **Date**: 2026-08-16 | **Author**: Cloud Temple
+> **Version**: v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 
 ---
 
 ## Overview
 
-Live Memory exposes **43 MCP tools** in 7 categories:
+Live Memory exposes **44 MCP tools** in 7 categories:
 
 | Category        | Tools | Description                                        |
 | --------------- | ----- | -------------------------------------------------- |
 | **System** (3)  | 3     | Service health & identity                          |
-| **Space** (9)   | 9     | Memory space CRUD                                  |
+| **Space** (10)  | 10    | Memory space CRUD + mission badge mint             |
 | **Live** (3)    | 3     | Real-time notes                                    |
 | **Bank** (11)   | 11    | LLM-consolidated Memory Bank                       |
 | **Graph** (4)   | 4     | Bridge to Graph Memory (long-term memory)          |
@@ -45,6 +45,7 @@ Every tool returns a `dict` with a `status` field:
 | ✏️     | Write      | Token with `write` permission + space access       |
 | 🔧     | Manage     | Token with `manage` permission + space access      |
 | 👑     | Admin      | Token with `admin` permission                      |
+| 🎫     | Mission badge | Fixed capability: `system_whoami`, `live_read`, `live_note` in one space only |
 
 ---
 
@@ -105,10 +106,42 @@ async def space_create(
 
 **Behavior**:
 - Validates `space_id`: regex `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`
-- Creates `{space_id}/_meta.json` on S3
 - Creates `{space_id}/_rules.md` on S3 (immutable after creation)
 - Creates `{space_id}/live/` and `{space_id}/bank/` directories (via a `.keep` sentinel file)
+- Writes `{space_id}/_meta.json` **last**, as the completed creation marker
+- Records the non-empty hash of the creating standard token as
+  `creator_token_hash`; bootstrap/legacy spaces without it remain non-mintable
 - Error if the space already exists (`status: "already_exists"`)
+
+On a retry after an auto-access persistence failure, the same creator token can
+repair its own `space_ids` entry. No other token can use an existing `space_id`
+or `owner` value as proof of ownership.
+
+---
+
+### `space_badge_mint` ✏️
+
+Creates or replaces the individual mission badge of one agent instance.
+
+```python
+@mcp.tool()
+async def space_badge_mint(
+    space_id: str,
+    client_name: str,  # runtime agent_id label, not an authority proof
+) -> dict:
+```
+
+**Authorization and result**:
+
+- only the exact standard token whose hash is stored as the space creator may
+  mint; missing/legacy/bootstrap creator proof fails closed;
+- secret is returned once; only its SHA-256 hash is persisted;
+- fixed TTL: 24 hours; one active badge per `(space_id, client_name)`;
+  a re-mint atomically revokes the old badge; 50 active badges maximum/space;
+- badge scope is exactly one space and its authenticated MCP allowlist is only
+  `system_whoami`, `live_read`, `live_note`;
+- badge is rejected by all Bank, Space, Backup, Graph, Admin and `/api/*`
+  surfaces, including `/api/login`.
 
 ---
 
@@ -167,7 +200,7 @@ async def space_export(space_id: str) -> dict:
 
 ---
 
-### `space_delete` 👑
+### `space_delete` 🔧
 
 Deletes a space and ALL its data (irreversible).
 
@@ -617,7 +650,7 @@ Creates a new authentication token.
 async def admin_create_token(
     name: str,               # Descriptive name
     permissions: str,         # "read", "read,write", or "read,write,admin"
-    space_ids: str = "",     # Authorized spaces (empty = all)
+    space_ids: str = "",     # Authorized spaces (empty = none for non-admin)
     expires_in_days: int = 0  # 0 = no expiration
 ) -> dict:
 ```
@@ -700,6 +733,7 @@ async def admin_gc_notes(
 | `space_summary`      |  ✅  |       |        |       |        |
 | `space_export`       |  ✅  |       |        |       |        |
 | `space_delete`       |      |       |   ✅   |       |        |
+| `space_badge_mint`   |      | ✅*   |        |       |        |
 | `live_note`          |      |  ✅   |        |       |        |
 | `live_read`          |  ✅  |       |        |       |        |
 | `live_search`        |  ✅  |       |        |       |        |
@@ -734,6 +768,12 @@ async def admin_gc_notes(
 
 \* `bank_consolidate`: write is sufficient for consolidating your own notes (`agent=caller` or `agent=""` auto-detected). Manage/admin required to consolidate ALL notes or another agent's notes (`agent=other`).
 
+\* `space_badge_mint`: write alone is insufficient. The current token hash must
+also match the non-empty creator hash stored in the target space. A mission
+badge is not represented by this permission matrix: it has no `read`/`write`
+permission and is admitted only to `system_whoami`, `live_read`, and
+`live_note` in its one recorded space.
+
 ---
 
-*Document updated August 16, 2026 — Live Memory v2.8.0*
+*Document updated August 17, 2026 — Live Memory v2.9.0*

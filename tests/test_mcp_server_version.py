@@ -27,3 +27,15 @@ def test_mcp_server_info_version_uses_live_memory_version():
         "MCP serverInfo.version fell back to the SDK package version instead "
         "of Live Memory's application version."
     )
+
+
+def test_startup_catalog_lists_every_registered_tool_with_a_description():
+    tools = server.mcp._tool_manager.list_tools()
+    categories = server._group_tool_names([tool.name for tool in tools])
+    announced = [name for names in categories.values() for name in names]
+
+    assert len(tools) == 44
+    assert set(announced) == {tool.name for tool in tools}
+    assert len(announced) == len(set(announced))
+    assert "space_badge_mint" in categories["Space"]
+    assert all((tool.description or "").strip() for tool in tools)

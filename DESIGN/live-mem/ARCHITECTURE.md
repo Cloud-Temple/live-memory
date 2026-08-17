@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: 2.8.0 | **Date**: 2026-08-16 | **Author**: Cloud Temple
+> **Version**: v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -72,7 +72,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 │              Live Memory MCP Server (:8002)                │
 │                                                            │
 │  ┌─────────────────┐  ┌──────────────────┐                 │
-│  │  43 MCP Tools   │  │  LLM Service     │                 │
+│  │  44 MCP Tools   │  │  LLM Service     │                 │
 │  │  (7 categories) │  │  (consolidator)  │                 │
 │  └────────┬────────┘  └────────┬─────────┘                 │
 │           │                    │                           │
@@ -118,7 +118,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 | Component                | Role                                       | Technology                               |
 | ------------------------ | ------------------------------------------ | ---------------------------------------- |
 | **WAF**                  | Secure reverse proxy                       | Caddy + Coraza OWASP CRS + Rate Limiting |
-| **MCP Server**           | Python MCP server (43 tools, 7 categories) | FastMCP + Uvicorn (ASGI)                 |
+| **MCP Server**           | Python MCP server (44 tools, 7 categories) | FastMCP + Uvicorn (ASGI)                 |
 | **Storage Service**      | S3 abstraction (read/write/listing)        | boto3 hybrid SigV2/V4                    |
 | **Consolidator Service** | LLM synthesis of notes → bank              | AsyncOpenAI (qwen3.5:27b)                |
 | **Graph Bridge**         | Bridge to Graph Memory (long-term memory)  | MCP SDK (streamablehttp_client)          |
@@ -372,6 +372,28 @@ A **space** is an isolated namespace. Each space has:
 
 Spaces are isolated: a token can only access its authorized spaces.
 
+### 5.1 Mission-space badges (v2.9.0)
+
+Mission spaces are created just in time by `mcp-mission`, but Live Memory does
+not learn which sub-agents will later exist. The minimal solution is a
+single-purpose credential, not an ACL:
+
+- `_meta.json` stores the non-empty hash of the exact standard token that
+  created the space, and is written only after rules and sentinel objects;
+- `space_badge_mint` checks that proof under the existing per-space asyncio
+  lock, then appends a `space_badge` token under the existing token lock;
+- the badge carries one `space_id`, no general permission, a fixed 24-hour TTL,
+  and an allowlist of exactly `system_whoami`, `live_read`, `live_note`;
+- re-mint revokes the old same-label badge; delete revokes all badges before
+  deleting any space object; revoked tokens are tombstoned in the in-process
+  fresh-token cache so a stale MCP session cannot fall back to its ContextVar;
+- `/api/*`, including `/api/login`, rejects badges. The existing admin token
+  list exposes their `kind` for human inspection.
+
+This is intentionally mono-instance: it relies on the existing asyncio locks.
+Distributed locking, invitations, wildcard access and an agent registry remain
+out of scope.
+
 ---
 
 ## 6. Web Interface
@@ -398,7 +420,7 @@ Live Memory exposes a **SPA web interface** on `/live`:
 
 ### Admin Console (`/admin`)
 
-Live Memory also exposes an **administration console** on `/admin` covering all 43 MCP tools:
+Live Memory also exposes an **administration console** on `/admin` covering all 44 MCP tools:
 
 - **Architecture**: internal proxy via `_mcp_ref.call_tool_direct()` bypassing the Streamable HTTP protocol. The ASGI auth middleware injects the token context before each call, so security is inherited from the MCP layer.
 - **Backend**: `POST /api/tool` route in `auth/middleware.py`, protected (401 without session). Routes `/admin` and `/static/css/admin.css`, `/static/js/admin-*.js` served by StaticFilesMiddleware.
@@ -528,4 +550,4 @@ PROXY_URL=http://10.0.0.1:3128
 
 ---
 
-*Document updated August 16, 2026 — Live Memory v2.8.0*
+*Document updated August 17, 2026 — Live Memory v2.9.0*

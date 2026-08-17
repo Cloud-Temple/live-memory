@@ -455,10 +455,14 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Statut du job et résultat/erreur si terminé.
         """
-        from ..auth.context import check_access
+        from ..auth.context import check_access, reject_space_badge
         from ..core.consolidation_queue import get_consolidation_queue
 
         try:
+            badge_err = reject_space_badge()
+            if badge_err:
+                return badge_err
+
             result = await get_consolidation_queue().get_job(job_id)
             if result.get("status") == "not_found":
                 return result
@@ -502,7 +506,11 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Synthèse des lanes et totaux d'activité.
         """
-        from ..auth.context import _get_effective_token_info, check_access
+        from ..auth.context import (
+            _get_effective_token_info,
+            check_access,
+            reject_space_badge,
+        )
         from ..config import get_settings
         from ..core.consolidation_queue import get_consolidation_queue
         from ..core.space import get_space_service
@@ -511,6 +519,10 @@ def register(mcp: FastMCP) -> int:
             token_info = _get_effective_token_info()
             if token_info is None:
                 return {"status": "error", "message": "Authentification requise"}
+
+            badge_err = reject_space_badge()
+            if badge_err:
+                return badge_err
 
             requested_ids = [sid.strip() for sid in space_ids.split(",") if sid.strip()]
             denied_spaces = []
@@ -635,7 +647,11 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Liste des spaces stale + métriques globales et spaces refusés.
         """
-        from ..auth.context import _get_effective_token_info, check_access
+        from ..auth.context import (
+            _get_effective_token_info,
+            check_access,
+            reject_space_badge,
+        )
         from ..core.space import get_space_service
         from ..core.storage import get_storage
 
@@ -643,6 +659,10 @@ def register(mcp: FastMCP) -> int:
             token_info = _get_effective_token_info()
             if token_info is None:
                 return {"status": "error", "message": "Authentification requise"}
+
+            badge_err = reject_space_badge()
+            if badge_err:
+                return badge_err
 
             requested_ids = [sid.strip() for sid in space_ids.split(",") if sid.strip()]
             denied_spaces = []
