@@ -1,6 +1,6 @@
 # MCP Tools Specification — Live Memory
 
-> **Version**: Unreleased v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
+> **Version**: v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 
 ---
 
@@ -776,4 +776,4 @@ permission and is admitted only to `system_whoami`, `live_read`, and
 
 ---
 
-*Document updated August 17, 2026 — unreleased Live Memory v2.9.0 work*
+*Document updated August 17, 2026 — Live Memory v2.9.0*

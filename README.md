@@ -307,7 +307,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `space_export`  | `space_id`                                   | tar.gz export in base64                                   |
 | `space_delete`  | `space_id`, `confirm`                        | Deletes the space (⚠️ irreversible, manage required)    |
 
-#### Mission-space badges (unreleased v2.9.0)
+#### Mission-space badges (v2.9.0)
 
 `space_badge_mint` is deliberately not a general ACL mechanism. Only the
 exact standard token that created a space can mint a badge for an agent

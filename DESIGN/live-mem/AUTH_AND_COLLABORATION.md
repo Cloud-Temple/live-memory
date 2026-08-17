@@ -1,6 +1,6 @@
 # Authentication & Multi-Agent Collaboration — Live Memory
 
-> **Version**: Unreleased v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
+> **Version**: v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 
 ---
 
@@ -369,4 +369,4 @@ Each HTTP request is logged to `stderr` via `LoggingMiddleware`:
 
 ---
 
-*Document updated August 17, 2026 — Live Memory v2.9.0 (unreleased)*
+*Document updated August 17, 2026 — Live Memory v2.9.0*

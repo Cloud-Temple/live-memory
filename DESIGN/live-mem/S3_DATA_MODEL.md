@@ -1,6 +1,6 @@
 # S3 Data Model — Live Memory
 
-> **Version**: Unreleased v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
+> **Version**: v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 
 ---
 
@@ -304,4 +304,4 @@ S3 provides **strong consistency** for PUT and DELETE followed by GET. No waitin
 
 ---
 
-*Document updated August 17, 2026 — Live Memory v2.9.0 (unreleased)*
+*Document updated August 17, 2026 — Live Memory v2.9.0*

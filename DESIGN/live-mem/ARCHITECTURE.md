@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: Unreleased v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
+> **Version**: v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -372,7 +372,7 @@ A **space** is an isolated namespace. Each space has:
 
 Spaces are isolated: a token can only access its authorized spaces.
 
-### 5.1 Mission-space badges (unreleased v2.9.0)
+### 5.1 Mission-space badges (v2.9.0)
 
 Mission spaces are created just in time by `mcp-mission`, but Live Memory does
 not learn which sub-agents will later exist. The minimal solution is a
@@ -550,4 +550,4 @@ PROXY_URL=http://10.0.0.1:3128
 
 ---
 
-*Document updated August 17, 2026 — Live Memory v2.9.0 (unreleased)*
+*Document updated August 17, 2026 — Live Memory v2.9.0*
