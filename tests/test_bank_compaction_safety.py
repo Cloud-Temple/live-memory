@@ -1253,6 +1253,63 @@ async def test_consolidator_reassembles_edits_and_writes_one_canonical_file():
 
 
 @pytest.mark.asyncio
+async def test_missing_section_in_legacy_split_is_recovered_then_canonicalized():
+    canonical = _split_marker("progress.md", 1, 2) + "# progress.md\n\n## First\nold\n"
+    second = _split_marker("progress.md", 2, 2) + "## Existing\nkept\n"
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": canonical,
+            "sp/bank/progress.part-002.md": second,
+            "sp/live/note.md": "important source\n",
+        }
+    )
+    storage.delete_many = AsyncMock(side_effect=storage.delete_many)
+    service = _service()
+    service._deduplicate_content = AsyncMock(
+        side_effect=lambda content, filename: (content, 0)
+    )
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.part-002.md",
+                "action": "edit",
+                "operations": [
+                    {
+                        "type": "append_to_section",
+                        "heading": "## Absorbed",
+                        "content": "recovered fact",
+                    }
+                ],
+            }
+        ],
+        "synthesis": "done",
+    }
+
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp", output, bank_files, ["sp/live/note.md"], 1, {}, skip_meta=True
+        )
+
+    assert result["status"] == "ok"
+    assert result["recovered_operations"] == [
+        {
+            "filename": "progress.md",
+            "type": "append_to_section",
+            "heading": "## Absorbed",
+            "strategy": "append_missing_section",
+            "placement": "file_end",
+        }
+    ]
+    assert "sp/bank/progress.part-002.md" not in storage.objects
+    assert storage.objects["sp/bank/progress.md"].endswith(
+        "## Absorbed\nrecovered fact\n"
+    )
+    assert "sp/live/note.md" not in storage.objects
+    storage.delete_many.assert_any_await(["sp/live/note.md"])
+
+
+@pytest.mark.asyncio
 async def test_one_part_legacy_family_is_canonicalized_after_later_growth():
     compacted_body = "# progress.md\n\n## Target\nshort\n"
     canonical = _split_marker("progress.md", 1, 1) + compacted_body
@@ -1726,7 +1783,7 @@ async def test_classic_consolidation_keeps_the_consolidation_model():
 
 
 @pytest.mark.asyncio
-async def test_failed_operation_exposes_file_section_and_reason():
+async def test_missing_section_is_recovered_and_exposed_in_metrics():
     storage = MemoryStorage({"sp/bank/progress.md": "# progress.md\n"})
     service = _service()
     service._deduplicate_content = AsyncMock(
@@ -1755,15 +1812,101 @@ async def test_failed_operation_exposes_file_section_and_reason():
             "sp", output, bank_files, [], 1, {}, skip_meta=True
         )
 
-    assert result["operations_failed"] == 1
-    assert result["operation_failures"] == [
+    assert result["status"] == "ok"
+    assert result["operations_failed"] == 0
+    assert result["recovered_operations"] == [
         {
             "filename": "progress.md",
-            "operation": "append_to_section",
+            "type": "append_to_section",
             "heading": "## Missing",
-            "reason": "Section non trouvée: ## Missing",
+            "strategy": "append_missing_section",
+            "placement": "file_end",
         }
     ]
+    assert storage.objects["sp/bank/progress.md"].endswith("## Missing\nnever written\n")
+
+
+@pytest.mark.asyncio
+async def test_recovered_section_readback_failure_rolls_back_and_keeps_notes():
+    original = "# progress.md\n"
+    storage = MemoryStorage(
+        {
+            "sp/bank/progress.md": original,
+            "sp/live/note.md": "important source\n",
+        }
+    )
+    service = _service()
+    service._deduplicate_content = AsyncMock(
+        side_effect=lambda content, filename: (content, 0)
+    )
+    output = {
+        "file_edits": [
+            {
+                "filename": "progress.md",
+                "action": "edit",
+                "operations": [
+                    {
+                        "type": "append_to_section",
+                        "heading": "## Missing",
+                        "content": "must be read back",
+                    }
+                ],
+            }
+        ],
+        "synthesis": "must not be persisted",
+    }
+
+    original_get = storage.get
+
+    async def corrupted_recovery_read(key: str):
+        if key == "sp/bank/progress.md":
+            return "corrupted"
+        return await original_get(key)
+
+    storage.get = AsyncMock(side_effect=corrupted_recovery_read)
+    storage.delete_many = AsyncMock(side_effect=storage.delete_many)
+    bank_files = await storage.list_and_get("sp/bank/")
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp", output, bank_files, ["sp/live/note.md"], 1, {}, skip_meta=True
+        )
+
+    assert result["status"] == "error"
+    assert storage.objects["sp/bank/progress.md"] == original
+    assert storage.objects["sp/live/note.md"] == "important source\n"
+    storage.delete_many.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_edit_cannot_create_a_missing_bank_file():
+    storage = MemoryStorage({"sp/live/note.md": "important source\n"})
+    storage.put = AsyncMock(side_effect=storage.put)
+    storage.delete_many = AsyncMock(side_effect=storage.delete_many)
+    service = _service()
+    output = {
+        "file_edits": [
+            {
+                "filename": "invented.md",
+                "action": "edit",
+                "operations": [
+                    {"type": "append_to_section", "heading": "## Missing", "content": "no"}
+                ],
+            }
+        ],
+        "synthesis": "must not be persisted",
+    }
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service._write_results(
+            "sp", output, [], ["sp/live/note.md"], 1, {}, skip_meta=True
+        )
+
+    assert result["status"] == "error"
+    assert result["operation_failures"][0]["reason"] == "edit requires an existing bank file"
+    assert "sp/bank/invented.md" not in storage.objects
+    assert storage.objects["sp/live/note.md"] == "important source\n"
+    storage.put.assert_not_awaited()
+    storage.delete_many.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1802,7 +1945,7 @@ async def test_invalid_operation_preflight_writes_nothing_and_preserves_notes():
                 "operations": [
                     {
                         "type": "append_to_section",
-                        "heading": "## Missing",
+                        "heading": "Missing",
                         "content": "must never be written",
                     }
                 ],

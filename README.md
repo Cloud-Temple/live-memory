@@ -373,6 +373,14 @@ Multi-file compaction restores only `bank/`, so a live note created
 concurrently is never removed by rollback. Terminal job results are persisted
 for post-restart audit; active/queued jobs remain an in-memory FIFO.
 
+When 2.8+ compaction has legitimately absorbed an old heading, a surgical
+`replace_section`, `append_to_section`, or `prepend_to_section` may recover it
+only as a strict ATX heading with non-empty content at the end of the existing
+logical file. An absent `delete_section` is idempotent. This compatibility path
+does not create files, infer Markdown parents, relax other plan validation, or
+hide the event: terminal results expose `recovered_operations`, and recovered
+files are read back exactly before source notes are deleted.
+
 In 2.8.0, automatic pre-consolidation compaction is a gate. Any
 preflight, Map, Reduce, candidate, backup, persistence, or rollback failure
 blocks `bank_consolidate`; no source note is consumed and no later Bank mutation

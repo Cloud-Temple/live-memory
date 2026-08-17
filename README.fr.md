@@ -377,6 +377,16 @@ supprimer une note live concurrente. Les résultats terminaux des jobs sont
 persistés pour l'audit après redémarrage ; les jobs actifs/en attente restent
 dans une FIFO en mémoire.
 
+Lorsqu'une compaction 2.8+ a légitimement absorbé un ancien heading, une
+opération chirurgicale `replace_section`, `append_to_section` ou
+`prepend_to_section` peut le recréer uniquement sous la forme d'un heading ATX
+strict avec contenu non vide, à la fin du fichier logique existant. Un
+`delete_section` déjà absent est idempotent. Cette compatibilité ne crée aucun
+fichier, ne devine aucun parent Markdown, n'assouplit aucun autre contrôle du
+plan et reste observable : le résultat terminal expose
+`recovered_operations`, et le fichier récupéré est relu exactement avant la
+suppression des notes source.
+
 Dans la 2.8.0, la compaction automatique avant consolidation est une
 barrière. Tout échec de préflight, Map, Reduce, candidat, backup, persistance ou
 rollback bloque `bank_consolidate` ; aucune note source n'est consommée et

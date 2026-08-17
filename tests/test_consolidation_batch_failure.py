@@ -355,6 +355,44 @@ class TestFullSuccessNonRegression:
         assert "message" not in result
         assert len(storage.put_json_calls) == 1
 
+    async def test_recovery_metrics_are_aggregated_across_batches(self):
+        storage = FakeStorage(_notes(4))
+        svc = _consolidator(batch_size=2)
+        first = _ok_write_result(2)
+        first["recovered_operations"] = [
+            {
+                "filename": "progress.md",
+                "type": "append_to_section",
+                "heading": "## Absorbée",
+                "strategy": "append_missing_section",
+                "placement": "file_end",
+            }
+        ]
+        second = _ok_write_result(2)
+        second["recovered_operations"] = [
+            {
+                "filename": "techContext.md",
+                "type": "delete_section",
+                "heading": "## Obsolète",
+                "strategy": "already_absent",
+                "placement": "none",
+            }
+        ]
+
+        with patch(
+            "live_mem.core.consolidator.get_storage", return_value=storage
+        ), patch.object(
+            svc, "_call_llm", new=AsyncMock(return_value=_ok_llm_result())
+        ), patch.object(svc, "_write_results", new=AsyncMock(side_effect=[first, second])):
+            result = await svc.consolidate("sp", agent="CLR", enforce_cooldown=False)
+
+        assert result["status"] == "ok"
+        assert result["recovered_operations_count"] == 2
+        assert [item["filename"] for item in result["recovered_operations"]] == [
+            "progress.md",
+            "techContext.md",
+        ]
+
     async def test_no_notes_still_returns_ok(self):
         storage = FakeStorage([])
         svc = _consolidator(batch_size=2)

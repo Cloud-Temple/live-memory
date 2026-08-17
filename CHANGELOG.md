@@ -5,6 +5,21 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.9.1] — Unreleased
+
+### Fixed
+
+- **Consolidation after compaction** — a surgical edit targeting a Markdown
+  heading legitimately absorbed by an earlier compaction no longer stops the
+  batch. `replace_section`, `append_to_section` and `prepend_to_section`
+  recreate only a strict ATX heading with non-empty content at file end;
+  `delete_section` is idempotent when the heading is already absent. The
+  complete plan is still preflighted, target files must already exist, and all
+  other malformed operations still fail closed.
+- **Observable recovery** — recovered operations are reported in terminal job
+  results and a recovered file is read back exactly before its live notes can
+  be consumed.
+
 ## [2.9.0] — 2026-08-17
 
 ### Added
