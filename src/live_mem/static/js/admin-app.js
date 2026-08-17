@@ -326,13 +326,14 @@ async function renderTokens(){
     const tokens=await loadTokens();
     const el=document.getElementById('tokensContent');if(!el)return;
     if(!tokens.length){el.innerHTML='<div class="empty">No tokens found.</div>';return;}
-    el.innerHTML=`<table class="data-table"><thead><tr><th>Name</th><th>Status</th><th>Permissions</th><th>Spaces</th><th>Email</th><th>Actions</th></tr></thead><tbody>${
+    el.innerHTML=`<table class="data-table"><thead><tr><th>Name</th><th>Kind</th><th>Status</th><th>Permissions</th><th>Spaces</th><th>Email</th><th>Actions</th></tr></thead><tbody>${
         tokens.map(t=>{
             const h=esc(t.hash||''), perms=(t.permissions||[]).join(', '), sids=t.space_ids||[];
             const spTxt=sids.length?sids.join(', '):'<span class="text-muted">all</span>';
-            const n=esc(t.name);
+            const n=esc(t.name), kind=esc(t.kind||'standard');
             return `<tr class="${t.revoked?'row-muted':''}">
                 <td><strong>${n}</strong><br><span class="mono text-muted" style="font-size:.58rem">${h.substring(0,28)}…</span></td>
+                <td><span class="badge ${kind==='space_badge'?'purple':''}">${kind}</span></td>
                 <td><span class="badge ${t.revoked?'red':'green'}">${t.revoked?'revoked':'active'}</span></td>
                 <td><span class="badge purple">${esc(perms)}</span></td>
                 <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:.7rem">${spTxt}</td>

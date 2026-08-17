@@ -43,7 +43,12 @@ def register(mcp: FastMCP) -> int:
         Returns:
             État global du système et détails par service
         """
+        from ..auth.context import reject_space_badge
         from ..config import get_settings
+
+        badge_err = reject_space_badge()
+        if badge_err:
+            return badge_err
 
         settings = get_settings()
         results = {}
@@ -149,7 +154,12 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Métadonnées du service
         """
+        from ..auth.context import reject_space_badge
         from ..config import get_settings
+
+        badge_err = reject_space_badge()
+        if badge_err:
+            return badge_err
 
         settings = get_settings()
 
@@ -190,9 +200,9 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Identité complète du token courant
         """
-        from ..auth.context import current_token_info
+        from ..auth.context import _get_effective_token_info
 
-        token_info = current_token_info.get()
+        token_info = _get_effective_token_info()
         if token_info is None:
             return {"status": "error", "message": "Authentification requise"}
 
@@ -200,6 +210,7 @@ def register(mcp: FastMCP) -> int:
             "status": "ok",
             "client_name": token_info.get("client_name", "anonymous"),
             "auth_type": token_info.get("type", "unknown"),
+            "token_kind": token_info.get("token_kind", "standard"),
             "permissions": token_info.get("permissions", []),
             "allowed_spaces": token_info.get("allowed_resources", []),
         }

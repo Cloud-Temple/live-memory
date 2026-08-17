@@ -84,11 +84,11 @@ def register(mcp: FastMCP) -> int:
 
         try:
             # Vérifier accès à l'espace + permission write
-            access_err = check_access(space_id)
+            access_err = check_access(space_id, allow_space_badge=True)
             if access_err:
                 return access_err
 
-            write_err = check_write_permission()
+            write_err = check_write_permission(allow_space_badge=True)
             if write_err:
                 return write_err
 
@@ -152,7 +152,7 @@ def register(mcp: FastMCP) -> int:
         from ..core.live import get_live_service
 
         try:
-            access_err = check_access(space_id)
+            access_err = check_access(space_id, allow_space_badge=True)
             if access_err:
                 return access_err
 

@@ -1,6 +1,6 @@
 # S3 Data Model — Live Memory
 
-> **Version**: 2.7.3 | **Date**: 2026-08-13 | **Author**: Cloud Temple
+> **Version**: Unreleased v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 
 ---
 
@@ -80,6 +80,7 @@ Registry of all authentication tokens.
   "tokens": [
     {
       "hash": "sha256:a1b2c3d4e5f6...",
+      "kind": "standard",
       "name": "admin-ops",
       "permissions": ["read", "write", "admin"],
       "space_ids": [],
@@ -90,6 +91,7 @@ Registry of all authentication tokens.
     },
     {
       "hash": "sha256:f7e8d9c0b1a2...",
+      "kind": "standard",
       "name": "agent-cline",
       "permissions": ["read", "write"],
       "space_ids": ["project-alpha", "project-beta"],
@@ -97,12 +99,25 @@ Registry of all authentication tokens.
       "expires_at": "2027-02-20T14:05:00Z",
       "last_used_at": "2026-02-20T18:00:00Z",
       "revoked": false
+    },
+    {
+      "hash": "sha256:badgehash...",
+      "kind": "space_badge",
+      "name": "runtime-agent-id",
+      "permissions": [],
+      "space_ids": ["mis_42"],
+      "created_at": "2026-08-17T14:00:00+00:00",
+      "expires_at": "2026-08-18T14:00:00+00:00",
+      "revoked": false
     }
   ]
 }
 ```
 
 **Concurrency**: Protected by a dedicated `asyncio.Lock` (`LockManager.tokens`).
+Mission badges are capabilities, not ordinary scoped tokens: they always have
+one `space_id`, no general permission, and a fixed 24-hour expiry. The raw
+badge secret is never stored.
 
 ### 3.2 `_consolidation_jobs/{job_id}.json`
 
@@ -125,6 +140,7 @@ Space metadata. Created by `space_create`, updated by `bank_consolidate` and `gr
   "space_id": "project-alpha",
   "description": "API v3 refactoring project",
   "owner": "cline-dev",
+  "creator_token_hash": "sha256:creatorhash...",
   "created_at": "2026-02-20T14:00:00Z",
   "last_consolidation": "2026-02-20T16:00:00Z",
   "consolidation_count": 3,
@@ -143,6 +159,10 @@ Space metadata. Created by `space_create`, updated by `bank_consolidate` and `gr
 ```
 
 **Fields added in v0.3.0**: `graph_memory` (optional object) containing the Graph Memory connection config and push metrics.
+
+**Field added in v2.9.0**: `creator_token_hash` is the exact technical proof
+that can mint a mission badge for this space. It is written with `_meta.json`
+last during creation and is masked from every export or downloaded backup.
 
 ---
 
@@ -231,13 +251,14 @@ Manually named files such as `progress-2.md` remain ordinary independent files.
 
 | Tool | S3 Operations | Pattern |
 |---|---|---|
-| `space_create` | PUT `_meta.json`, PUT `_rules.md`, PUT `live/.keep`, PUT `bank/.keep` | 4 PUTs |
+| `space_create` | PUT `_rules.md`, `live/.keep`, `bank/.keep`, then `_meta.json` | 4 PUTs; meta last is creation marker |
+| `space_badge_mint` | GET `_meta.json`, read/PUT `_system/tokens.json` | creator proof + one badge mutation under locks |
 | `space_list` | LIST `*/` (top-level prefixes), GET `*/_meta.json` | N GETs |
 | `space_info` | GET `_meta.json`, LIST `live/*`, LIST `bank/*` | 1 GET + 2 LISTs |
 | `space_rules` | GET `_rules.md` | 1 GET |
 | `space_summary` | GET `_meta.json`, GET `_rules.md`, GET `bank/*` | N GETs |
 | `space_export` | LIST + GET all files | N GETs |
-| `space_delete` | LIST + DELETE all files | N DELETEs |
+| `space_delete` | PUT revoked badges in `_system/tokens.json`, then LIST + DELETE space files | revocation persists before deletion |
 | `live_note` | PUT `live/{filename}` | 1 PUT |
 | `live_read` | LIST `live/*`, GET selected files | 1 LIST + N GETs |
 | `live_search` | LIST `live/*`, GET all, text filter | 1 LIST + N GETs |
@@ -283,4 +304,4 @@ S3 provides **strong consistency** for PUT and DELETE followed by GET. No waitin
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.3*
+*Document updated August 17, 2026 — Live Memory v2.9.0 (unreleased)*

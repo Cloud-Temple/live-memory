@@ -1,6 +1,6 @@
 # Production Deployment Guide — Live Memory
 
-> **Version**: 2.4.0 | **Date**: 2026-05-22 | **Author**: Cloud Temple
+> **Version**: Unreleased v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 
 ---
 
@@ -11,12 +11,12 @@ Live Memory is deployed via Docker Compose with 2 services:
 | Service         | Role                                     | Image          | Internal Port |
 | --------------- | ---------------------------------------- | -------------- | ------------- |
 | **WAF**         | Secure reverse proxy (Caddy + Coraza)    | Custom (build) | 8080          |
-| **MCP Service** | Python MCP server (43 tools)             | Custom (build) | 8002          |
+| **MCP Service** | Python MCP server (44 tools)             | Custom (build) | 8002          |
 
 **Difference with graph-memory**: No Neo4j or Qdrant → much lighter deployment.
 
 **Exposed features**:
-- 43 MCP tools via Streamable HTTP (`/mcp`)
+- 44 MCP tools via Streamable HTTP (`/mcp`)
 - Web visualization interface (`/live`)
 - 5 REST API endpoints (`/api/*`)
 
@@ -274,4 +274,4 @@ open http://localhost:8080/live
 
 ---
 
-*Document updated April 25, 2026 — Live Memory v1.6.0*
+*Document updated August 17, 2026 — Live Memory v2.9.0 (unreleased)*

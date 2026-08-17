@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.8.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.9.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -123,7 +123,7 @@ Specifically, agents can:
                        │
           ┌────────────┴───────────────────┐
           │   Live Memory MCP (:8002)      │
-          │   43 tools • Auth Bearer       │
+          │   44 tools • Auth Bearer       │
           │   LLM Consolidation            │
           └──────┬──────────┬──────┬───────┘
                  │          │      │
@@ -282,7 +282,7 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 
 ## 🔧 MCP Tools
 
-43 tools exposed via the MCP protocol (Streamable HTTP), divided into 7 categories.
+44 tools exposed via the MCP protocol (Streamable HTTP), divided into 7 categories.
 
 ### System (3 tools)
 
@@ -292,11 +292,12 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `system_whoami` | —          | 👤 Current token identity (name, permissions, spaces) |
 | `system_about`  | —          | Service identity (version, tools, capabilities)        |
 
-### Space (9 tools)
+### Space (10 tools)
 
 | Tool                 | Parameters                                   | Description                                               |
 | -------------------- | -------------------------------------------- | --------------------------------------------------------- |
 | `space_create`       | `space_id`, `description`, `rules`, `owner?` | Creates a space with its rules (bank structure)           |
+| `space_badge_mint`   | `space_id`, `client_name`                    | Mints/replaces one restricted mission-agent badge          |
 | `space_update`       | `space_id`, `description?`, `owner?`         | Updates description and/or owner                          |
 | `space_update_rules` | `space_id`, `rules`                          | 📜 Updates space rules (manage)                          |
 | `space_list`         | —                                            | Lists spaces accessible by current token                  |
@@ -305,6 +306,20 @@ docker compose logs -f live-mem-service --tail 50  # Logs
 | `space_summary` | `space_id`                                   | Complete summary: rules + bank + stats (agent startup)    |
 | `space_export`  | `space_id`                                   | tar.gz export in base64                                   |
 | `space_delete`  | `space_id`, `confirm`                        | Deletes the space (⚠️ irreversible, manage required)    |
+
+#### Mission-space badges (unreleased v2.9.0)
+
+`space_badge_mint` is deliberately not a general ACL mechanism. Only the
+exact standard token that created a space can mint a badge for an agent
+instance. A badge is restricted to that one space and to `system_whoami`,
+`live_read`, and `live_note`; it has a fixed 24-hour lifetime. Re-minting the
+same `client_name` revokes its prior badge, and deleting the space revokes all
+of its badges first.
+
+The intended flow is: `mcp-mission` holds the creator token and requests a
+badge after it has authenticated the mission and reserved the runtime agent
+identity; `mcp-agent` keeps the returned secret private and uses it only for
+the mission space. Badges cannot call the web API or the admin console.
 
 ### Live (3 tools)
 
@@ -507,11 +522,13 @@ http://localhost:8080/live
 | `GET /api/bank/{id}`            | Bank file list                                           |
 | `GET /api/bank/{id}/{filename}` | Bank file content                                        |
 
-`/api/*` endpoints require a Bearer Token. `/live` page and `/static/*` files are public.
+`/api/*` endpoints require a standard Bearer Token. Mission-space badges are
+MCP-only and are refused, including by `/api/login`. `/live` page and
+`/static/*` files are public.
 
 ### Admin Console (`/admin`)
 
-A full **administration console** is available at `/admin`, exposing all 43 MCP tools through a web interface:
+A full **administration console** is available at `/admin`, exposing all 44 MCP tools through a web interface:
 
 ```
 http://localhost:8080/admin
@@ -694,6 +711,9 @@ python scripts/test_recette.py --suite isolation -v --step --no-cleanup
 - **SHA-256 Tokens** stored on S3 (never in clear text)
 - **3 levels**: read, write, admin
 - **Space scope**: a token can be limited to specific spaces
+- **Mission badge**: no general permission; one mission space and only
+  `system_whoami`, live read/write MCP operations. It is rejected by the web
+  API and admin console.
 
 ### WAF (Caddy + Coraza)
 
@@ -708,7 +728,7 @@ python scripts/test_recette.py --suite isolation -v --step --no-cleanup
 
 ```
 live-memory/
-├── src/live_mem/              # Source code (43 MCP tools + web interface)
+├── src/live_mem/              # Source code (44 MCP tools + web interface)
 │   ├── server.py              # FastMCP server + middlewares
 │   ├── config.py              # pydantic-settings configuration
 │   ├── auth/                  # Authentication
@@ -732,7 +752,7 @@ live-memory/
 │   │   └── models.py          #   Pydantic models
 │   └── tools/                 # MCP Tools (7 modules)
 │       ├── system.py          #   3 tools (health, whoami, about)
-│       ├── space.py           #   9 tools (spaces CRUD)
+│       ├── space.py           #   10 tools (spaces CRUD + mission badge)
 │       ├── live.py            #   3 tools (notes)
 │       ├── bank.py            #   11 tools (bank + consolidation + supervision + maintenance)
 │       ├── graph.py           #   4 tools (Graph Bridge)
@@ -748,7 +768,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dependencies & project config (uv)
 ├── uv.lock                    # uv lockfile
-├── VERSION                    # 2.8.0
+├── VERSION                    # 2.9.0
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -826,4 +846,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.8.0 — Shared working memory for collaborative AI agents*
+*Live Memory v2.9.0 — Shared working memory for collaborative AI agents*

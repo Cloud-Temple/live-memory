@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Outils MCP — Catégorie Space (9 outils).
+Outils MCP — Catégorie Space (10 outils).
 
 Gestion des espaces mémoire : créer, lister, inspecter, exporter, supprimer.
 
@@ -14,6 +14,7 @@ Permissions :
     - space_summary       🔑 (read)    — Synthèse complète (rules + bank)
     - space_export        🔑 (read)    — Export tar.gz en base64
     - space_delete        🔧 (manage)  — Supprime un espace (irréversible)
+    - space_badge_mint    ✏️ (write)   — Frappe un badge mono-space de mission
 
 Chaque outil délègue au SpaceService (core/space.py) après vérification
 des permissions via les helpers auth/context.py.
@@ -28,13 +29,13 @@ from pydantic import Field
 
 def register(mcp: FastMCP) -> int:
     """
-    Enregistre les 9 outils space sur l'instance MCP.
+    Enregistre les 10 outils space sur l'instance MCP.
 
     Args:
         mcp: Instance FastMCP
 
     Returns:
-        Nombre d'outils enregistrés (9)
+        Nombre d'outils enregistrés (10)
     """
 
     @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False))
@@ -82,10 +83,9 @@ def register(mcp: FastMCP) -> int:
             Détails de l'espace créé
         """
         from pathlib import Path
-        from ..auth.context import check_write_permission, current_token_info
+        from ..auth.context import check_write_permission, _get_effective_token_info
         from ..config import get_settings
         from ..core.space import get_space_service
-        from ..core.tokens import get_token_service
 
         try:
             # Vérifier la permission write
@@ -115,28 +115,82 @@ def register(mcp: FastMCP) -> int:
                         ),
                     }
 
-            result = await get_space_service().create(
+            token_info = _get_effective_token_info()
+            creator_token_hash = token_info.get("token_hash") if token_info else None
+            space_service = get_space_service()
+            result = await space_service.create(
                 space_id=space_id,
                 description=description,
                 rules=effective_rules,
                 owner=owner,
+                creator_token_hash=creator_token_hash,
             )
 
-            # Auto-ajout du space au token (alignement Graph Memory)
-            # Si le token est restreint à certains spaces, on ajoute
-            # automatiquement le nouveau space pour éviter le deadlock UX.
-            if result.get("status") == "created":
-                token_info = current_token_info.get()
-                if token_info and token_info.get("token_hash"):
-                    add_result = await get_token_service().add_space_to_token(
-                        token_hash=token_info["token_hash"],
-                        space_id=space_id,
+            # Auto-ajout du space au token (alignement Graph Memory). La
+            # preuve et l'écriture restent atomiques sous le verrou du space,
+            # pour qu'une suppression/recréation ne puisse pas s'intercaler.
+            if result.get("status") in ("created", "already_exists") and creator_token_hash:
+                add_result = await space_service.ensure_creator_access(
+                    space_id, creator_token_hash
+                )
+                if add_result.get("status") in ("ok", "skipped"):
+                    if result.get("status") == "already_exists":
+                        result["creator_access_repair"] = True
+                    result["token_auto_updated"] = add_result.get("status") == "ok"
+                    result["token_message"] = add_result["message"]
+                elif add_result.get("status") != "forbidden":
+                    # L'espace est sûr et son `_meta` est complet ; le même
+                    # create est idempotent et permettra au créateur de
+                    # réparer l'accès sans qu'un autre token puisse le faire.
+                    result["creator_access_pending"] = True
+                    result["token_message"] = (
+                        "Espace créé mais accès créateur non assuré ; "
+                        "réessayez exactement space_create avec ce token."
                     )
-                    if add_result.get("status") == "ok":
-                        result["token_auto_updated"] = True
-                        result["token_message"] = add_result["message"]
 
             return result
+        except Exception as e:
+            from ..auth.context import safe_error
+
+            return safe_error(e, "space")
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False))
+    async def space_badge_mint(
+        space_id: Annotated[
+            str, Field(description="Space de mission auquel le badge sera limité")
+        ],
+        client_name: Annotated[
+            str,
+            Field(
+                description=(
+                    "Libellé technique unique de l'instance agent, fourni par "
+                    "son runtime (jamais une preuve d'autorité)"
+                )
+            ),
+        ],
+    ) -> dict:
+        """Frappe ou remplace le badge mono-space d'un agent de mission.
+
+        Seul le token technique ayant créé le space peut appeler cet outil.
+        Le secret est retourné une seule fois ; le serveur ne conserve que son
+        hash. Le badge est limité à `system_whoami`, `live_read` et `live_note`
+        dans ce seul space, pendant 24 heures.
+        """
+        from ..auth.context import check_write_permission, _get_effective_token_info
+        from ..core.space import get_space_service
+
+        try:
+            write_err = check_write_permission()
+            if write_err:
+                return write_err
+
+            token_info = _get_effective_token_info()
+            caller_token_hash = token_info.get("token_hash") if token_info else None
+            return await get_space_service().mint_badge(
+                space_id=space_id,
+                caller_token_hash=caller_token_hash,
+                client_name=client_name,
+            )
         except Exception as e:
             from ..auth.context import safe_error
 
@@ -252,7 +306,7 @@ def register(mcp: FastMCP) -> int:
         Returns:
             Liste des espaces avec statistiques
         """
-        from ..auth.context import _get_effective_token_info
+        from ..auth.context import _get_effective_token_info, reject_space_badge
         from ..core.space import get_space_service
 
         try:
@@ -260,6 +314,10 @@ def register(mcp: FastMCP) -> int:
             token_info = _get_effective_token_info()
             if token_info is None:
                 return {"status": "error", "message": "Authentification requise"}
+
+            badge_err = reject_space_badge()
+            if badge_err:
+                return badge_err
 
             permissions = token_info.get("permissions", [])
             allowed = token_info.get("allowed_resources", [])
@@ -452,17 +510,20 @@ def register(mcp: FastMCP) -> int:
                     ),
                 }
 
-            lock = get_lock_manager().consolidation(space_id)
-            if lock.locked():
+            # Préserver le contrat opérateur : ne jamais faire attendre une
+            # suppression derrière une consolidation en cours. Le service
+            # reprend ensuite ce même lock pour sérialiser réellement la
+            # révocation des badges et la suppression.
+            if get_lock_manager().consolidation(space_id).locked():
                 return {
                     "status": "conflict",
-                    "message": f"Bank mutation in progress for '{space_id}'.",
+                    "message": f"Espace '{space_id}' occupé par une consolidation en cours",
                 }
-            async with lock:
-                return await get_space_service().delete(space_id)
+
+            return await get_space_service().delete(space_id)
         except Exception as e:
             from ..auth.context import safe_error
 
             return safe_error(e, "space")
 
-    return 9  # Nombre d'outils enregistrés
+    return 10  # Nombre d'outils enregistrés

@@ -8,7 +8,7 @@ space, consolidator, tokens, backup) et sérialisés en JSON/Markdown sur S3.
 Voir S3_DATA_MODEL.md pour l'arborescence S3 complète.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -54,28 +54,35 @@ def mask_meta_secrets(meta: Optional[dict]) -> Optional[dict]:
     Args:
         meta: dict _meta.json brut (ou None si l'espace n'existe pas)
 
+    Le hash du créateur technique est également sensible : il ne permet pas
+    d'authentifier seul, mais il ne doit pas être exporté ni inclus dans un
+    backup téléchargeable.
+
     Returns:
-        Une COPIE du dict avec ``graph_memory.token`` masqué, ou ``None``
-        si l'entrée était None. Ne modifie pas l'entrée.
+        Une COPIE du dict avec les secrets masqués, ou ``None`` si l'entrée
+        était None. Ne modifie pas l'entrée.
     """
     if not meta:
         return meta
 
-    gm = meta.get("graph_memory")
-    if not gm:
-        return meta
-
-    token = gm.get("token") if isinstance(gm, dict) else None
-    if not token:
-        return meta
-
     # Copie défensive (jamais muter le dict en place — pourrait corrompre
     # un singleton de cache ou une réponse parallèle).
-    masked_token = token[:8] + "..." if len(token) > 8 else "***"
-    return {
-        **meta,
-        "graph_memory": {**gm, "token": masked_token},
-    }
+    masked = dict(meta)
+    changed = False
+
+    creator_token_hash = meta.get("creator_token_hash")
+    if creator_token_hash:
+        masked["creator_token_hash"] = "***"
+        changed = True
+
+    gm = meta.get("graph_memory")
+    token = gm.get("token") if isinstance(gm, dict) else None
+    if token:
+        masked_token = token[:8] + "..." if len(token) > 8 else "***"
+        masked["graph_memory"] = {**gm, "token": masked_token}
+        changed = True
+
+    return masked if changed else meta
 
 
 class SpaceMeta(BaseModel):
@@ -88,6 +95,10 @@ class SpaceMeta(BaseModel):
     space_id: str
     description: str = ""
     owner: str = ""
+    # Preuve technique du créateur. Jamais exposée dans les exports ou backups.
+    # Les spaces historiques/bootstrap sans hash restent volontairement non
+    # mintables pour les badges de mission (fail closed).
+    creator_token_hash: Optional[str] = None
     created_at: str = ""  # ISO 8601
     last_consolidation: Optional[str] = None  # ISO 8601 ou None
     consolidation_count: int = 0
@@ -165,12 +176,13 @@ class TokenInfo(BaseModel):
     """
 
     hash: str = ""  # "sha256:{hex}" — identifiant unique
+    kind: Literal["standard", "space_badge"] = "standard"
     name: str = ""  # Nom descriptif (ex: "agent-cline")
     email: str = ""  # Email du propriétaire (optionnel, traçabilité)
     permissions: list[str] = Field(
         default_factory=list
     )  # ["read"], ["read", "write"], etc.
-    space_ids: list[str] = Field(default_factory=list)  # [] = tous les espaces
+    space_ids: list[str] = Field(default_factory=list)  # [] = aucun espace non-admin
     created_at: str = ""  # ISO 8601
     expires_at: Optional[str] = None  # ISO 8601 ou None (jamais)
     last_used_at: Optional[str] = None
