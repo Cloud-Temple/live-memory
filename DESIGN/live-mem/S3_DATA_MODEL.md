@@ -304,4 +304,4 @@ S3 provides **strong consistency** for PUT and DELETE followed by GET. No waitin
 
 ---
 
-*Document updated August 13, 2026 — Live Memory v2.7.3*
+*Document updated August 17, 2026 — Live Memory v2.9.0 (unreleased)*

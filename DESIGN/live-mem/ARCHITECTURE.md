@@ -550,4 +550,4 @@ PROXY_URL=http://10.0.0.1:3128
 
 ---
 
-*Document updated August 16, 2026 — Live Memory v2.8.0*
+*Document updated August 17, 2026 — Live Memory v2.9.0 (unreleased)*

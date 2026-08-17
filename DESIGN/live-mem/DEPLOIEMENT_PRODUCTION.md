@@ -1,6 +1,6 @@
 # Production Deployment Guide — Live Memory
 
-> **Version**: 2.4.0 | **Date**: 2026-05-22 | **Author**: Cloud Temple
+> **Version**: Unreleased v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
 
 ---
 
@@ -274,4 +274,4 @@ open http://localhost:8080/live
 
 ---
 
-*Document updated April 25, 2026 — Live Memory v1.6.0*
+*Document updated August 17, 2026 — Live Memory v2.9.0 (unreleased)*

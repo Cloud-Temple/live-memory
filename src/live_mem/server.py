@@ -82,6 +82,30 @@ def _read_version() -> str:
     return "dev"
 
 
+_TOOL_CATEGORY_PREFIXES = (
+    ("System", "system_"),
+    ("Space", "space_"),
+    ("Live", "live_"),
+    ("Bank", "bank_"),
+    ("Graph", "graph_"),
+    ("Backup", "backup_"),
+    ("Admin", "admin_"),
+)
+
+
+def _group_tool_names(tool_names: list[str]) -> dict[str, list[str]]:
+    """Groupe tous les outils affichés au démarrage, sans en taire aucun."""
+    categories = {
+        category: [name for name in tool_names if name.startswith(prefix)]
+        for category, prefix in _TOOL_CATEGORY_PREFIXES
+    }
+    known = {name for names in categories.values() for name in names}
+    other = [name for name in tool_names if name not in known]
+    if other:
+        categories["Other"] = other
+    return categories
+
+
 # =============================================================================
 # Instance FastMCP
 # =============================================================================
@@ -209,15 +233,7 @@ def main():
     tools = mcp._tool_manager.list_tools()
     tool_names = [t.name for t in tools]
 
-    categories = {
-        "System": [n for n in tool_names if n.startswith("system_")],
-        "Space": [n for n in tool_names if n.startswith("space_")],
-        "Live": [n for n in tool_names if n.startswith("live_")],
-        "Bank": [n for n in tool_names if n.startswith("bank_")],
-        "Graph": [n for n in tool_names if n.startswith("graph_")],
-        "Backup": [n for n in tool_names if n.startswith("backup_")],
-        "Admin": [n for n in tool_names if n.startswith("admin_")],
-    }
+    categories = _group_tool_names(tool_names)
 
     # Construire les lignes de contenu de la bannière
     content_lines = []
