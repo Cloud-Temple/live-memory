@@ -74,6 +74,7 @@ _last_consolidation_started: dict[str, float] = {}
 # rewrites légitimes du LLM ne réduisent que rarement de >70%.
 _REWRITE_MIN_RATIO = 0.30
 _REWRITE_MIN_ABSOLUTE_BYTES = 200  # n'évalue le ratio que si l'ancien fichier > 200B
+_STRICT_ATX_HEADING_RE = re.compile(r"^(#{1,6})\s+\S.*$")
 
 
 # The hierarchical compactor inventories exact source units, then persists one
@@ -788,6 +789,7 @@ class ConsolidatorService:
         total_updated = 0
         total_ops_applied = 0
         total_ops_failed = 0
+        total_recovered_operations: list[dict] = []
         operation_failures: list[dict] = []
         total_tokens = 0
         total_prompt_tokens = 0
@@ -961,6 +963,9 @@ class ConsolidatorService:
             total_updated += write_result.get("bank_files_updated", 0)
             total_ops_applied += write_result.get("operations_applied", 0)
             total_ops_failed += write_result.get("operations_failed", 0)
+            total_recovered_operations.extend(
+                write_result.get("recovered_operations", [])
+            )
             operation_failures.extend(write_result.get("operation_failures", []))
             total_tokens += write_result.get("llm_tokens_used", 0)
             total_prompt_tokens += write_result.get("llm_prompt_tokens", 0)
@@ -1121,6 +1126,8 @@ class ConsolidatorService:
             "bank_files_unchanged": max(0, total_bank - total_created - total_updated),
             "operations_applied": total_ops_applied,
             "operations_failed": total_ops_failed,
+            "recovered_operations_count": len(total_recovered_operations),
+            "recovered_operations": total_recovered_operations,
             "operation_failures": operation_failures,
             "synthesis_size": last_synthesis_size,
             "llm_tokens_used": total_tokens,
@@ -1899,6 +1906,19 @@ Retourne un JSON avec cette structure exacte :
             if action != "edit":
                 continue
 
+            # An edit is never a file creation.  This prevents a missing
+            # heading recovery from turning an arbitrary LLM filename into a
+            # new bank object.
+            if filename not in bank_index and filename not in split_family_files:
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "action": "edit",
+                        "reason": "edit requires an existing bank file",
+                    }
+                )
+                continue
+
             operations = file_edit.get("operations", [])
             if not operations:
                 preflight_failures.append(
@@ -1922,18 +1942,18 @@ Retourne un JSON avec cette structure exacte :
                 )
                 continue
             candidate = unit["content"] if unit else bank_index.get(filename, "")
-            for operation in operations:
-                try:
-                    candidate = _apply_operation(candidate, operation)
-                except Exception as exc:
-                    preflight_failures.append(
-                        {
-                            "filename": filename,
-                            "operation": operation.get("type", "?"),
-                            "heading": operation.get("heading", ""),
-                            "reason": str(exc),
-                        }
-                    )
+            try:
+                _evaluate_edit_operations(candidate, operations)
+            except Exception as exc:
+                failed_operation = getattr(exc, "operation", {})
+                preflight_failures.append(
+                    {
+                        "filename": filename,
+                        "operation": failed_operation.get("type", "edit"),
+                        "heading": failed_operation.get("heading", ""),
+                        "reason": str(exc),
+                    }
+                )
         if preflight_failures:
             return {
                 "status": "error",
@@ -1956,6 +1976,8 @@ Retourne un JSON avec cette structure exacte :
         operations_applied = 0
         operations_failed = 0
         operation_failures: list[dict] = []
+        recovered_operations: list[dict] = []
+        recovered_readback_expected: dict[str, str] = {}
         compaction_backup_id: str | None = None
         processed_filenames: set[str] = set()
         fatal_write_error: str | None = None
@@ -2167,22 +2189,17 @@ Retourne un JSON avec cette structure exacte :
                         )
                         continue
                     existing_content = unit["content"]
-                    updated_content = existing_content
-                    file_operations_applied = 0
-                    for op in operations:
-                        try:
-                            updated_content = _apply_operation(updated_content, op)
-                            file_operations_applied += 1
-                        except Exception as e:
-                            operations_failed += 1
-                            operation_failures.append(
-                                {
-                                    "filename": filename,
-                                    "operation": op.get("type", "?"),
-                                    "heading": op.get("heading", ""),
-                                    "reason": str(e),
-                                }
-                            )
+                    try:
+                        updated_content, file_recoveries = _evaluate_edit_operations(
+                            existing_content, operations
+                        )
+                    except Exception as exc:
+                        operations_failed += 1
+                        operation_failures.append(
+                            {"filename": filename, "action": "edit", "reason": str(exc)}
+                        )
+                        continue
+                    file_operations_applied = len(operations)
 
                     updated_content, dedup_count = await self._deduplicate_content(
                         updated_content, filename
@@ -2225,6 +2242,8 @@ Retourne un JSON avec cette structure exacte :
                             }
                         ]
                         bank_index[filename] = updated_content
+                        if file_recoveries:
+                            recovered_readback_expected[filename] = updated_content
                         unit.update(
                             {
                                 "content": updated_content,
@@ -2244,36 +2263,35 @@ Retourne un JSON avec cette structure exacte :
                         )
                     else:
                         operations_applied += file_operations_applied
+                    for recovery in file_recoveries:
+                        recovered_operations.append({"filename": filename, **recovery})
+                        logger.warning(
+                            "Recovered absent consolidation section — file=%s type=%s heading=%s strategy=%s",
+                            filename,
+                            recovery["type"],
+                            recovery["heading"],
+                            recovery["strategy"],
+                        )
                     continue
 
                 existing_content = bank_index.get(filename)
                 if existing_content is None:
-                    logger.warning(
-                        "edit sur fichier inexistant '%s', traité comme create",
-                        filename,
+                    operations_failed += 1
+                    operation_failures.append(
+                        {"filename": filename, "action": "edit", "reason": "edit requires an existing bank file"}
                     )
-                    existing_content = ""
-                updated_content = existing_content
-                for op in operations:
-                    try:
-                        updated_content = _apply_operation(updated_content, op)
-                        operations_applied += 1
-                    except Exception as e:
-                        logger.error(
-                            "Échec opération %s sur %s: %s",
-                            op.get("type", "?"),
-                            filename,
-                            str(e),
-                        )
-                        operations_failed += 1
-                        operation_failures.append(
-                            {
-                                "filename": filename,
-                                "operation": op.get("type", "?"),
-                                "heading": op.get("heading", ""),
-                                "reason": str(e),
-                            }
-                        )
+                    continue
+                try:
+                    updated_content, file_recoveries = _evaluate_edit_operations(
+                        existing_content, operations
+                    )
+                except Exception as exc:
+                    operations_failed += 1
+                    operation_failures.append(
+                        {"filename": filename, "action": "edit", "reason": str(exc)}
+                    )
+                    continue
+                operations_applied += len(operations)
 
                 updated_content, dedup_count = await self._deduplicate_content(
                     updated_content, filename
@@ -2282,11 +2300,22 @@ Retourne un JSON avec cette structure exacte :
                     await storage.put(f"{space_id}/bank/{filename}", updated_content)
                     await _cleanup_unicode_duplicates(filename)
                     bank_index[filename] = updated_content
+                    if file_recoveries:
+                        recovered_readback_expected[filename] = updated_content
                     files_updated += 1
                     logger.info(
                         "Updated bank file: %s (%d operations requested)",
                         filename,
                         len(operations),
+                    )
+                for recovery in file_recoveries:
+                    recovered_operations.append({"filename": filename, **recovery})
+                    logger.warning(
+                        "Recovered absent consolidation section — file=%s type=%s heading=%s strategy=%s",
+                        filename,
+                        recovery["type"],
+                        recovery["heading"],
+                        recovery["strategy"],
                     )
             else:
                 logger.warning(
@@ -2300,6 +2329,22 @@ Retourne un JSON avec cette structure exacte :
                         "reason": "unknown file edit action",
                     }
                 )
+
+        # A recovered heading is exceptional.  Before committing source-note
+        # deletion, prove that the exact candidate was persisted.
+        if not fatal_write_error and not operations_failed:
+            for filename, expected_content in recovered_readback_expected.items():
+                persisted = await storage.get(f"{space_id}/bank/{filename}")
+                if persisted != expected_content:
+                    operations_failed += 1
+                    operation_failures.append(
+                        {
+                            "filename": filename,
+                            "action": "recovery_readback",
+                            "reason": "persisted recovered file differs from candidate",
+                        }
+                    )
+                    break
 
         if fatal_write_error:
             try:
@@ -2376,6 +2421,7 @@ Retourne un JSON avec cette structure exacte :
             f"mode: surgical_edit\n"
             f"operations_applied: {operations_applied}\n"
             f"operations_failed: {operations_failed}\n"
+            f"recovered_operations_count: {len(recovered_operations)}\n"
             f"---\n\n"
             f"{synthesis_content}"
         )
@@ -2504,6 +2550,8 @@ Retourne un JSON avec cette structure exacte :
             "bank_files_unchanged": max(0, files_unchanged),
             "operations_applied": operations_applied,
             "operations_failed": operations_failed,
+            "recovered_operations_count": len(recovered_operations),
+            "recovered_operations": recovered_operations,
             "operation_failures": operation_failures,
             "synthesis_size": synthesis_size,
             "llm_tokens_used": usage.get("total_tokens", 0),
@@ -3882,6 +3930,93 @@ def _apply_operation(content: str, operation: dict) -> str:
         raise ValueError(f"Type d'opération inconnu: {op_type}")
 
 
+class _SectionNotFoundError(ValueError):
+    """The requested section is absent from the current logical document."""
+
+
+class _EditOperationError(ValueError):
+    """Retain the failing LLM operation for durable preflight diagnostics."""
+
+    def __init__(self, operation: dict, cause: Exception):
+        super().__init__(str(cause))
+        self.operation = operation
+
+
+def _validate_recovery_operation(operation: dict) -> tuple[str, str, str]:
+    """Validate the narrowly allowed missing-section recovery contract."""
+    op_type = operation.get("type", "")
+    heading = operation.get("heading", "")
+    content = operation.get("content", "")
+    if not isinstance(heading, str) or not _STRICT_ATX_HEADING_RE.fullmatch(
+        heading.strip()
+    ):
+        raise ValueError("missing-section recovery requires a strict ATX heading")
+    if op_type not in {
+        "replace_section",
+        "append_to_section",
+        "prepend_to_section",
+        "delete_section",
+    }:
+        raise ValueError(f"missing-section recovery is not allowed for {op_type}")
+    if op_type != "delete_section" and (
+        not isinstance(content, str) or not content.strip()
+    ):
+        raise ValueError("missing-section recovery requires non-empty content")
+    return op_type, heading.strip(), content
+
+
+def _append_recovered_section(content: str, heading: str, new_content: str) -> str:
+    """Append the exact LLM heading and content without inferring Markdown parents."""
+    prefix = content.rstrip("\n")
+    separator = "\n\n" if prefix else ""
+    return f"{prefix}{separator}{heading}\n{new_content.strip()}\n"
+
+
+def _evaluate_edit_operations(
+    content: str, operations: list[dict]
+) -> tuple[str, list[dict]]:
+    """Apply an edit plan deterministically, recovering only absent ATX targets.
+
+    This evaluator is deliberately shared by preflight and the real mutation
+    path.  It does not write storage and therefore cannot delete live notes.
+    """
+    candidate = content
+    recovered: list[dict] = []
+    for operation in operations:
+        try:
+            candidate = _apply_operation(candidate, operation)
+            continue
+        except _SectionNotFoundError:
+            pass
+        except Exception as exc:
+            raise _EditOperationError(operation, exc) from exc
+
+        try:
+            op_type, heading, new_content = _validate_recovery_operation(operation)
+        except Exception as exc:
+            raise _EditOperationError(operation, exc) from exc
+        if op_type == "delete_section":
+            recovered.append(
+                {
+                    "type": op_type,
+                    "heading": heading,
+                    "strategy": "already_absent",
+                    "placement": "none",
+                }
+            )
+            continue
+        candidate = _append_recovered_section(candidate, heading, new_content)
+        recovered.append(
+            {
+                "type": op_type,
+                "heading": heading,
+                "strategy": "append_missing_section",
+                "placement": "file_end",
+            }
+        )
+    return candidate, recovered
+
+
 def _op_replace_section(content: str, heading: str, new_content: str) -> str:
     """
     Remplace le contenu d'une section (entre le heading et le prochain
@@ -3893,7 +4028,7 @@ def _op_replace_section(content: str, heading: str, new_content: str) -> str:
     idx = _find_section_index(sections, heading)
 
     if idx == -1:
-        raise ValueError(f"Section non trouvée: {heading}")
+        raise _SectionNotFoundError(f"Section non trouvée: {heading}")
 
     # Remplacer le contenu de la section
     # S'assurer que le nouveau contenu commence et finit proprement
@@ -3916,7 +4051,7 @@ def _op_append_to_section(content: str, heading: str, new_content: str) -> str:
     idx = _find_section_index(sections, heading)
 
     if idx == -1:
-        raise ValueError(f"Section non trouvée: {heading}")
+        raise _SectionNotFoundError(f"Section non trouvée: {heading}")
 
     existing = sections[idx]["content"]
 
@@ -3938,7 +4073,7 @@ def _op_prepend_to_section(content: str, heading: str, new_content: str) -> str:
     idx = _find_section_index(sections, heading)
 
     if idx == -1:
-        raise ValueError(f"Section non trouvée: {heading}")
+        raise _SectionNotFoundError(f"Section non trouvée: {heading}")
 
     existing = sections[idx]["content"]
 
@@ -4079,7 +4214,7 @@ def _op_delete_section(content: str, heading: str) -> str:
     idx = _find_section_index(sections, heading)
 
     if idx == -1:
-        raise ValueError(f"Section non trouvée pour suppression: {heading}")
+        raise _SectionNotFoundError(f"Section non trouvée pour suppression: {heading}")
 
     # Supprimer la section
     sections.pop(idx)

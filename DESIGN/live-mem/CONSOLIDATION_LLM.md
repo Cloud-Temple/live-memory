@@ -1,6 +1,6 @@
 # LLM Consolidation Pipeline — Live Memory
 
-> **Version**: 2.8.0 | **Date**: 2026-08-16 | **Author**: Cloud Temple
+> **Version**: 2.9.1 | **Date**: 2026-08-18 | **Author**: Cloud Temple
 
 ---
 
@@ -168,6 +168,24 @@ for file_edit in llm_output["file_edits"]:
         # Full rewrite (justified) → complete write
         await storage.put(f"{space_id}/bank/{filename}", file_edit["content"])
 ```
+
+#### Compaction compatibility (v2.9.1)
+
+Compaction can legitimately merge or remove an old heading while a later
+consolidation plan still references it. The edit evaluator is shared by
+preflight and application and has one narrow idempotency rule:
+
+- on an **existing logical file**, a missing strict ATX target of
+  `replace_section`, `append_to_section`, or `prepend_to_section` is appended
+  literally at EOF with its non-empty content;
+- a missing strict ATX target of `delete_section` is a no-op;
+- `add_section` retains its historic behaviour.
+
+No parent is inferred, no filename is created by `edit`, and malformed headings,
+empty recovered content, unknown operations and all other plan errors remain
+blocking. Recovery is reported through `recovered_operations`; each changed
+recovered file is read back and compared with the candidate before live-note
+deletion.
 
 ### Step 6 — Write Results
 
