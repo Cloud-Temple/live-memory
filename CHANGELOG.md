@@ -7,6 +7,12 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [2.9.2] — 2026-08-19
 
+### Changed
+
+- **Long consolidation calls** — the default per-call LLM timeout is now
+  1800 seconds (30 minutes), allowing slower consolidation models to finish
+  without changing the consolidation algorithm or adding retries.
+
 ### Fixed
 
 - **Lossless duplicate-section merge** — a failed, blank, whitespace-only,

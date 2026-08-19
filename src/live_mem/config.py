@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     default_rules_file: str = ""
 
     # ─── Consolidation ────────────────────────────────────────
-    consolidation_timeout: int = 600  # Timeout par appel LLM (secondes)
+    consolidation_timeout: int = 1800  # Timeout par appel LLM (secondes)
     # LM2-14 fix : limite revue à la baisse pour brider la conso budget LLM.
     # 200 = ~1 MB d'input LLM si chaque note fait 5 KB ; ~10 MB si 50 KB.
     # Au-delà, l'auto-compact bank prend le relais. Une note massive reste

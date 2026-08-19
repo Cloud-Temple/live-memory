@@ -257,7 +257,7 @@ consolidation et le compactage hiérarchique.
 | ------------------------- | ----------------- | ------------------------------- |
 | `MCP_SERVER_PORT`         | `8002`            | Port d'écoute du serveur MCP    |
 | `MCP_SERVER_DEBUG`        | `false`           | Logs détaillés (messages d'erreur complets) |
-| `CONSOLIDATION_TIMEOUT`   | `600`             | Timeout par appel LLM (secondes) |
+| `CONSOLIDATION_TIMEOUT`   | `1800`            | Timeout par appel LLM (secondes) |
 | `CONSOLIDATION_MAX_NOTES` | `200`             | Max de notes par consolidation  |
 | `CONSOLIDATION_BATCH_SIZE`| `5`               | Notes par batch LLM (petit = précis, grand = plus rapide) |
 | `CONSOLIDATION_COOLDOWN_SECONDS` | `60`      | Cooldown anti-spam par space pour `bank_consolidate` (`0` désactive) |
@@ -812,7 +812,7 @@ docker compose logs waf --tail 20
 ### La consolidation échoue
 
 - Vérifiez les credentials LLMaaS dans `.env`
-- Le timeout par défaut est de 600s — augmentez `CONSOLIDATION_TIMEOUT` si besoin
+- Le timeout par défaut est de 1800s (30 minutes) pour accepter les modèles de consolidation plus lents mais plus qualitatifs
 - `bank_consolidate` retourne un accusé de job async (`running` ou `queued`) avec `next_action="return_to_user_without_polling"` ; appelez-le une seule fois et ne surveillez/pollez pas sauf demande explicite
 - `bank_consolidation_status(job_id)` reste disponible pour des checks de statut manuels uniquement
 
