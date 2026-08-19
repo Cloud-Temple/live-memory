@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.9.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.9.2-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -267,6 +267,12 @@ consolidation et le compactage hiérarchique.
 | `BANK_FILE_MAX_SIZE`      | `15360`           | Limite universelle en octets UTF-8 d'un fichier Bank logique. Les fichiers surdimensionnés utilisent un digest Map/Reduce hiérarchique ; en mode daté, 25 % de la place disponible reste réservée à la croissance future |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
+
+Pendant une consolidation, les sections Markdown dupliquées ne sont fusionnées
+que si le résultat est non vide. Si le modèle échoue ou renvoie un contenu
+vide, Live Memory conserve toutes les occurrences courantes, arrête seulement
+la déduplication de ce fichier, poursuit le lot et expose l'événement via
+`dedup_failures_count`.
 
 ---
 
@@ -782,7 +788,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dépendances et config projet (uv)
 ├── uv.lock                    # lockfile uv
-├── VERSION                    # 2.9.1
+├── VERSION                    # 2.9.2
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -861,4 +867,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.9.1 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.9.2 — Mémoire de travail partagée pour agents IA collaboratifs*

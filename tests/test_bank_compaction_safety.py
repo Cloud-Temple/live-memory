@@ -1126,7 +1126,7 @@ async def test_rollback_failure_is_fatal_and_preserves_live_notes():
     storage.fail_restore = True
     service = _service()
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [
@@ -1213,7 +1213,7 @@ async def test_consolidator_reassembles_edits_and_writes_one_canonical_file():
     )
     service = _service()
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [
@@ -1266,7 +1266,7 @@ async def test_missing_section_in_legacy_split_is_recovered_then_canonicalized()
     storage.delete_many = AsyncMock(side_effect=storage.delete_many)
     service = _service()
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [
@@ -1316,7 +1316,7 @@ async def test_one_part_legacy_family_is_canonicalized_after_later_growth():
     storage = MemoryStorage({"sp/bank/progress.md": canonical})
     service = _service(max_size=2048)
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [
@@ -1787,7 +1787,7 @@ async def test_missing_section_is_recovered_and_exposed_in_metrics():
     storage = MemoryStorage({"sp/bank/progress.md": "# progress.md\n"})
     service = _service()
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [
@@ -1837,7 +1837,7 @@ async def test_recovered_section_readback_failure_rolls_back_and_keeps_notes():
     )
     service = _service()
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [
@@ -1924,7 +1924,7 @@ async def test_invalid_operation_preflight_writes_nothing_and_preserves_notes():
     storage.delete_many = AsyncMock(side_effect=storage.delete_many)
     service = _service()
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [
@@ -2095,7 +2095,7 @@ async def test_storage_exception_rolls_back_all_batch_outputs():
     service._validation_enabled = False
     service._validation_max_examples = 20
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     llm_result = {
         "status": "ok",
@@ -2188,7 +2188,7 @@ async def test_partial_note_deletion_is_rolled_back_and_reported():
     storage.delete_many = AsyncMock(side_effect=partial_delete)
     service = _service()
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [
@@ -2259,7 +2259,7 @@ async def test_no_fallible_storage_io_occurs_after_complete_note_delete():
     storage.list_objects = AsyncMock(side_effect=fail_if_listed_after_note_commit)
     service = _service()
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [
@@ -2324,7 +2324,7 @@ async def test_partial_note_restore_metrics_are_based_on_verified_final_state():
     storage.put = AsyncMock(side_effect=fail_deleted_note_restore)
     service = _service()
     service._deduplicate_content = AsyncMock(
-        side_effect=lambda content, filename: (content, 0)
+        side_effect=lambda content, filename: (content, 0, 0)
     )
     output = {
         "file_edits": [

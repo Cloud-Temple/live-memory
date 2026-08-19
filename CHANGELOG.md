@@ -5,6 +5,28 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.9.2] — 2026-08-19
+
+### Fixed
+
+- **Lossless duplicate-section merge** — a failed, blank, whitespace-only,
+  reasoning-only, or empty-fence LLM merge no longer empties a duplicated
+  Markdown section. The current file is preserved exactly and consolidation
+  continues with the remaining work.
+- **Deterministic blank fast paths** — blank duplicate occurrences are removed
+  before comparison. Zero non-blank versions produce one empty section; one
+  non-blank version is retained at its own position without an LLM call.
+- **Durable observability** — `dedup_failures_count` is carried by batch,
+  synthesis, partial-error, and terminal results, including a batch that later
+  fails during persistence.
+
+### Validation
+
+- Mutation-proven coverage includes invalid model outputs, real `edit`
+  operations across multiple files, legacy split canonicalization, and
+  multi-batch aggregation. Model qualification uses one identical anonymized
+  corpus per candidate and ranks safety, reliability, fidelity, then cost.
+
 ## [2.9.1] — 2026-08-18
 
 ### Fixed
