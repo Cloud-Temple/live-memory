@@ -130,8 +130,7 @@ class TestLLMValidation:
 
 class TestConsolidationValidation:
     def test_default_timeout_allows_slow_consolidation_models(self):
-        s = _make_settings()
-        assert s.consolidation_timeout == 1800
+        assert Settings.model_fields["consolidation_timeout"].default == 1800
 
     def test_timeout_too_low(self):
         with pytest.raises(ValueError, match="CONSOLIDATION_TIMEOUT"):

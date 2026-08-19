@@ -5,6 +5,31 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.9.3] — 2026-08-20
+
+### Changed
+
+- **Advisory automatic compaction** — `BANK_FILE_MAX_SIZE` remains the target
+  for compact Bank files, but an automatic pre-consolidation compaction refusal
+  no longer blocks incoming live notes when the original Bank is known intact.
+  Planning, model, candidate, backup, and write failures with a verified rollback
+  are retained as observable `compaction` warnings and normal consolidation
+  continues.
+
+### Safety
+
+- **Hard integrity boundary preserved** — an inconsistent legacy split family
+  or an unverified compaction rollback still blocks consolidation before source
+  notes are consumed. Explicit `bank_compact` maintenance keeps its strict
+  all-or-nothing behavior.
+
+### Validation
+
+- Regression coverage exercises the real automatic pre-compaction path for an
+  uncompactable protected region, a failed write followed by verified rollback,
+  and an inconsistent split family. It verifies normal note write/readback and
+  deletion only after the ordinary consolidation succeeds.
+
 ## [2.9.2] — 2026-08-19
 
 ### Changed

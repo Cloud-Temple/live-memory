@@ -982,7 +982,7 @@ async def test_all_files_are_preflighted_before_the_first_llm_call():
 
 
 @pytest.mark.asyncio
-async def test_auto_compaction_planning_failure_blocks_consolidation():
+async def test_blocking_precompaction_signal_still_blocks_consolidation():
     service = _service()
     service._batch_size = 1
     service._validation_enabled = False
@@ -1005,7 +1005,7 @@ async def test_auto_compaction_planning_failure_blocks_consolidation():
         "size_before": 120534,
         "size_after": 120534,
         "blocking": True,
-        "message": "LLM response was incomplete (length)",
+        "message": "A bank compaction and its rollback failed",
     }
     service._compact_bank_if_needed = AsyncMock(return_value=compaction_result)
     service._build_prompt = lambda **kwargs: []
@@ -1040,6 +1040,222 @@ async def test_auto_compaction_planning_failure_blocks_consolidation():
     assert result["notes_processed"] == 0
     assert result["compaction"] == compaction_result
     service._write_results.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_infeasible_precompaction_warns_and_processes_live_note():
+    protected_context = "## État opérationnel\n" + (
+        "- inventaire opérationnel à conserver\n" * 80
+    )
+    progress = (
+        "# progress.md\n\n"
+        + protected_context
+        + "\n### 2026-08-01\n- ancien jalon compressible\n"
+        + "\n### 2026-08-02\n- dernier jalon protégé\n"
+    )
+    note_key = "sp/live/20260820_agent_progress_note.md"
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/_rules.md": "# Rules\n",
+            note_key: "nouvelle information\n",
+            "sp/bank/progress.md": progress,
+            "sp/bank/activeContext.md": "# activeContext.md\n\n## Focus\n- existant\n",
+        }
+    )
+    service = _service(max_size=512)
+    service._batch_size = 1
+    service._max_notes = 200
+    service._validation_enabled = False
+    service._call_llm = AsyncMock(
+        return_value={
+            "status": "ok",
+            "data": {
+                "file_edits": [
+                    {
+                        "filename": "activeContext.md",
+                        "action": "edit",
+                        "operations": [
+                            {
+                                "type": "append_to_section",
+                                "heading": "## Focus",
+                                "content": "- nouvelle information",
+                            }
+                        ],
+                    }
+                ],
+                "synthesis": "nouvelle information intégrée",
+            },
+            "usage": {},
+        }
+    )
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.consolidate("sp", enforce_cooldown=False)
+
+    assert result["status"] == "ok"
+    assert result["notes_processed"] == 1
+    assert note_key not in storage.objects
+    assert storage.objects["sp/bank/progress.md"] == progress
+    assert "nouvelle information" in storage.objects["sp/bank/activeContext.md"]
+    assert result["compaction"]["files_failed"] == 1
+    assert result["compaction"]["blocking"] is False
+    assert result["compaction"]["backup_id"] is None
+    assert (
+        result["compaction"]["reports"]["progress.md"]["error"]
+        == "protected content already exceeds the configured limit"
+    )
+
+
+@pytest.mark.asyncio
+async def test_verified_precompaction_rollback_warns_and_processes_live_note():
+    progress = _oversized_section_markdown()
+    note_key = "sp/live/20260820_agent_progress_note.md"
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/_rules.md": "# Rules\n",
+            note_key: "nouvelle information\n",
+            "sp/bank/progress.md": progress,
+            "sp/bank/activeContext.md": "# activeContext.md\n\n## Focus\n- existant\n",
+        }
+    )
+    original_get = storage.get
+    corrupted_once = False
+
+    async def corrupt_only_the_compaction_candidate(key: str):
+        nonlocal corrupted_once
+        if (
+            key == "sp/bank/progress.md"
+            and not corrupted_once
+            and storage.objects[key] != progress
+        ):
+            corrupted_once = True
+            return "corrupted"
+        return await original_get(key)
+
+    storage.get = corrupt_only_the_compaction_candidate
+    service = _service()
+    service._batch_size = 1
+    service._max_notes = 200
+    service._validation_enabled = False
+    service._client.chat.completions.create.side_effect = _hierarchical_llm
+    service._call_llm = AsyncMock(
+        return_value={
+            "status": "ok",
+            "data": {
+                "file_edits": [
+                    {
+                        "filename": "activeContext.md",
+                        "action": "edit",
+                        "operations": [
+                            {
+                                "type": "append_to_section",
+                                "heading": "## Focus",
+                                "content": "- nouvelle information",
+                            }
+                        ],
+                    }
+                ],
+                "synthesis": "nouvelle information intégrée",
+            },
+            "usage": {},
+        }
+    )
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.consolidate("sp", enforce_cooldown=False)
+
+    assert result["status"] == "ok"
+    assert result["notes_processed"] == 1
+    assert note_key not in storage.objects
+    assert storage.objects["sp/bank/progress.md"] == progress
+    assert "nouvelle information" in storage.objects["sp/bank/activeContext.md"]
+    assert result["operations_applied"] == 1
+    assert result["compaction"]["blocking"] is False
+    assert result["compaction"]["rollback_failed"] is False
+    assert result["compaction"]["backup_id"] is not None
+    assert "global rollback completed" in result["compaction"]["reports"][
+        "progress.md"
+    ]["error"]
+
+
+@pytest.mark.asyncio
+async def test_unverified_precompaction_rollback_blocks_and_keeps_live_note():
+    progress = _oversized_section_markdown()
+    note_key = "sp/live/20260820_agent_progress_note.md"
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/_rules.md": "# Rules\n",
+            note_key: "nouvelle information\n",
+            "sp/bank/progress.md": progress,
+            "sp/bank/activeContext.md": "# activeContext.md\n\n## Focus\n- existant\n",
+        }
+    )
+    original_get = storage.get
+    corrupted_once = False
+
+    async def corrupt_only_the_compaction_candidate(key: str):
+        nonlocal corrupted_once
+        if (
+            key == "sp/bank/progress.md"
+            and not corrupted_once
+            and storage.objects[key] != progress
+        ):
+            corrupted_once = True
+            return "corrupted"
+        return await original_get(key)
+
+    storage.get = corrupt_only_the_compaction_candidate
+    service = _service()
+    service._batch_size = 1
+    service._max_notes = 200
+    service._validation_enabled = False
+    service._client.chat.completions.create.side_effect = _hierarchical_llm
+    service._call_llm = AsyncMock()
+    service._restore_compaction_backup = AsyncMock(
+        side_effect=RuntimeError("global rollback verification failed")
+    )
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.consolidate("sp", enforce_cooldown=False)
+
+    assert result["status"] == "error"
+    assert result["notes_processed"] == 0
+    assert note_key in storage.objects
+    assert result["compaction"]["rollback_failed"] is True
+    assert result["compaction"]["blocking"] is True
+    service._call_llm.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_inconsistent_split_still_blocks_consolidation():
+    note_key = "sp/live/20260820_agent_progress_note.md"
+    incomplete_split = _split_marker("progress.md", 1, 2) + "# progress.md\n"
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/_rules.md": "# Rules\n",
+            note_key: "nouvelle information\n",
+            "sp/bank/progress.md": incomplete_split,
+        }
+    )
+    service = _service()
+    service._batch_size = 1
+    service._max_notes = 200
+    service._validation_enabled = False
+    service._call_llm = AsyncMock()
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.consolidate("sp", enforce_cooldown=False)
+
+    assert result["status"] == "error"
+    assert result["notes_processed"] == 0
+    assert note_key in storage.objects
+    assert result["compaction"]["blocking"] is True
+    assert result["compaction"]["message"] == "incomplete or inconsistent split bank family"
+    service._call_llm.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.9.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.9.3-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -264,7 +264,7 @@ consolidation et le compactage hiérarchique.
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
 | `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite logique par fichier en octets UTF-8 |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Limite universelle en octets UTF-8 d'un fichier Bank logique. Les fichiers surdimensionnés utilisent un digest Map/Reduce hiérarchique ; en mode daté, 25 % de la place disponible reste réservée à la croissance future |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Cible en octets UTF-8 d'un fichier Bank logique. Les fichiers surdimensionnés déclenchent un digest Map/Reduce hiérarchique ; un refus de compaction automatique laisse la Bank intacte et ne bloque pas la consolidation des notes live |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
@@ -393,10 +393,13 @@ plan et reste observable : le résultat terminal expose
 `recovered_operations`, et le fichier récupéré est relu exactement avant la
 suppression des notes source.
 
-Dans la 2.8.0, la compaction automatique avant consolidation est une
-barrière. Tout échec de préflight, Map, Reduce, candidat, backup, persistance ou
-rollback bloque `bank_consolidate` ; aucune note source n'est consommée et
-aucune mutation ultérieure de la Bank ne démarre.
+Depuis la 2.9.3, la cible de compaction automatique avant consolidation est un
+avertissement : un échec de préflight, Map, Reduce, candidat, backup ou écriture
+dont le rollback est vérifié laisse la Bank originale intacte, est exposé dans
+`compaction`, et la consolidation normale des notes live continue. Seuls une
+famille legacy split incohérente ou un rollback de compaction non vérifié
+bloquent `bank_consolidate` ; le job explicite de maintenance `bank_compact`
+reste strict.
 
 > **2.8.0 prête à publier — acceptée par le propriétaire produit, non déployée :** les
 > Maps bornées et le Reduce unique ont franchi les gates mécaniques sur les
@@ -788,7 +791,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dépendances et config projet (uv)
 ├── uv.lock                    # lockfile uv
-├── VERSION                    # 2.9.2
+├── VERSION                    # 2.9.3
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -867,4 +870,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.9.2 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.9.3 — Mémoire de travail partagée pour agents IA collaboratifs*

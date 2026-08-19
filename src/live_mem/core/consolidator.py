@@ -3211,11 +3211,8 @@ indiqué et tu peux laisser du budget inutilisé."""
             }
 
         result = await self._compact_units_with_llm(space_id, units)
-        rollback_failed = any(
-            "rollback failed" in str(report.get("error", ""))
-            for report in result.get("reports", {}).values()
-        )
-        planning_failed = result.get("files_failed", 0)
+        rollback_failed = bool(result.get("rollback_failed", False))
+        failed_files = result.get("files_failed", 0)
         return {
             "compacted": (
                 result["files_compacted"] > 0 or result.get("files_migrated", 0) > 0
@@ -3226,15 +3223,19 @@ indiqué et tu peux laisser du budget inutilisé."""
             "size_before": total_bank_size,
             "size_after": total_bank_size + result["logical_size_delta_bytes"],
             "backup_id": result.get("backup_id"),
-            "blocking": rollback_failed or planning_failed > 0,
+            "rollback_failed": rollback_failed,
+            # The size target is a warning, not a veto on incoming knowledge.
+            # The normal consolidation pipeline remains atomic on its own. Only
+            # an unverified compaction rollback leaves the bank uncertain.
+            "blocking": rollback_failed,
             "reports": result.get("reports", {}),
             "message": (
                 "A bank compaction and its rollback failed; restore the reported backup"
                 if rollback_failed
                 else (
-                    f"{planning_failed} file(s) could not be compacted; "
-                    "consolidation stopped before further writes"
-                    if planning_failed
+                    f"{failed_files} file(s) could not be compacted; "
+                    "their originals were preserved and consolidation continued"
+                    if failed_files
                     else None
                 )
             ),
@@ -3384,6 +3385,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                 "files_failed": 0,
                 "logical_size_delta_bytes": 0,
                 "planned_llm_calls": 0,
+                "rollback_failed": False,
                 "reports": {},
             }
 
@@ -3409,6 +3411,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                 ),
                 "logical_size_delta_bytes": 0,
                 "planned_llm_calls": planned_llm_calls,
+                "rollback_failed": False,
                 "reports": reports,
             }
 
@@ -3427,6 +3430,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                 "logical_size_delta_bytes": 0,
                 "planned_llm_calls": planned_llm_calls,
                 "backup_error": str(exc),
+                "rollback_failed": False,
                 "reports": {
                     unit["source"]: {"error": "pre-compaction backup failed"}
                     for unit, _, _ in plans
@@ -3512,6 +3516,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                 "logical_size_delta_bytes": 0,
                 "planned_llm_calls": planned_llm_calls,
                 "backup_id": backup_id,
+                "rollback_failed": rollback_error is not None,
                 "reports": {
                     unit["source"]: {"error": base_error} for unit, _, _ in plans
                 },
@@ -3524,6 +3529,7 @@ indiqué et tu peux laisser du budget inutilisé."""
             "logical_size_delta_bytes": logical_delta,
             "planned_llm_calls": planned_llm_calls,
             "backup_id": backup_id,
+            "rollback_failed": False,
             "reports": reports,
         }
 
