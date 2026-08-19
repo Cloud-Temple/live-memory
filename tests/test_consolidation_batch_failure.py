@@ -330,6 +330,33 @@ class TestPartialFailure:
         assert result["operation_failures"] == write_result["operation_failures"]
         assert "see operation_failures" in result["message"]
 
+    async def test_dedup_failures_include_successful_and_failed_batches(self):
+        storage = FakeStorage(_notes(4))
+        svc = _consolidator(batch_size=2)
+        first = _ok_write_result(2)
+        first["dedup_failures_count"] = 1
+        second = {
+            **_ok_write_result(0),
+            "status": "error",
+            "message": "note deletion failed",
+            "dedup_failures_count": 2,
+        }
+
+        with patch(
+            "live_mem.core.consolidator.get_storage", return_value=storage
+        ), patch.object(
+            svc, "_call_llm", new=AsyncMock(return_value=_ok_llm_result())
+        ), patch.object(
+            svc, "_write_results", new=AsyncMock(side_effect=[first, second])
+        ):
+            result = await svc.consolidate(
+                "sp", agent="CLR", enforce_cooldown=False
+            )
+
+        assert result["status"] == "partial"
+        assert result["batches_completed"] == 1
+        assert result["dedup_failures_count"] == 3
+
 
 @pytest.mark.asyncio
 class TestFullSuccessNonRegression:

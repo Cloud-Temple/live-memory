@@ -789,6 +789,7 @@ class ConsolidatorService:
         total_updated = 0
         total_ops_applied = 0
         total_ops_failed = 0
+        total_dedup_failures = 0
         total_recovered_operations: list[dict] = []
         operation_failures: list[dict] = []
         total_tokens = 0
@@ -945,6 +946,7 @@ class ConsolidatorService:
                 }
 
             if write_result.get("status") != "ok":
+                total_dedup_failures += write_result.get("dedup_failures_count", 0)
                 failed_write_result = write_result
                 batch_failure = write_result.get("message", "Bank write failed")
                 failed_batch = batch_idx
@@ -963,6 +965,7 @@ class ConsolidatorService:
             total_updated += write_result.get("bank_files_updated", 0)
             total_ops_applied += write_result.get("operations_applied", 0)
             total_ops_failed += write_result.get("operations_failed", 0)
+            total_dedup_failures += write_result.get("dedup_failures_count", 0)
             total_recovered_operations.extend(
                 write_result.get("recovered_operations", [])
             )
@@ -1126,6 +1129,7 @@ class ConsolidatorService:
             "bank_files_unchanged": max(0, total_bank - total_created - total_updated),
             "operations_applied": total_ops_applied,
             "operations_failed": total_ops_failed,
+            "dedup_failures_count": total_dedup_failures,
             "recovered_operations_count": len(total_recovered_operations),
             "recovered_operations": total_recovered_operations,
             "operation_failures": operation_failures,
@@ -1975,6 +1979,7 @@ Retourne un JSON avec cette structure exacte :
         files_cleaned = 0
         operations_applied = 0
         operations_failed = 0
+        dedup_failures_count = 0
         operation_failures: list[dict] = []
         recovered_operations: list[dict] = []
         recovered_readback_expected: dict[str, str] = {}
@@ -2160,9 +2165,10 @@ Retourne un JSON avec cette structure exacte :
 
                     # Déduplication défensive via LLM : le LLM peut produire
                     # un rewrite avec des sections déjà dupliquées
-                    content, dedup_count = await self._deduplicate_content(
-                        content, filename
+                    content, dedup_count, dedup_failures = (
+                        await self._deduplicate_content(content, filename)
                     )
+                    dedup_failures_count += dedup_failures
                     await storage.put(f"{space_id}/bank/{filename}", content)
                     await _cleanup_unicode_duplicates(filename)
                     files_updated += 1
@@ -2201,9 +2207,10 @@ Retourne un JSON avec cette structure exacte :
                         continue
                     file_operations_applied = len(operations)
 
-                    updated_content, dedup_count = await self._deduplicate_content(
-                        updated_content, filename
+                    updated_content, dedup_count, dedup_failures = (
+                        await self._deduplicate_content(updated_content, filename)
                     )
+                    dedup_failures_count += dedup_failures
                     if updated_content != existing_content:
                         try:
                             if compaction_backup_id is None:
@@ -2293,9 +2300,10 @@ Retourne un JSON avec cette structure exacte :
                     continue
                 operations_applied += len(operations)
 
-                updated_content, dedup_count = await self._deduplicate_content(
-                    updated_content, filename
+                updated_content, dedup_count, dedup_failures = (
+                    await self._deduplicate_content(updated_content, filename)
                 )
+                dedup_failures_count += dedup_failures
                 if updated_content != existing_content:
                     await storage.put(f"{space_id}/bank/{filename}", updated_content)
                     await _cleanup_unicode_duplicates(filename)
@@ -2365,6 +2373,7 @@ Retourne un JSON avec cette structure exacte :
                     0 if batch_rollback_error else operations_applied
                 ),
                 "operations_failed": operations_failed,
+                "dedup_failures_count": dedup_failures_count,
                 "operation_failures": operation_failures,
                 "backup_id": compaction_backup_id,
                 "message": (
@@ -2401,6 +2410,7 @@ Retourne un JSON avec cette structure exacte :
                     operations_applied if batch_rollback_error is None else 0
                 ),
                 "operations_failed": operations_failed,
+                "dedup_failures_count": dedup_failures_count,
                 "operation_failures": operation_failures,
                 "message": (
                     "Consolidation bank mutation failed; live notes were preserved"
@@ -2421,6 +2431,7 @@ Retourne un JSON avec cette structure exacte :
             f"mode: surgical_edit\n"
             f"operations_applied: {operations_applied}\n"
             f"operations_failed: {operations_failed}\n"
+            f"dedup_failures_count: {dedup_failures_count}\n"
             f"recovered_operations_count: {len(recovered_operations)}\n"
             f"---\n\n"
             f"{synthesis_content}"
@@ -2520,6 +2531,7 @@ Retourne un JSON avec cette structure exacte :
                     operations_applied if batch_rollback_error is None else 0
                 ),
                 "operations_failed": operations_failed + 1,
+                "dedup_failures_count": dedup_failures_count,
                 "operation_failures": operation_failures,
                 "synthesis_size": synthesis_size,
                 "llm_tokens_used": usage.get("total_tokens", 0),
@@ -2550,6 +2562,7 @@ Retourne un JSON avec cette structure exacte :
             "bank_files_unchanged": max(0, files_unchanged),
             "operations_applied": operations_applied,
             "operations_failed": operations_failed,
+            "dedup_failures_count": dedup_failures_count,
             "recovered_operations_count": len(recovered_operations),
             "recovered_operations": recovered_operations,
             "operation_failures": operation_failures,
@@ -2561,7 +2574,7 @@ Retourne un JSON avec cette structure exacte :
 
     async def _deduplicate_content(
         self, content: str, filename: str
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, int]:
         """
         Détecte et fusionne les sections dupliquées via le LLM.
 
@@ -2575,9 +2588,10 @@ Retourne un JSON avec cette structure exacte :
             filename: Nom du fichier (pour les logs)
 
         Returns:
-            Tuple (contenu dédupliqué, nombre de doublons fusionnés)
+            Tuple (contenu dédupliqué, doublons fusionnés, fusions échouées)
         """
         total_merged = 0
+        total_failures = 0
         max_iterations = 50  # Sécurité anti-boucle infinie
 
         for _ in range(max_iterations):
@@ -2614,9 +2628,13 @@ Retourne un JSON avec cette structure exacte :
             # ── Optimisation : skip LLM si les versions sont identiques
             # ou si l'une est un sous-ensemble de l'autre ──
             stripped = [v.strip() for v in versions]
-            unique = set(stripped)
+            non_blank = [v for v in stripped if v]
+            unique = set(non_blank)
 
-            if len(unique) == 1:
+            if not non_blank:
+                # Des occurrences toutes vides n'ont aucune sémantique à fusionner.
+                merged = ""
+            elif len(unique) == 1:
                 # Toutes les versions identiques → garder la dernière, pas d'appel LLM
                 logger.info(
                     "DEDUP %s: '%s' — %d versions identiques, skip LLM",
@@ -2624,7 +2642,7 @@ Retourne un JSON avec cette structure exacte :
                     heading,
                     len(indices),
                 )
-                merged = stripped[-1]
+                merged = non_blank[-1]
             elif len(unique) == 2:
                 # Vérifier si l'une est un sous-ensemble de lignes de l'autre.
                 # On compare au niveau des LIGNES (pas des sous-chaînes) pour
@@ -2649,7 +2667,7 @@ Retourne un JSON avec cette structure exacte :
                         heading,
                         len(indices),
                     )
-                    merged = await self._merge_sections_via_llm(heading, versions)
+                    merged = await self._merge_sections_via_llm(heading, non_blank)
             else:
                 # 3+ versions différentes → appel LLM
                 logger.warning(
@@ -2658,35 +2676,40 @@ Retourne un JSON avec cette structure exacte :
                     heading,
                     len(indices),
                 )
-                merged = await self._merge_sections_via_llm(heading, versions)
+                merged = await self._merge_sections_via_llm(heading, non_blank)
 
-            if merged is not None:
-                # Garder la DERNIÈRE occurrence, supprimer les précédentes
-                last_idx = indices[-1]
-                sections[last_idx]["content"] = (
-                    "\n" + merged + "\n" if not merged.startswith("\n") else merged
-                )
-
-                # Supprimer les occurrences précédentes (en partant de la fin)
-                for idx in reversed(indices[:-1]):
-                    sections.pop(idx)
-                    total_merged += 1
-            else:
-                # Fallback si le LLM échoue : garder la dernière occurrence
+            if len(non_blank) >= 2 and (merged is None or not merged.strip()):
                 logger.error(
-                    "DEDUP %s: fusion LLM échouée pour '%s' — "
-                    "fallback: conservation de la dernière occurrence",
+                    "DEDUP %s: fusion LLM invalide pour '%s' — "
+                    "contenu conservé sans modification",
                     filename,
                     heading,
                 )
-                for idx in reversed(indices[:-1]):
+                total_failures += 1
+                break
+
+            if merged is not None:
+                # Une occurrence vide ne doit pas déplacer le contenu utile.
+                keep_idx = indices[-1]
+                for relative_idx in range(len(stripped) - 1, -1, -1):
+                    if stripped[relative_idx]:
+                        keep_idx = indices[relative_idx]
+                        break
+                sections[keep_idx]["content"] = (
+                    "\n" + merged + "\n" if not merged.startswith("\n") else merged
+                )
+
+                # Supprimer toutes les autres occurrences en partant de la fin.
+                for idx in reversed(indices):
+                    if idx == keep_idx:
+                        continue
                     sections.pop(idx)
                     total_merged += 1
 
             # Reconstruire le contenu pour la prochaine itération
             content = _reconstruct_from_sections(sections)
 
-        return content, total_merged
+        return content, total_merged, total_failures
 
     async def _merge_sections_via_llm(
         self, heading: str, versions: list[str]
@@ -2736,6 +2759,13 @@ CONSIGNE : Fusionne ces versions en UNE SEULE version cohérente.
             merged = re.sub(r"<think>.*?</think>", "", merged, flags=re.DOTALL)
             merged = re.sub(r"^```(?:markdown)?\s*", "", merged.strip())
             merged = re.sub(r"\s*```$", "", merged.strip())
+
+            if not merged.strip():
+                logger.error(
+                    "DEDUP merge FAILED: '%s' — empty content after cleaning",
+                    heading,
+                )
+                return None
 
             logger.info(
                 "DEDUP merge OK: '%s' — %d versions → 1 (%d chars)",

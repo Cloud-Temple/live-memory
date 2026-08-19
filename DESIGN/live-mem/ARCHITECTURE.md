@@ -537,7 +537,7 @@ WAF_PORT=8080
 SITE_ADDRESS=:8080
 
 # ─── Consolidation ───
-CONSOLIDATION_TIMEOUT=600        # LLM timeout in seconds
+CONSOLIDATION_TIMEOUT=1800       # LLM timeout in seconds
 CONSOLIDATION_MAX_NOTES=200      # Max notes per consolidation
 
 # ─── Outbound proxy (optional) ───

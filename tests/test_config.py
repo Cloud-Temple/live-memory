@@ -29,7 +29,6 @@ def _make_settings(**overrides):
         "llmaas_max_tokens": 16384,
         "llmaas_temperature": 0.3,
         "default_rules_file": "",
-        "consolidation_timeout": 600,
         "consolidation_max_notes": 500,
         "consolidation_batch_size": 5,
         "compact_threshold": 0.6,
@@ -130,6 +129,10 @@ class TestLLMValidation:
 
 
 class TestConsolidationValidation:
+    def test_default_timeout_allows_slow_consolidation_models(self):
+        s = _make_settings()
+        assert s.consolidation_timeout == 1800
+
     def test_timeout_too_low(self):
         with pytest.raises(ValueError, match="CONSOLIDATION_TIMEOUT"):
             _make_settings(consolidation_timeout=5)

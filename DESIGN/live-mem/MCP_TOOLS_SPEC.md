@@ -356,7 +356,7 @@ async def bank_consolidate(
 - The response explicitly sets `next_action="return_to_user_without_polling"`
 - `polling.recommended=false`; `bank_consolidation_status` is manual-only for explicit status checks
 - If no live notes exist, the background job result is `{"status": "ok", "notes_processed": 0, "message": "No new notes to consolidate"}`
-- Configurable timeout (`CONSOLIDATION_TIMEOUT`, default 600s)
+- Configurable timeout (`CONSOLIDATION_TIMEOUT`, default 1800s)
 
 **Response**:
 

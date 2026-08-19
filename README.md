@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.9.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.9.2-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -257,7 +257,7 @@ hierarchical compaction.
 | ------------------------- | ----------------- | ------------------------------- |
 | `MCP_SERVER_PORT`         | `8002`            | MCP server listening port       |
 | `MCP_SERVER_DEBUG`        | `false`           | Detailed logs (full error messages) |
-| `CONSOLIDATION_TIMEOUT`   | `600`             | Timeout per LLM call (seconds)  |
+| `CONSOLIDATION_TIMEOUT`   | `1800`            | Timeout per LLM call (seconds)  |
 | `CONSOLIDATION_MAX_NOTES` | `200`             | Max notes per consolidation     |
 | `CONSOLIDATION_BATCH_SIZE`| `5`               | Notes per LLM batch (small = precise, large = faster) |
 | `CONSOLIDATION_COOLDOWN_SECONDS` | `60`      | Per-space anti-spam cooldown for `bank_consolidate` (`0` disables) |
@@ -267,6 +267,11 @@ hierarchical compaction.
 | `BANK_FILE_MAX_SIZE`      | `15360`           | Universal UTF-8 byte limit for a logical Bank file. Oversized files use hierarchical Map/Reduce digest compaction; dated files reserve 25% of their available space for future growth |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Max non-MCP response body size before truncation |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Max request body accepted by `/api/tool` |
+
+During consolidation, duplicate Markdown sections are merged only when the
+merge is non-empty. If the model returns an error or an empty result, Live
+Memory preserves every current occurrence, stops deduplication for that file,
+continues the batch, and exposes the event through `dedup_failures_count`.
 
 ---
 
@@ -776,7 +781,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dependencies & project config (uv)
 ├── uv.lock                    # uv lockfile
-├── VERSION                    # 2.9.1
+├── VERSION                    # 2.9.2
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -800,7 +805,7 @@ docker compose logs waf --tail 20
 ### Consolidation fails
 
 - Check LLMaaS credentials in `.env`
-- Default timeout is 600s — increase `CONSOLIDATION_TIMEOUT` if needed
+- Default timeout is 1800s (30 minutes) to accommodate slower, higher-quality consolidation models
 - `bank_consolidate` returns an async job acknowledgement (`running` or `queued`) with `next_action="return_to_user_without_polling"`; call it once and do not watch/poll unless explicitly requested
 - `bank_consolidation_status(job_id)` remains available for manual status checks only
 
@@ -854,4 +859,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.9.1 — Shared working memory for collaborative AI agents*
+*Live Memory v2.9.2 — Shared working memory for collaborative AI agents*

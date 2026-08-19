@@ -110,14 +110,14 @@ Dans le fichier `cline_mcp_settings.json` qui s'ouvre, ajoutez la configuration 
       "headers": {
         "Authorization": "Bearer lm_YOUR_TOKEN_HERE"
       },
-      "timeout": 600
+      "timeout": 1800
     }
   }
 }
 ```
 
 > **Remplacez** `lm_YOUR_TOKEN_HERE` par le token obtenu à l'étape 2.
-> **⚠️ Le paramètre `timeout` est critique** : la consolidation LLM peut prendre plus de 60 secondes (timeout par défaut de Cline). Il est essentiel de l'augmenter à 600 secondes, en cohérence avec votre configuration `.env`.
+> **⚠️ Le paramètre `timeout` est critique** : la consolidation LLM peut prendre plus de 60 secondes (timeout par défaut de Cline). Réglez-le à 1800 secondes, en cohérence avec le défaut serveur.
 
 ### 3.3 Où se trouve le fichier de configuration ?
 
@@ -149,7 +149,7 @@ Si Live Memory est déployé sur un serveur avec HTTPS :
       "headers": {
         "Authorization": "Bearer lm_YOUR_TOKEN_HERE"
       },
-      "timeout": 600
+      "timeout": 1800
     }
   }
 }
@@ -452,7 +452,7 @@ Ajoutez des **Custom Instructions** explicites (voir [Étape 5](#-étape-5--donn
 
 Par défaut, Cline et Claude Desktop interrompent les requêtes MCP après 60 secondes, ce qui est souvent insuffisant pour une consolidation (le LLM peut prendre plusieurs minutes).
 
-1. Vérifiez que vous avez ajouté `"timeout": 600` dans la configuration MCP de votre agent, en cohérence avec le timeout serveur dans votre fichier `.env`.
+1. Vérifiez que vous avez ajouté `"timeout": 1800` dans la configuration MCP de votre agent, en cohérence avec le timeout serveur dans votre fichier `.env`.
 2. Vous pouvez suivre la progression en temps réel côté serveur dans les logs :
 
 ```bash
@@ -486,7 +486,7 @@ La configuration est similaire. Éditez le fichier `claude_desktop_config.json` 
       "headers": {
         "Authorization": "Bearer lm_YOUR_TOKEN_HERE"
       },
-      "timeout": 600
+      "timeout": 1800
     }
   }
 }

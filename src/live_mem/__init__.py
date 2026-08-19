@@ -1,4 +1,4 @@
 # -*- coding: utf-8 -*-
 """Live Memory — Memory Bank as a Service pour agents IA collaboratifs."""
 
-__version__ = "2.9.1"
+__version__ = "2.9.2"

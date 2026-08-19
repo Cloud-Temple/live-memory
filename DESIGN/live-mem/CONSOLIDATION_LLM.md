@@ -1,6 +1,6 @@
 # LLM Consolidation Pipeline — Live Memory
 
-> **Version**: 2.9.1 | **Date**: 2026-08-18 | **Author**: Cloud Temple
+> **Version**: 2.9.2 | **Date**: 2026-08-19 | **Author**: Cloud Temple
 
 ---
 
@@ -187,6 +187,28 @@ blocking. Recovery is reported through `recovered_operations`; each changed
 recovered file is read back and compared with the candidate before live-note
 deletion.
 
+#### Duplicate-section merge guard (v2.9.2)
+
+Deduplication is secondary to consolidation: it may improve the Bank, but it
+must not erase source facts or stop useful note integration when the merge
+model fails. For each duplicated hierarchical heading, the consolidator:
+
+1. removes blank occurrences from the candidate versions;
+2. keeps one empty occurrence without an LLM call when all are blank;
+3. keeps the sole non-blank occurrence at its original position without an LLM
+   call;
+4. otherwise uses the existing identical/subset fast paths, then requests one
+   LLM merge;
+5. accepts only a non-empty cleaned merge;
+6. on exception, `None`, whitespace, reasoning-only text, or an empty Markdown
+   fence, preserves the complete current file byte-for-byte, increments
+   `dedup_failures_count`, and stops deduplication for this file only.
+
+The batch continues and may still integrate and consume its source notes. The
+counter is written in synthesis metadata and propagated through successful,
+partial, and failed terminal results. There is no retry, fallback content,
+alternate algorithm, or new job status.
+
 ### Step 6 — Write Results
 
 ```python
@@ -199,6 +221,7 @@ notes_processed: {notes_count}
 mode: surgical_edit
 operations_applied: {operations_applied}
 operations_failed: {operations_failed}
+dedup_failures_count: {dedup_failures_count}
 ---
 
 {synthesis_content}"""
@@ -282,9 +305,24 @@ These fields are available in the completed job result when an explicit status c
   "batches_completed": 6,
   "batch_size": 5,
   "notes_processed": 30,
+  "dedup_failures_count": 0,
   "llm_tokens_used": 24000
 }
 ```
+
+### Consolidation model qualification
+
+Model comparisons use the real consolidator and production prompt against
+identical clones of one representative Bank and the same ordered live notes.
+Only storage is replaced by an in-memory S3-compatible fixture so transient S3
+latency cannot bias model quality. Each candidate runs once with the same
+temperature, batch size, and context limits. Final Banks are reviewed blind.
+
+The decision order is fixed: no lost note or silently emptied section;
+reliability and completed batches; fidelity to the global meaning and important
+points; then duration, calls, and tokens. One run can eliminate clear failures
+but is not a statistical benchmark. No automatic model fallback or routing is
+introduced.
 
 ### Unicode Protection (`_sanitize_filename`)
 
@@ -611,7 +649,7 @@ LLMAAS_MODEL=qwen3.5:27b
 LLMAAS_COMPACTION_MODEL=mistral-small4:119b
 LLMAAS_MAX_TOKENS=100000
 LLMAAS_TEMPERATURE=0.3
-CONSOLIDATION_TIMEOUT=600
+CONSOLIDATION_TIMEOUT=1800
 CONSOLIDATION_MAX_NOTES=200
 ```
 

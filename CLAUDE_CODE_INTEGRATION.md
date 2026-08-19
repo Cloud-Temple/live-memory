@@ -519,13 +519,13 @@ Configuration is similar to Claude Code, but the file changes. Edit `claude_desk
       "headers": {
         "Authorization": "Bearer lm_YOUR_TOKEN_HERE"
       },
-      "timeout": 600
+      "timeout": 1800
     }
   }
 }
 ```
 
-> **⚠️ For Claude Desktop**: add `"timeout": 600` to allow long consolidations. Claude Code does not need this parameter.
+> **⚠️ For Claude Desktop**: add `"timeout": 1800` to allow long consolidations. Claude Code does not need this parameter.
 
 Restart Claude Desktop after the change. The Live Memory tools will appear in the available tools list.
 
