@@ -1,6 +1,6 @@
 # MCP Tools Specification — Live Memory
 
-> **Version**: v2.9.0 | **Date**: 2026-08-17 | **Author**: Cloud Temple
+> **Version**: v2.9.3 | **Date**: 2026-08-20 | **Author**: Cloud Temple
 
 ---
 
@@ -503,8 +503,11 @@ A persistence failure triggers an all-planned-files rollback limited to
 remain untouched. If rollback also fails, the reported backup id is the manual
 recovery point.
 
-In 2.8.0, automatic compaction failure blocks `bank_consolidate`; source notes
-remain untouched.
+Since 2.9.3, automatic pre-consolidation compaction is advisory. A refusal that
+leaves the Bank unchanged, or a write failure with verified rollback, is
+reported in the consolidation result and live-note consolidation continues.
+Only an inconsistent legacy split family or an unverified rollback blocks
+`bank_consolidate`. The explicit `bank_compact` job remains strict.
 
 ---
 

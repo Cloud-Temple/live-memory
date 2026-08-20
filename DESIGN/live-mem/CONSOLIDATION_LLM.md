@@ -1,6 +1,6 @@
 # LLM Consolidation Pipeline — Live Memory
 
-> **Version**: 2.9.2 | **Date**: 2026-08-19 | **Author**: Cloud Temple
+> **Version**: 2.9.3 | **Date**: 2026-08-20 | **Author**: Cloud Temple
 
 ---
 
@@ -370,8 +370,21 @@ consolidation. Automatic compaction runs inside the consolidation job before
 new notes are applied. Both paths therefore share serialization and status
 observability.
 
-In 2.8.0, every automatic compaction failure blocks consolidation. No source
-note is consumed and no later bank mutation starts.
+#### Automatic compaction is advisory (v2.9.3)
+
+`BANK_FILE_MAX_SIZE` is a compactness target, not a reason to reject incoming
+knowledge. Automatic compaction runs before note consolidation, but it is
+allowed to decline safely: impossible planning, a model/candidate refusal,
+backup failure, or a failed write followed by an exact verified rollback all
+leave the original Bank intact. The job records the per-file report and then
+continues with the ordinary, independently atomic consolidation pipeline.
+
+Only two auto-compaction outcomes block source-note processing: an inconsistent
+legacy split family, or a rollback that cannot be verified. They leave the
+logical Bank state uncertain. If compaction succeeds, the subsequent Bank
+readback is still mandatory before the normal pipeline can continue. The
+explicit `bank_compact` maintenance job remains strict; this policy applies only
+to automatic pre-consolidation maintenance.
 
 ---
 
