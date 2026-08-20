@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.9.3-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.9.4-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -264,7 +264,7 @@ hierarchical compaction.
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Optional post-consolidation check for unattributed claims |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Max examples returned by the validation pass |
 | `COMPACT_THRESHOLD`       | `0.6`             | Legacy compatibility setting; compaction follows the logical UTF-8 byte limit per file |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | UTF-8 byte target for a logical Bank file. Oversized files trigger hierarchical Map/Reduce digest compaction; an automatic-compaction refusal leaves the Bank intact and does not block live-note consolidation |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | UTF-8 byte target for a logical Bank file, not a veto: safe best-effort compaction may remain above it when protected content makes it unreachable |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Max non-MCP response body size before truncation |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Max request body accepted by `/api/tool` |
 
@@ -356,10 +356,14 @@ consolidation and returns a `job_id`. For each logical file above
 Markdown source units and one Reduce writes a compact, non-exhaustive Markdown
 digest. The server validates that digest, replaces all eligible historical
 units with one code-owned, recompactable container, and requires the candidate
-to fit the configured limit. Recent, undated, code-bearing, HTML-bearing and
+to reduce the original file strictly. When protected content makes the target
+unreachable, a safe digest may remain above the configured limit and reports
+`target_met=false`; otherwise the target remains enforced. Recent, undated, code-bearing, HTML-bearing and
 external content stays byte-identical. In dated mode, the digest may consume at
-most 75% of the space left after protected content; the remaining 25% is growth
-headroom. All candidates are validated before a full-space backup is created.
+most 75% of the space left after protected content only when the target is
+reachable; the remaining 25% is growth headroom. Best-effort compaction uses
+its full safe reduction budget. All candidates are validated before a full-space
+backup is created.
 Persisted content is read back and verified; failure triggers a verified
 `bank/` rollback. If rollback also fails, the job reports the `backup_id` needed
 for manual restore. No new `*.part-NNN.md` object is created. Legacy
@@ -386,12 +390,15 @@ does not create files, infer Markdown parents, relax other plan validation, or
 hide the event: terminal results expose `recovered_operations`, and recovered
 files are read back exactly before source notes are deleted.
 
-Since 2.9.3, the automatic pre-consolidation target is advisory: a preflight,
-Map, Reduce, candidate, backup, or write failure whose rollback is verified
-leaves the original Bank intact and is reported in `compaction`, while normal
-live-note consolidation continues. Only an inconsistent legacy split family or
-an unverified compaction rollback blocks `bank_consolidate`; the explicit
-`bank_compact` maintenance job remains strict.
+Since 2.9.3, automatic pre-consolidation is advisory when a refusal leaves the
+Bank intact, or when a failed write has an exact verified rollback: it is
+reported in `compaction` while normal live-note consolidation continues. Since
+2.9.4, `BANK_FILE_MAX_SIZE` is also a target for manual and automatic
+compaction: a safe candidate strictly smaller than its source may remain above
+it only when protected content already makes the target unreachable;
+`target_met` reports that outcome. Only an inconsistent legacy split family or
+an unverified compaction rollback blocks `bank_consolidate`; `bank_compact`
+remains strict on integrity checks.
 
 > **2.8.0 release-ready — product-owner accepted, not deployed:** bounded
 > Maps plus one Reduce passed the real-corpus mechanical gates. Comparative
@@ -783,7 +790,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dependencies & project config (uv)
 ├── uv.lock                    # uv lockfile
-├── VERSION                    # 2.9.3
+├── VERSION                    # 2.9.4
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -861,4 +868,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.9.3 — Shared working memory for collaborative AI agents*
+*Live Memory v2.9.4 — Shared working memory for collaborative AI agents*

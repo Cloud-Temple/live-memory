@@ -1,4 +1,4 @@
-# Compactage hiérarchique Map/Reduce — Live Memory 2.8.0
+# Compactage hiérarchique Map/Reduce — Live Memory 2.8.0 (amendé 2.9.4)
 
 **Status: release-ready, accepted by the product owner — not deployed**
 
@@ -13,6 +13,12 @@ L'acceptation porte sur le contrat volontairement non exhaustif et son gain net
 par rapport à la 2.7.3. Elle n'autorise pas à elle seule un déploiement :
 l'auto-compaction production reste soumise à un canari manuel. Les preuves de
 l'ancien algorithme extractif restent historiques.
+
+> **Amendement 2.9.4 — cible, pas dogme :** `BANK_FILE_MAX_SIZE` reste la
+> taille visée. Si la base protégée est déjà au moins égale à cette taille, le
+> compacteur peut néanmoins persister un digest valide, à condition stricte que
+> le fichier final soit plus petit que la source. Le rapport indique alors
+> `target_met=false`. Si la cible reste atteignable, elle demeure obligatoire.
 
 ## 1. Décision produit
 
@@ -129,11 +135,16 @@ flowchart TD
    un fichier sans structure complète exploitable.
 4. Construire la base immuable en supprimant virtuellement toutes les unités
    candidates. Tout octet hors candidat est protégé par construction.
-5. Calculer `available = BANK_FILE_MAX_SIZE - bytes(base)`. Refuser si
-   `available <= 0`.
-6. Réserver 25 % de `available` à la croissance future en mode daté : le budget
-   du conteneur vaut `floor(available × 3/4)`. En mode sections, il vaut
-   `available`. Avant le Reduce, soustraire le wrapper code-owned minimal exact.
+5. Calculer `available = BANK_FILE_MAX_SIZE - bytes(base)`. S'il est positif,
+   la cible est atteignable et ce budget s'applique. Sinon, utiliser seulement
+   `bytes(unites_selectionnees) - 1` : il borne mathématiquement un candidat à
+   une taille strictement inférieure à la source. Refuser si ce budget ne peut
+   pas contenir le wrapper et un digest valide.
+6. Si la cible est atteignable, réserver 25 % de `available` à la croissance
+   future en mode daté : le budget du conteneur vaut
+   `floor(available × 3/4)`. En mode sections, il vaut `available`. En mode
+   best-effort, ne réserver aucune marge : tout le budget de réduction sûr est
+   disponible. Avant le Reduce, soustraire le wrapper code-owned minimal exact.
    Ce plafond brut est exact pour une sortie monoligne. Une sortie multiligne
    ajoute quatre octets d'indentation par ligne ; le code contrôle donc aussi la
    taille exacte du conteneur rendu et rejette tout dépassement, sans retry.
@@ -250,8 +261,9 @@ flowchart TD
    offsets décroissants, après revérification de chaque slice.
 2. Insérer une seule fois le conteneur à l'offset calculé.
 3. Exiger que le conteneur tienne dans son allocation, que le candidat soit
-   strictement plus petit, sous la limite et décodable/parserable en UTF-8
-   Markdown.
+   strictement plus petit et décodable/parserable en UTF-8 Markdown. Exiger
+   aussi la cible si elle était atteignable ; sinon conserver le résultat
+   best-effort au-dessus de la cible et reporter `target_met=false`.
 4. Préparer ainsi tous les fichiers en mémoire. Un seul échec annule le job avant
    backup.
 5. Créer le backup standard du space, écrire chaque fichier sous son nom

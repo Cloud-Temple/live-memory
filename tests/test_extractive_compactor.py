@@ -164,14 +164,45 @@ def test_one_dated_h3_in_thematic_document_remains_section_mode():
     assert [unit.source for unit in inventory.candidates] == [first, second]
 
 
-def test_plan_budget_is_exact_and_fails_when_protected_base_is_too_large():
-    source = b"old"
+def test_plan_uses_the_target_when_reachable_and_a_reducing_budget_otherwise():
+    source = "ancien é".encode()
     unit = MarkdownUnit("U0001", 0, len(source), source, date(2026, 8, 1), "list")
     original = source + b"protected"
 
-    assert make_plan(original, [unit], 12).available_bytes == 3
-    with pytest.raises(ValueError, match="protected content"):
-        make_plan(original, [unit], 8)
+    reachable = make_plan(original, [unit], len(b"protected") + 3)
+    assert reachable.available_bytes == 3
+    assert reachable.target_reachable is True
+
+    best_effort = make_plan(original, [unit], len(b"protected"))
+    assert best_effort.available_bytes == len(source) - 1
+    assert best_effort.target_reachable is False
+
+    one_byte = MarkdownUnit("U0002", 0, 1, b"x", date(2026, 8, 1), "list")
+    with pytest.raises(ValueError, match="too small to compact"):
+        make_plan(b"xprotected", [one_byte], len(b"protected"))
+
+
+def test_best_effort_candidate_may_exceed_target_but_must_still_reduce():
+    protected = b"# Journal\n\n## Etat protege\n" + b"- conserver\n" * 30
+    old = b"### Historique ancien\n" + b"- fait historique\n" * 40
+    original = protected + old
+    unit = MarkdownUnit(
+        "U0001", len(protected), len(original), old, date(2026, 8, 1), "h3"
+    )
+    plan = make_plan(original, [unit], len(protected))
+
+    candidate = build_digest_candidate(
+        plan, b"- Synthese courte.", "sections", plan.available_bytes, len(protected), PARSER
+    )
+
+    assert candidate.startswith(protected)
+    assert len(protected) < len(candidate) < len(original)
+
+    reachable = make_plan(original, [unit], len(protected) + 50)
+    with pytest.raises(ValueError, match="configured byte limit"):
+        build_digest_candidate(
+            reachable, b"- Synthese courte.", "sections", 500, len(protected) + 50, PARSER
+        )
 
 
 def test_map_batches_keep_units_indivisible_and_bounded():

@@ -1,6 +1,6 @@
 # MCP Tools Specification — Live Memory
 
-> **Version**: v2.9.3 | **Date**: 2026-08-20 | **Author**: Cloud Temple
+> **Version**: v2.9.4 | **Date**: 2026-08-20 | **Author**: Cloud Temple
 
 ---
 
@@ -503,11 +503,16 @@ A persistence failure triggers an all-planned-files rollback limited to
 remain untouched. If rollback also fails, the reported backup id is the manual
 recovery point.
 
-Since 2.9.3, automatic pre-consolidation compaction is advisory. A refusal that
+Since 2.9.4, `BANK_FILE_MAX_SIZE` is a target rather than a veto: if protected
+content already makes it unreachable, `bank_compact` and automatic
+pre-consolidation may persist only a valid candidate strictly smaller than its
+source. The final report exposes `target_met=false`; a candidate above a
+reachable target is still rejected. Since 2.9.3, an automatic refusal that
 leaves the Bank unchanged, or a write failure with verified rollback, is
 reported in the consolidation result and live-note consolidation continues.
 Only an inconsistent legacy split family or an unverified rollback blocks
-`bank_consolidate`. The explicit `bank_compact` job remains strict.
+`bank_consolidate`. The explicit `bank_compact` job remains strict on its
+integrity checks.
 
 ---
 

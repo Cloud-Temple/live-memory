@@ -52,6 +52,7 @@ class SelectionPlan:
     original: bytes
     units: tuple[MarkdownUnit, ...]
     available_bytes: int
+    target_reachable: bool
 
 
 @dataclass(frozen=True)
@@ -210,10 +211,16 @@ def make_plan(original: bytes, units: list[MarkdownUnit], limit: int) -> Selecti
     if not units:
         raise ValueError("no eligible Markdown unit")
     base = delete_units(original, units)
-    available = limit - len(base)
+    selected_bytes = len(original) - len(base)
+    target_reachable = len(base) < limit
+    available = (
+        limit - len(base)
+        if target_reachable
+        else selected_bytes - 1
+    )
     if available <= 0:
-        raise ValueError("protected content already exceeds the configured limit")
-    return SelectionPlan(original, tuple(units), available)
+        raise ValueError("eligible Markdown content is too small to compact safely")
+    return SelectionPlan(original, tuple(units), available, target_reachable)
 
 
 def build_map_batches(
@@ -465,7 +472,7 @@ def build_digest_candidate(
     candidate = base[:offset] + container + base[offset:]
     if len(candidate) >= len(plan.original):
         raise ValueError("candidate does not reduce the original file")
-    if len(candidate) > limit:
+    if plan.target_reachable and len(candidate) > limit:
         raise ValueError("candidate exceeds the configured byte limit")
     return candidate
 

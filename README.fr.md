@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.9.3-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.9.4-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -264,7 +264,7 @@ consolidation et le compactage hiérarchique.
 | `CONSOLIDATION_VALIDATION_ENABLED` | `false` | Vérification optionnelle post-consolidation des claims non sourcés |
 | `CONSOLIDATION_VALIDATION_MAX_EXAMPLES` | `20` | Nombre max d'exemples retournés par la validation |
 | `COMPACT_THRESHOLD`       | `0.6`             | Paramètre historique ; la compaction suit désormais la limite logique par fichier en octets UTF-8 |
-| `BANK_FILE_MAX_SIZE`      | `15360`           | Cible en octets UTF-8 d'un fichier Bank logique. Les fichiers surdimensionnés déclenchent un digest Map/Reduce hiérarchique ; un refus de compaction automatique laisse la Bank intacte et ne bloque pas la consolidation des notes live |
+| `BANK_FILE_MAX_SIZE`      | `15360`           | Cible en octets UTF-8 d'un fichier Bank logique, pas un veto : une compaction sûre peut rester au-dessus si le contenu protégé rend la cible impossible |
 | `RESPONSE_MAX_BYTES`      | `524288`          | Taille max des réponses non-MCP avant troncature |
 | `API_TOOL_MAX_BODY_BYTES` | `1048576`         | Taille max du corps accepté par `/api/tool` |
 
@@ -358,10 +358,15 @@ logique dépassant `BANK_FILE_MAX_SIZE`, des Maps bornées créent des fiches
 éphémères pour des unités Markdown source complètes, puis un Reduce écrit un
 digest Markdown compact et non exhaustif. Le serveur valide ce digest, remplace
 toutes les unités historiques éligibles par un unique conteneur code-owned et
-recompactable, et exige un candidat sous la limite configurée. Le contenu récent,
+recompactable, et exige un candidat strictement plus petit que la source. Si le
+contenu protégé rend la cible impossible, un digest sûr peut rester au-dessus de
+la limite configurée et le rapport porte `target_met=false`; sinon la cible reste
+obligatoire. Le contenu récent,
 non daté, avec code ou HTML, ainsi que l'extérieur, reste byte-identique. En mode
 daté, le digest utilise au maximum 75 % de la place restant après le contenu
-protégé ; les 25 % restants constituent une marge de croissance.
+protégé seulement si la cible est atteignable ; les 25 % restants constituent
+une marge de croissance. En best-effort, tout le budget de réduction sûr est
+utilisable.
 Tous les candidats sont validés avant la création du backup complet du space.
 Le contenu persisté est relu et vérifié ; un échec déclenche un rollback vérifié
 de `bank/`. Si ce rollback échoue aussi, le job expose le `backup_id` nécessaire à une restauration
@@ -393,13 +398,16 @@ plan et reste observable : le résultat terminal expose
 `recovered_operations`, et le fichier récupéré est relu exactement avant la
 suppression des notes source.
 
-Depuis la 2.9.3, la cible de compaction automatique avant consolidation est un
-avertissement : un échec de préflight, Map, Reduce, candidat, backup ou écriture
-dont le rollback est vérifié laisse la Bank originale intacte, est exposé dans
-`compaction`, et la consolidation normale des notes live continue. Seuls une
-famille legacy split incohérente ou un rollback de compaction non vérifié
-bloquent `bank_consolidate` ; le job explicite de maintenance `bank_compact`
-reste strict.
+Depuis la 2.9.3, la pré-compaction automatique est un avertissement lorsqu'un
+refus laisse la Bank intacte ou lorsqu'une écriture échouée est suivie d'un
+rollback exact vérifié : le résultat est exposé dans `compaction` et la
+consolidation normale des notes live continue. Depuis la 2.9.4,
+`BANK_FILE_MAX_SIZE` est aussi une cible pour la compaction manuelle comme
+automatique : un candidat sûr strictement plus petit que sa source peut
+seulement rester au-dessus si le contenu protégé rend cette cible impossible ;
+`target_met` rend ce résultat visible. Seuls une famille legacy split
+incohérente ou un rollback de compaction non vérifié bloquent
+`bank_consolidate` ; `bank_compact` reste strict sur ses contrôles d'intégrité.
 
 > **2.8.0 prête à publier — acceptée par le propriétaire produit, non déployée :** les
 > Maps bornées et le Reduce unique ont franchi les gates mécaniques sur les
@@ -791,7 +799,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dépendances et config projet (uv)
 ├── uv.lock                    # lockfile uv
-├── VERSION                    # 2.9.3
+├── VERSION                    # 2.9.4
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -870,4 +878,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.9.3 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.9.4 — Mémoire de travail partagée pour agents IA collaboratifs*
