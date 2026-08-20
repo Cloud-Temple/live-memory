@@ -102,6 +102,25 @@ def _oversized_section_markdown() -> str:
     return "# progress.md\n\n" + old + "- **2026-08-02 - récent** : intact\n"
 
 
+def _best_effort_markdown() -> str:
+    protected = "## Etat operationnel protege\n" + (
+        "- inventaire recent a conserver exactement\n" * 80
+    )
+    historical = "".join(
+        f"- **2026-08-01 - jalon {index}** : "
+        + (f"fait historique durable {index}. " * 12)
+        + "\n"
+        for index in range(50)
+    )
+    return (
+        "# progress.md\n\n"
+        + protected
+        + "\n"
+        + historical
+        + "- **2026-08-02 - recent** : etat courant intact\n"
+    )
+
+
 def _oversized_patterns_markdown() -> str:
     return "# systemPatterns.md\n\n## Architecture\n" + "".join(
         f"### Pattern {index}\n- invariant exact {index} " + ("x" * 120) + "\n"
@@ -273,6 +292,8 @@ async def test_apply_persists_bounded_digest_and_creates_restorable_backup():
     persisted = storage.objects["sp/bank/progress.md"]
     metadata, compacted = _parse_split_part("progress.md", persisted)
     assert metadata is None
+    report = next(item for item in result["files"] if item["filename"] == "progress.md")
+    assert report["target_met"] is True
     assert "Historique compacté" in compacted
     assert "Synthèse durable" in compacted
     assert "Décision exacte 0." not in compacted
@@ -288,6 +309,35 @@ async def test_apply_persists_bounded_digest_and_creates_restorable_backup():
     assert storage.objects["sp/_meta.json"] == '{"space_id":"sp"}'
     assert storage.objects["sp/_rules.md"] == "# Rules\n"
     assert storage.objects["sp/bank/progress.md"] == content
+
+
+@pytest.mark.asyncio
+async def test_manual_compaction_applies_safe_best_effort_reduction_above_target():
+    content = _best_effort_markdown()
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/_rules.md": "# Rules\n",
+            "sp/bank/progress.md": content,
+            **_authority_objects(),
+        }
+    )
+    service = _service(max_size=512)
+    service._client.chat.completions.create.side_effect = _hierarchical_llm
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.compact_bank("sp", dry_run=False)
+
+    assert result["status"] == "ok"
+    assert result["files_compacted"] == 1
+    report = next(item for item in result["files"] if item["filename"] == "progress.md")
+    compacted = storage.objects["sp/bank/progress.md"]
+    assert report["target_met"] is False
+    assert _utf8_size(compacted) > 512
+    assert _utf8_size(compacted) < _utf8_size(content)
+    assert "## Etat operationnel protege" in compacted
+    assert "etat courant intact" in compacted
+    assert result["backup_id"]
 
 
 @pytest.mark.asyncio
@@ -1043,7 +1093,7 @@ async def test_blocking_precompaction_signal_still_blocks_consolidation():
 
 
 @pytest.mark.asyncio
-async def test_infeasible_precompaction_warns_and_processes_live_note():
+async def test_unreducible_precompaction_warns_and_processes_live_note():
     protected_context = "## État opérationnel\n" + (
         "- inventaire opérationnel à conserver\n" * 80
     )
@@ -1103,8 +1153,64 @@ async def test_infeasible_precompaction_warns_and_processes_live_note():
     assert result["compaction"]["backup_id"] is None
     assert (
         result["compaction"]["reports"]["progress.md"]["error"]
-        == "protected content already exceeds the configured limit"
+        == "digest container has no usable UTF-8 output budget"
     )
+
+
+@pytest.mark.asyncio
+async def test_best_effort_precompaction_reduces_then_processes_live_note():
+    progress = _best_effort_markdown()
+    note_key = "sp/live/20260820_agent_progress_note.md"
+    storage = MemoryStorage(
+        {
+            "sp/_meta.json": '{"space_id":"sp"}',
+            "sp/_rules.md": "# Rules\n",
+            note_key: "nouvelle information\n",
+            "sp/bank/progress.md": progress,
+            "sp/bank/activeContext.md": "# activeContext.md\n\n## Focus\n- existant\n",
+        }
+    )
+    service = _service(max_size=512)
+    service._batch_size = 1
+    service._max_notes = 200
+    service._validation_enabled = False
+    service._client.chat.completions.create.side_effect = _hierarchical_llm
+    service._call_llm = AsyncMock(
+        return_value={
+            "status": "ok",
+            "data": {
+                "file_edits": [
+                    {
+                        "filename": "activeContext.md",
+                        "action": "edit",
+                        "operations": [
+                            {
+                                "type": "append_to_section",
+                                "heading": "## Focus",
+                                "content": "- nouvelle information",
+                            }
+                        ],
+                    }
+                ],
+                "synthesis": "nouvelle information intégrée",
+            },
+            "usage": {},
+        }
+    )
+
+    with patch("live_mem.core.consolidator.get_storage", return_value=storage):
+        result = await service.consolidate("sp", enforce_cooldown=False)
+
+    compacted = storage.objects["sp/bank/progress.md"]
+    assert result["status"] == "ok"
+    assert result["notes_processed"] == 1
+    assert note_key not in storage.objects
+    assert result["compaction"]["files_compacted"] == 1
+    assert result["compaction"]["files_failed"] == 0
+    assert result["compaction"]["reports"]["progress.md"]["target_met"] is False
+    assert 512 < _utf8_size(compacted) < _utf8_size(progress)
+    assert "etat courant intact" in compacted
+    assert "nouvelle information" in storage.objects["sp/bank/activeContext.md"]
 
 
 @pytest.mark.asyncio

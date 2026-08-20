@@ -1,6 +1,6 @@
 # Architecture — Live Memory MCP Server
 
-> **Version**: v2.9.3 | **Date**: 2026-08-20 | **Author**: Cloud Temple
+> **Version**: v2.9.4 | **Date**: 2026-08-20 | **Author**: Cloud Temple
 > **Project**: live-mem | **License**: Apache 2.0
 
 ---
@@ -318,13 +318,16 @@ consolidation lock, so restoring the full space could delete a note created
 after the backup. Multi-file rollback verifies the exact final bank keyset and
 content before it is reported as successful.
 
-Since 2.9.3, the automatic size target is advisory: a compaction refusal before
-mutation, or a write failure followed by an exact verified rollback, leaves the
-Bank unchanged and is reported as a compaction warning while normal note
-consolidation continues. Only an inconsistent legacy split family or an
-unverified rollback blocks source-note processing. A successful compaction is
-always read back before normal consolidation resumes; `bank_compact` remains a
-strict maintenance job.
+Since 2.9.4, the size target is also best-effort: if protected bytes already
+make it unreachable, a validated candidate may remain above it only when it is
+strictly smaller than the original logical file; `target_met` records the real
+outcome. A target-reachable candidate must still fit. Since 2.9.3, a
+compaction refusal before mutation, or a write failure followed by an exact
+verified rollback, leaves the Bank unchanged and is reported as a compaction
+warning while normal note consolidation continues. Only an inconsistent legacy
+split family or an unverified rollback blocks source-note processing. A
+successful compaction is always read back before normal consolidation resumes;
+`bank_compact` remains strict on integrity, not on an unreachable target.
 
 ### 4.5 Graph Push (Bridge to Graph Memory)
 

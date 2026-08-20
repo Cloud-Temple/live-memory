@@ -5,6 +5,30 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.9.4] — 2026-08-20
+
+### Fixed
+
+- **Best-effort safe compaction** — `BANK_FILE_MAX_SIZE` is a size target, not
+  a veto. When protected Bank content already makes that target unreachable,
+  `bank_compact` and automatic pre-consolidation may still apply a validated
+  Map/Reduce digest, but only when the resulting logical file is strictly
+  smaller than its source. A candidate above the target remains rejected when
+  the target was reachable.
+
+### Observability
+
+- **Actual target outcome** — compaction reports now expose `target_met` from
+  the final UTF-8 byte size. Operators can distinguish a safe reduction above
+  the target from a fully compacted file.
+
+### Safety
+
+- Protected bytes, Markdown validation, backup, readback and rollback are
+  unchanged. If the code-owned digest container cannot reduce the selected
+  source safely, manual compaction still fails without a write and automatic
+  pre-consolidation remains an observable no-mutation warning.
+
 ## [2.9.3] — 2026-08-20
 
 ### Changed

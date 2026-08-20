@@ -2961,7 +2961,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                 )
                 container_budget = (
                     plan.available_bytes * 3 // 4
-                    if inventory.mode == "dated"
+                    if inventory.mode == "dated" and plan.target_reachable
                     else plan.available_bytes
                 )
                 digest_budget = digest_output_budget(
@@ -3154,7 +3154,8 @@ indiqué et tu peux laisser du budget inutilisé."""
                 "digest_budget_bytes": prepared["digest_budget"],
                 "digest_container_budget_bytes": prepared["container_budget"],
                 "target_size_bytes": self._get_max_size_for_file(source),
-                "target_met": True,
+                "target_met": len(candidate_bytes)
+                <= self._get_max_size_for_file(source),
                 "planned_llm_calls": planned_by_source[source],
             }
 
