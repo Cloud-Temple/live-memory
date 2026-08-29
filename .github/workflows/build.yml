@@ -1,8 +1,8 @@
-name: CI — Build & Push
+name: CI — Test & Publish Release Image
 
 # Déclencheurs :
-#   - push sur n'importe quelle branche  → image taguée avec le nom de branche
-#   - push d'un tag v*                   → image taguée vX.Y.Z + vX.Y + latest
+#   - push sur n'importe quelle branche  → tests uniquement
+#   - push d'un tag v*                   → tests puis image vX.Y.Z + vX.Y + latest
 on:
   push:
     branches:
@@ -38,16 +38,14 @@ jobs:
         run: uv run pytest tests/ -v
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Job 2 — Build multi-arch + push GHCR
+  # Job 2 — Build multi-arch + push GHCR, exclusivement depuis un tag de release
   #
   # Stratégie de tags automatique (via docker/metadata-action) :
-  #   - branche main       → ghcr.io/cloud-temple/live-memory:main
-  #   - branche dev        → ghcr.io/cloud-temple/live-memory:dev
-  #   - branche feature/xx → ghcr.io/cloud-temple/live-memory:feature-xx
   #   - tag v1.7.0         → ghcr.io/cloud-temple/live-memory:1.7.0  :1.7  :latest
   # ─────────────────────────────────────────────────────────────────────────
   build:
     name: Build & Push Docker Image
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     needs: test
     permissions:
@@ -79,8 +77,6 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Branches → tag avec le nom de branche (main, dev, feature-xxx, …)
-            type=ref,event=branch
             # Tags semver → version complète (ex: v1.7.0 → 1.7.0)
             type=semver,pattern={{version}}
             # Tags semver → major.minor  (ex: v1.7.0 → 1.7)

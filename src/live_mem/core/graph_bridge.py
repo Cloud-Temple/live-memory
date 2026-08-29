@@ -36,7 +36,8 @@ import logging
 from datetime import datetime, timezone
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
+import httpx2
 
 from .storage import get_storage, bank_relpath
 from .models import GraphMemoryConfig
@@ -77,10 +78,9 @@ class GraphMemoryClient:
             token: Bearer token pour l'authentification
             timeout: Timeout par appel d'outil en secondes
         """
-        # NOTE: PROXY_URL n'est pas supporté pour cette connexion.
-        # streamablehttp_client (SDK MCP officiel) n'expose pas de paramètre
-        # proxy ni http_client dans son API actuelle. Les appels vers
-        # graph-memory passent donc toujours en direct, même si PROXY_URL est défini.
+        # PROXY_URL reste volontairement sans effet ici : seuls les paramètres
+        # standard de trust store (SSL_CERT_FILE / SSL_CERT_DIR) sont honorés
+        # par httpx2 avec trust_env=True.
 
         # Normaliser l'URL : retirer /sse ou /mcp si présent en fin
         self._base_url = base_url.rstrip("/")
@@ -117,29 +117,32 @@ class GraphMemoryClient:
             Résultat de l'outil (dict)
         """
         try:
-            async with streamablehttp_client(
-                self._mcp_url,
+            async with httpx2.AsyncClient(
                 headers=self._headers,
-                timeout=self._timeout,
-                sse_read_timeout=self._timeout,
-            ) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
+                timeout=httpx2.Timeout(self._timeout, read=self._timeout),
+                follow_redirects=True,
+                trust_env=True,
+            ) as http_client:
+                async with streamable_http_client(
+                    self._mcp_url, http_client=http_client
+                ) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
 
-                    result = await asyncio.wait_for(
-                        session.call_tool(tool_name, arguments),
-                        timeout=self._timeout,
-                    )
+                        result = await asyncio.wait_for(
+                            session.call_tool(tool_name, arguments),
+                            timeout=self._timeout,
+                        )
 
-                    # Extraire le résultat (SDK MCP encapsule dans content[0].text)
-                    if result.content and len(result.content) > 0:
-                        text = result.content[0].text
-                        try:
-                            return json.loads(text)
-                        except (json.JSONDecodeError, TypeError):
-                            return {"status": "ok", "raw": text}
+                        # Extraire le résultat (SDK MCP encapsule dans content[0].text)
+                        if result.content and len(result.content) > 0:
+                            text = result.content[0].text
+                            try:
+                                return json.loads(text)
+                            except (json.JSONDecodeError, TypeError):
+                                return {"status": "ok", "raw": text}
 
-                    return {"status": "ok", "raw": ""}
+                        return {"status": "ok", "raw": ""}
 
         except asyncio.TimeoutError:
             raise TimeoutError(
@@ -163,43 +166,46 @@ class GraphMemoryClient:
         """
         results = []
         try:
-            async with streamablehttp_client(
-                self._mcp_url,
+            async with httpx2.AsyncClient(
                 headers=self._headers,
-                timeout=self._timeout,
-                sse_read_timeout=self._timeout,
-            ) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
+                timeout=httpx2.Timeout(self._timeout, read=self._timeout),
+                follow_redirects=True,
+                trust_env=True,
+            ) as http_client:
+                async with streamable_http_client(
+                    self._mcp_url, http_client=http_client
+                ) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
 
-                    for tool_name, arguments in calls:
-                        try:
-                            result = await asyncio.wait_for(
-                                session.call_tool(tool_name, arguments),
-                                timeout=self._timeout,
-                            )
-                            if result.content and len(result.content) > 0:
-                                text = result.content[0].text
-                                try:
-                                    results.append(json.loads(text))
-                                except (json.JSONDecodeError, TypeError):
-                                    results.append({"status": "ok", "raw": text})
-                            else:
-                                results.append({"status": "ok", "raw": ""})
-                        except asyncio.TimeoutError:
-                            results.append(
-                                {
-                                    "status": "error",
-                                    "message": f"Timeout {self._timeout}s pour '{tool_name}'",
-                                }
-                            )
-                        except Exception as e:
-                            results.append(
-                                {
-                                    "status": "error",
-                                    "message": f"Erreur '{tool_name}': {e}",
-                                }
-                            )
+                        for tool_name, arguments in calls:
+                            try:
+                                result = await asyncio.wait_for(
+                                    session.call_tool(tool_name, arguments),
+                                    timeout=self._timeout,
+                                )
+                                if result.content and len(result.content) > 0:
+                                    text = result.content[0].text
+                                    try:
+                                        results.append(json.loads(text))
+                                    except (json.JSONDecodeError, TypeError):
+                                        results.append({"status": "ok", "raw": text})
+                                else:
+                                    results.append({"status": "ok", "raw": ""})
+                            except asyncio.TimeoutError:
+                                results.append(
+                                    {
+                                        "status": "error",
+                                        "message": f"Timeout {self._timeout}s pour '{tool_name}'",
+                                    }
+                                )
+                            except Exception as e:
+                                results.append(
+                                    {
+                                        "status": "error",
+                                        "message": f"Erreur '{tool_name}': {e}",
+                                    }
+                                )
 
         except Exception as e:
             # Si la connexion elle-même échoue, remplir tous les résultats manquants

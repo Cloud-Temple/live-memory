@@ -23,8 +23,8 @@ import ipaddress
 from typing import Annotated, Optional
 from urllib.parse import urlparse
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.server import MCPServer
+from mcp_types import ToolAnnotations
 from pydantic import Field
 
 
@@ -109,18 +109,18 @@ def _validate_gm_url(url: str) -> Optional[str]:
     return None
 
 
-def register(mcp: FastMCP) -> int:
+def register(mcp: MCPServer) -> int:
     """
     Enregistre les 4 outils graph sur l'instance MCP.
 
     Args:
-        mcp: Instance FastMCP
+        mcp: Instance MCPServer
 
     Returns:
         Nombre d'outils enregistrés (4)
     """
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=True))
     async def graph_connect(
         space_id: Annotated[
             str, Field(description="Identifiant du space live-memory à connecter")
@@ -198,7 +198,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "graph")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=True))
     async def graph_push(
         space_id: Annotated[
             str, Field(description="Identifiant du space live-memory à synchroniser")
@@ -288,7 +288,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "graph")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def graph_status(
         space_id: Annotated[str, Field(description="Identifiant du space live-memory")],
     ) -> dict:
@@ -320,7 +320,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "graph")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=True))
     async def graph_disconnect(
         space_id: Annotated[
             str, Field(description="Identifiant du space live-memory à déconnecter")

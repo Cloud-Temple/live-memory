@@ -1,0 +1,110 @@
+# Isolated MCP compatibility proof. It never reads .env, starts the application
+# factory directly (not live_mem.main), and has no S3/LLM/token-admin mutation.
+services:
+  live-memory-v2:
+    build:
+      context: ../..
+    command: ["uvicorn", "live_mem.server:create_app", "--factory", "--host", "0.0.0.0", "--port", "8002", "--log-level", "warning"]
+    environment:
+      ADMIN_BOOTSTRAP_KEY: "mcp-v2-compatibility-test-key-000000"
+      MCP_ALLOWED_HOSTS: "mcp.test:*"
+      MCP_ALLOWED_ORIGINS: "http://mcp.test:*"
+      MCP_SERVER_HOST: "0.0.0.0"
+      MCP_SERVER_PORT: "8002"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 8002), timeout=2).close()"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    networks:
+      compat:
+        aliases: [live-mem-service]
+
+  waf:
+    build:
+      context: ../../waf
+    environment:
+      SITE_ADDRESS: ":8080"
+    volumes:
+      - ../../waf/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      live-memory-v2:
+        condition: service_healthy
+    networks:
+      compat:
+        aliases: [mcp.test]
+
+  live-memory-v1-27:
+    image: python:3.11-slim
+    volumes:
+      - .:/tests:ro
+    environment:
+      MCP_URL: "http://mcp.test:8080/mcp"
+      MCP_TOKEN: "mcp-v2-compatibility-test-key-000000"
+    command: ["sh", "-ec", "pip install --no-cache-dir 'mcp==1.27.0' && python /tests/v1_live_memory_probe.py"]
+    depends_on: [waf]
+    networks: [compat]
+
+  live-memory-v1-28:
+    image: python:3.11-slim
+    volumes:
+      - .:/tests:ro
+    environment:
+      MCP_URL: "http://mcp.test:8080/mcp"
+      MCP_TOKEN: "mcp-v2-compatibility-test-key-000000"
+    command: ["sh", "-ec", "pip install --no-cache-dir 'mcp==1.28.1' && python /tests/v1_live_memory_probe.py"]
+    depends_on: [waf]
+    networks: [compat]
+
+  graph-memory-v1-27:
+    image: python:3.11-slim
+    volumes:
+      - .:/tests:ro
+    command: ["sh", "-ec", "pip install --no-cache-dir 'mcp==1.27.0' uvicorn && uvicorn --host 0.0.0.0 --port 8003 v1_graph_memory_peer:app"]
+    working_dir: /tests
+    networks: [compat]
+
+  graph-memory-v1-28:
+    image: python:3.11-slim
+    volumes:
+      - .:/tests:ro
+    command: ["sh", "-ec", "pip install --no-cache-dir 'mcp==1.28.1' uvicorn && uvicorn --host 0.0.0.0 --port 8003 v1_graph_memory_peer:app"]
+    working_dir: /tests
+    networks: [compat]
+
+  graph-memory-v2-probe-27:
+    build:
+      context: ../..
+    volumes:
+      - .:/tests:ro
+    command: ["python", "/tests/v2_graph_memory_probe.py"]
+    environment:
+      GRAPH_MEMORY_BASE_URL: "http://graph-memory-v1-27:8003"
+      GRAPH_MEMORY_V1_VERSION: "1.27.0"
+    depends_on: [graph-memory-v1-27]
+    networks: [compat]
+
+  graph-memory-v2-probe-28:
+    build:
+      context: ../..
+    volumes:
+      - .:/tests:ro
+    command: ["python", "/tests/v2_graph_memory_probe.py"]
+    environment:
+      GRAPH_MEMORY_BASE_URL: "http://graph-memory-v1-28:8003"
+      GRAPH_MEMORY_V1_VERSION: "1.28.1"
+    depends_on: [graph-memory-v1-28]
+    networks: [compat]
+
+  http-security-probe:
+    image: python:3.11-slim
+    volumes:
+      - .:/tests:ro
+    environment:
+      MCP_TOKEN: "mcp-v2-compatibility-test-key-000000"
+    command: ["python", "/tests/http_security_probe.py"]
+    depends_on: [waf]
+    networks: [compat]
+
+networks:
+  compat:

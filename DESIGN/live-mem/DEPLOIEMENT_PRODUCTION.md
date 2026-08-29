@@ -20,6 +20,20 @@ Live Memory is deployed via Docker Compose with 2 services:
 - Web visualization interface (`/live`)
 - 5 REST API endpoints (`/api/*`)
 
+### MCP v2 transport security
+
+The delivery lockfile freezes `mcp==2.1.1` and `mcp-types==2.1.1`. The v2
+Streamable HTTP endpoint validates `Host`, and validates `Origin` when it is
+present. Set `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` to the exact public
+values served by Caddy; the `:*` suffix is allowed only for local development
+ports. Do not use a global wildcard. `SSL_CERT_FILE` and `SSL_CERT_DIR` remain
+standard process variables for the outbound Graph Memory client trust store.
+The HTTP `Host` to allow is the public host preserved by Caddy (for example
+`live-mem.example.com`), not the TLS SNI value and not the internal Docker
+upstream `live-mem-service:8002`. These are three distinct boundaries: TLS is
+terminated at Caddy using SNI, Caddy forwards the public HTTP Host to the MCP
+service, and its private upstream target remains on the Docker network.
+
 ---
 
 ## 2. Prerequisites

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from live_mem.core.consolidator import (
     ConsolidatorService,
@@ -1777,7 +1777,7 @@ async def test_incomplete_family_fails_even_below_limit():
 
 
 def _bank_tool(name: str):
-    mcp = FastMCP(name="test")
+    mcp = MCPServer(name="test")
     register_bank_tools(mcp)
     tool = mcp._tool_manager._tools[name]
     for attr in ("fn", "func", "handler", "_fn", "run", "callback"):
@@ -1788,7 +1788,7 @@ def _bank_tool(name: str):
 
 
 def _space_tool(name: str):
-    mcp = FastMCP(name="test")
+    mcp = MCPServer(name="test")
     register_space_tools(mcp)
     tool = mcp._tool_manager._tools[name]
     for attr in ("fn", "func", "handler", "_fn", "run", "callback"):

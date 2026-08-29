@@ -9,7 +9,7 @@
 ## Prerequisites
 
 ```bash
-pip install click rich prompt-toolkit mcp[cli]>=1.8.0
+pip install click rich prompt-toolkit 'mcp[cli]>=2.1.1,<3' 'httpx2>=2.5.0,<3'
 ```
 
 Environment variables:
