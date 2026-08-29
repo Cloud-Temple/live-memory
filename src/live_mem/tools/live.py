@@ -25,23 +25,23 @@ Catégories standard :
 
 from typing import Annotated
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.server import MCPServer
+from mcp_types import ToolAnnotations
 from pydantic import Field
 
 
-def register(mcp: FastMCP) -> int:
+def register(mcp: MCPServer) -> int:
     """
     Enregistre les 3 outils live sur l'instance MCP.
 
     Args:
-        mcp: Instance FastMCP
+        mcp: Instance MCPServer
 
     Returns:
         Nombre d'outils enregistrés (3)
     """
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=False))
     async def live_note(
         space_id: Annotated[str, Field(description="Identifiant de l'espace cible")],
         category: Annotated[
@@ -103,7 +103,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "live")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def live_read(
         space_id: Annotated[str, Field(description="Identifiant de l'espace cible")],
         limit: Annotated[
@@ -168,7 +168,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "live")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def live_search(
         space_id: Annotated[str, Field(description="Identifiant de l'espace cible")],
         query: Annotated[

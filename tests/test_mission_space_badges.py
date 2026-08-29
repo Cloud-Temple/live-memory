@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from live_mem.auth.context import (
     _fresh_token_store,
@@ -276,7 +276,7 @@ async def test_late_badge_validation_cannot_clear_its_remint_tombstone():
 
 @pytest.mark.asyncio
 async def test_expired_badge_context_is_refused_inside_an_open_mcp_session():
-    mcp = FastMCP(name="expired-badge")
+    mcp = MCPServer(name="expired-badge")
     register_all_tools(mcp)
     badge = _badge_context()
     badge["expires_at"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
@@ -423,7 +423,7 @@ async def test_delete_stops_before_s3_when_badge_revocation_cannot_persist():
 
 
 def _space_tool(name: str):
-    mcp = FastMCP(name="space-create-retry")
+    mcp = MCPServer(name="space-create-retry")
     register_space_tools(mcp)
     return _tool_callable(mcp._tool_manager._tools[name])
 
@@ -590,7 +590,7 @@ def _blocked_tool_args(fn) -> dict:
 
 @pytest.mark.asyncio
 async def test_badge_allowlist_is_exhaustive_and_all_other_mcp_tools_reject():
-    mcp = FastMCP(name="badge-contract")
+    mcp = MCPServer(name="badge-contract")
     registered = register_all_tools(mcp)
     tools = mcp._tool_manager._tools
     assert registered == len(ALL_TOOL_NAMES) == 44
@@ -609,7 +609,7 @@ async def test_badge_allowlist_is_exhaustive_and_all_other_mcp_tools_reject():
 
 @pytest.mark.asyncio
 async def test_badge_can_only_read_and_write_its_exact_live_space_and_whoami():
-    mcp = FastMCP(name="badge-live")
+    mcp = MCPServer(name="badge-live")
     register_all_tools(mcp)
     tools = mcp._tool_manager._tools
     live_service = MagicMock()

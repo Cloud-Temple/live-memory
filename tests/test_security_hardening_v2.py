@@ -778,20 +778,16 @@ class TestLM2_06_VendoredLibraries:
 # =============================================================================
 
 
-class TestLM2_26_DependencyBounds:
+class TestMCPV2DependencyBounds:
     @pytest.fixture(scope="class")
     def pyproject_content(self) -> str:
         return PYPROJECT.read_text(encoding="utf-8")
 
-    def test_mcp_requires_127_or_later(self, pyproject_content):
-        """CVE-2026-32871 (path traversal FastMCP) corrigé en 1.27.0."""
-        m = re.search(r'"mcp\[cli\]>=(\d+\.\d+\.\d+)"', pyproject_content)
-        assert m, "Borne mcp[cli] introuvable"
-        version_str = m.group(1)
-        major, minor, _patch = (int(x) for x in version_str.split("."))
-        assert (major, minor) >= (1, 27), (
-            f"Sans fix LM2-26 : mcp[cli]>={version_str} expose à CVE-2026-32871"
-        )
+    def test_mcp_is_bounded_to_v2_from_the_audited_release(self, pyproject_content):
+        assert '"mcp[cli]>=2.1.1,<3"' in pyproject_content
+
+    def test_httpx2_uses_the_mcp_211_minimum(self, pyproject_content):
+        assert '"httpx2>=2.5.0,<3"' in pyproject_content
 
     def test_httpx_sse_removed(self, pyproject_content):
         """httpx-sse ne doit plus apparaître dans la LISTE des dépendances.
@@ -1622,4 +1618,4 @@ def test_sanity_imports_dont_break_existing_code():
     from live_mem.auth import context, middleware
 
     # Version courante du package
-    assert live_mem.__version__ == "2.9.4"
+    assert live_mem.__version__ == "2.9.5"

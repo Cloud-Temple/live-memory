@@ -118,10 +118,10 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 | Component                | Role                                       | Technology                               |
 | ------------------------ | ------------------------------------------ | ---------------------------------------- |
 | **WAF**                  | Secure reverse proxy                       | Caddy + Coraza OWASP CRS + Rate Limiting |
-| **MCP Server**           | Python MCP server (44 tools, 7 categories) | FastMCP + Uvicorn (ASGI)                 |
+| **MCP Server**           | Python MCP server (44 tools, 7 categories) | MCPServer v2 + Uvicorn (ASGI)            |
 | **Storage Service**      | S3 abstraction (read/write/listing)        | boto3 hybrid SigV2/V4                    |
 | **Consolidator Service** | LLM synthesis of notes → bank              | AsyncOpenAI (qwen3.5:27b)                |
-| **Graph Bridge**         | Bridge to Graph Memory (long-term memory)  | MCP SDK (streamablehttp_client)          |
+| **Graph Bridge**         | Bridge to Graph Memory (long-term memory)  | MCP SDK v2 (`streamable_http_client`)     |
 | **Auth Middleware**      | Bearer Token authentication                | Custom ASGI middleware                   |
 | **Token Manager**        | Token management (CRUD)                    | JSON on S3 (`_system/tokens.json`)       |
 | **Static Files**         | Web interface /live + REST API             | ASGI middleware (StaticFilesMiddleware)  |
@@ -139,13 +139,13 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 
 | Component          | Technology              | Role                               |
 | ------------------ | ----------------------- | ---------------------------------- |
-| MCP Framework      | `FastMCP` (Python SDK)  | Exposes tools via Streamable HTTP  |
-| HTTP Server        | `Uvicorn` (ASGI)        | Serves the FastMCP application     |
+| MCP Framework      | `MCPServer` v2          | Exposes tools via Streamable HTTP  |
+| HTTP Server        | `Uvicorn` (ASGI)        | Serves the MCPServer application   |
 | Configuration      | `pydantic-settings`     | Environment variables + `.env`     |
 | Scriptable CLI     | `Click`                 | Command-line interface             |
 | Interactive Shell  | `prompt_toolkit`        | Autocompletion, history            |
 | Display            | `Rich`                  | Tables, panels, colors, Markdown   |
-| MCP Client         | MCP SDK ≥1.8.0          | CLI + Graph Bridge → server        |
+| MCP Client         | MCP SDK v2.1.1          | CLI + Graph Bridge → server        |
 | Auth               | Bearer Token            | Token-based authentication         |
 | S3 Client          | `boto3`                 | S3 storage (hybrid SigV2/V4)       |
 | LLM Client         | `openai` (AsyncOpenAI)  | LLMaaS API calls                   |
