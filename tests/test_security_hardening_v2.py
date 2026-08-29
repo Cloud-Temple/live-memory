@@ -1618,4 +1618,4 @@ def test_sanity_imports_dont_break_existing_code():
     from live_mem.auth import context, middleware
 
     # Version courante du package
-    assert live_mem.__version__ == "2.9.4"
+    assert live_mem.__version__ == "2.9.5"
