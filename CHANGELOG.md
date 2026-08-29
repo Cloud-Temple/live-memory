@@ -5,6 +5,24 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **MCP SDK v2** — migrated the server to `MCPServer` and Streamable HTTP v2.
+  The reproducible runtime lock is `mcp==2.1.1` and `mcp-types==2.1.1`.
+  Outbound CLI and Graph Memory clients now use `streamable_http_client` with
+  `httpx2`.
+
+### Security
+
+- **DNS rebinding** — `/mcp` now enforces explicit, validated Host and Origin
+  allowlists through MCP v2. The new `MCP_ALLOWED_HOSTS` and
+  `MCP_ALLOWED_ORIGINS` variables use strict comma-separated values; only a
+  terminal `:*` port suffix is accepted.
+
+---
+
 ## [2.9.4] — 2026-08-20
 
 ### Fixed

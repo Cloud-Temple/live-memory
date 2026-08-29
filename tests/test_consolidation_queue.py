@@ -9,7 +9,7 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from live_mem.auth.context import current_token_info
 from live_mem.core.consolidation_queue import (
@@ -86,7 +86,7 @@ def _token(name: str, permissions: list[str]) -> dict:
 
 
 def _bank_tool(name: str):
-    mcp = FastMCP(name="test")
+    mcp = MCPServer(name="test")
     register_bank_tools(mcp)
     tool = mcp._tool_manager._tools[name]
     for attr in ("fn", "func", "handler", "_fn", "run", "callback"):

@@ -2,7 +2,7 @@
 """
 MCP Streamable HTTP client for communicating with the MCP server.
 
-This client uses the official MCP SDK (mcp>=1.8.0) with Streamable HTTP
+This client uses the official MCP SDK v2 with Streamable HTTP
 transport. It handles:
 - Streamable HTTP connection (single /mcp endpoint)
 - MCP handshake (initialize + notifications/initialized) via the SDK
@@ -11,9 +11,9 @@ transport. It handles:
 
 Migration SSE → Streamable HTTP (issue #1):
 - Import: mcp.client.sse → mcp.client.streamable_http
-- Function: sse_client → streamablehttp_client
+- Function: sse_client → streamable_http_client
 - URL: /sse → /mcp
-- Context manager: (read, write) → (read, write, _)
+- Context manager: (read, write, _) → (read, write)
 """
 
 import json
@@ -22,7 +22,8 @@ import logging
 from typing import Optional, Callable
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
+import httpx2
 
 logger = logging.getLogger("live_mem.cli")
 
@@ -87,28 +88,31 @@ class MCPClient:
             await asyncio.sleep(self.call_delay)
 
         try:
-            async with streamablehttp_client(
-                mcp_url,
+            async with httpx2.AsyncClient(
                 headers=self.headers,
-                timeout=self.timeout,
-                sse_read_timeout=self.timeout,
-            ) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    # The SDK handles the initialize handshake automatically
-                    await session.initialize()
+                timeout=httpx2.Timeout(self.timeout, read=self.timeout),
+                follow_redirects=True,
+                trust_env=True,
+            ) as http_client:
+                async with streamable_http_client(
+                    mcp_url, http_client=http_client
+                ) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        # The SDK handles the initialize handshake automatically
+                        await session.initialize()
 
-                    # Call the tool
-                    result = await session.call_tool(tool_name, arguments)
+                        # Call the tool
+                        result = await session.call_tool(tool_name, arguments)
 
-                    # Extract text result
-                    if result.content and len(result.content) > 0:
-                        text = result.content[0].text
-                        try:
-                            return json.loads(text)
-                        except (json.JSONDecodeError, TypeError):
-                            return {"status": "ok", "raw": text}
+                        # Extract text result
+                        if result.content and len(result.content) > 0:
+                            text = result.content[0].text
+                            try:
+                                return json.loads(text)
+                            except (json.JSONDecodeError, TypeError):
+                                return {"status": "ok", "raw": text}
 
-                    return {"status": "ok", "raw": ""}
+                        return {"status": "ok", "raw": ""}
 
         except BaseException as e:
             # Unwrap ExceptionGroup / TaskGroup to surface the real error.

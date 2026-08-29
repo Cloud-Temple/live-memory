@@ -15,24 +15,24 @@ import time
 import platform
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.server import MCPServer
+from mcp_types import ToolAnnotations
 
 _logger = logging.getLogger("live_mem.system")
 
 
-def register(mcp: FastMCP) -> int:
+def register(mcp: MCPServer) -> int:
     """
     Enregistre les outils system sur l'instance MCP.
 
     Args:
-        mcp: Instance FastMCP
+        mcp: Instance MCPServer
 
     Returns:
         Nombre d'outils enregistrés (3)
     """
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def system_health() -> dict:
         """
         Vérifie l'état de santé du service Live Memory.
@@ -143,7 +143,7 @@ def register(mcp: FastMCP) -> int:
             "spaces_count": spaces_count,
         }
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def system_about() -> dict:
         """
         Informations sur le service Live Memory MCP.
@@ -186,7 +186,7 @@ def register(mcp: FastMCP) -> int:
             "tools": tools,
         }
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def system_whoami() -> dict:
         """
         Identité du token courant utilisé pour contacter le serveur.

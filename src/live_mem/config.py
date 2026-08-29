@@ -14,11 +14,44 @@ Usage :
 
 import logging
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 _logger = logging.getLogger("live_mem.config")
+
+
+def _parse_csv_allowlist(value: str, setting_name: str) -> list[str]:
+    """Parse a strict comma-separated HTTP security allowlist."""
+    values = [item.strip().lower() for item in value.split(",") if item.strip()]
+    if not values:
+        raise ValueError(f"{setting_name} must contain at least one value")
+    return values
+
+
+def _validate_host_allowlist(value: str) -> str:
+    values = _parse_csv_allowlist(value, "MCP_ALLOWED_HOSTS")
+    for host in values:
+        base_host = host[:-2] if host.endswith(":*") else host
+        if host == "*" or "/" in host or "@" in host or not base_host:
+            raise ValueError("MCP_ALLOWED_HOSTS only accepts exact hosts or a ':*' port suffix")
+        if "*" in base_host:
+            raise ValueError("MCP_ALLOWED_HOSTS only permits the ':*' port suffix")
+    return ",".join(values)
+
+
+def _validate_origin_allowlist(value: str) -> str:
+    values = _parse_csv_allowlist(value, "MCP_ALLOWED_ORIGINS")
+    for origin in values:
+        if origin == "*" or "*" in origin[:-2] or ("*" in origin and not origin.endswith(":*")):
+            raise ValueError("MCP_ALLOWED_ORIGINS only permits the ':*' port suffix")
+        parsed = urlsplit(origin[:-2] if origin.endswith(":*") else origin)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("MCP_ALLOWED_ORIGINS must contain absolute http(s) origins")
+        if parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password:
+            raise ValueError("MCP_ALLOWED_ORIGINS must not contain a path, query, or credentials")
+    return ",".join(values)
 
 
 class Settings(BaseSettings):
@@ -33,6 +66,10 @@ class Settings(BaseSettings):
     mcp_server_host: str = "0.0.0.0"
     mcp_server_port: int = 8002
     mcp_server_debug: bool = False
+    # MCP v2 validates Host and, when present, Origin to prevent DNS rebinding.
+    # Port wildcards are intentionally limited to the SDK's documented ':*' form.
+    mcp_allowed_hosts: str = "localhost,localhost:*,127.0.0.1,127.0.0.1:*,[::1],[::1]:*"
+    mcp_allowed_origins: str = "http://localhost,http://localhost:*,http://127.0.0.1,http://127.0.0.1:*,http://[::1],http://[::1]:*"
 
     # ─── Auth ──────────────────────────────────────────────────
     # Clé bootstrap pour le premier accès admin.
@@ -72,7 +109,7 @@ class Settings(BaseSettings):
     # Variable custom (pas HTTP_PROXY/HTTPS_PROXY) pour ne pas affecter
     # toutes les libs Python qui lisent automatiquement les vars d'env OS.
     # Injecté manuellement dans boto3 (S3) et httpx (LLM).
-    # Non supporté pour les connexions Graph Memory (streamablehttp_client).
+    # Non supporté pour les connexions Graph Memory (streamable_http_client).
     proxy_url: str | None = None
 
     @field_validator("proxy_url", mode="before")
@@ -83,6 +120,24 @@ class Settings(BaseSettings):
             return None
         stripped = str(v).strip()
         return stripped if stripped else None
+
+    @field_validator("mcp_allowed_hosts", mode="before")
+    @classmethod
+    def _normalize_mcp_allowed_hosts(cls, value: str) -> str:
+        return _validate_host_allowlist(str(value))
+
+    @field_validator("mcp_allowed_origins", mode="before")
+    @classmethod
+    def _normalize_mcp_allowed_origins(cls, value: str) -> str:
+        return _validate_origin_allowlist(str(value))
+
+    @property
+    def mcp_transport_allowed_hosts(self) -> list[str]:
+        return self.mcp_allowed_hosts.split(",")
+
+    @property
+    def mcp_transport_allowed_origins(self) -> list[str]:
+        return self.mcp_allowed_origins.split(",")
 
     # ─── Rules par défaut ─────────────────────────────────────
     # Chemin vers le fichier Markdown utilisé comme rules par défaut

@@ -626,26 +626,33 @@ In `claude_desktop_config.json`:
 ### Via Python (MCP client)
 
 ```python
-from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+import httpx2
 
 async def example():
     headers = {"Authorization": "Bearer your_token"}
-    async with streamablehttp_client("http://localhost:8080/mcp", headers=headers) as (r, w, _):
-        async with ClientSession(r, w) as session:
-            await session.initialize()
+    async with httpx2.AsyncClient(
+        headers=headers, timeout=httpx2.Timeout(30, read=30),
+        follow_redirects=True, trust_env=True,
+    ) as http_client:
+        async with streamable_http_client(
+            "http://localhost:8080/mcp", http_client=http_client
+        ) as (r, w):
+            async with ClientSession(r, w) as session:
+                await session.initialize()
 
-            # Load all context
-            result = await session.call_tool("bank_read_all", {
-                "space_id": "my-project"
-            })
+                # Load all context
+                result = await session.call_tool("bank_read_all", {
+                    "space_id": "my-project"
+                })
 
-            # Write a note
-            await session.call_tool("live_note", {
-                "space_id": "my-project",
-                "category": "observation",
-                "content": "Build passing in CI"
-            })
+                # Write a note
+                await session.call_tool("live_note", {
+                    "space_id": "my-project",
+                    "category": "observation",
+                    "content": "Build passing in CI"
+                })
 ```
 
 ---
@@ -655,7 +662,7 @@ async def example():
 ### CLI Installation
 
 ```bash
-pip install click rich prompt-toolkit mcp[cli]>=1.8.0
+pip install click rich prompt-toolkit 'mcp[cli]>=2.1.1,<3' 'httpx2>=2.5.0,<3'
 export MCP_URL=http://localhost:8080
 export MCP_TOKEN=your_token
 ```
@@ -751,7 +758,7 @@ python scripts/test_recette.py --suite isolation -v --step --no-cleanup
 ```
 live-memory/
 ├── src/live_mem/              # Source code (44 MCP tools + web interface)
-│   ├── server.py              # FastMCP server + middlewares
+│   ├── server.py              # MCPServer v2 + middlewares
 │   ├── config.py              # pydantic-settings configuration
 │   ├── auth/                  # Authentication
 │   │   ├── middleware.py      #   Auth + Logging + StaticFiles

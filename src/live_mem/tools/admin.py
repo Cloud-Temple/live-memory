@@ -20,23 +20,23 @@ Voir AUTH_AND_COLLABORATION.md pour le modèle de tokens.
 
 from typing import Annotated
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.server import MCPServer
+from mcp_types import ToolAnnotations
 from pydantic import Field
 
 
-def register(mcp: FastMCP) -> int:
+def register(mcp: MCPServer) -> int:
     """
     Enregistre les 8 outils admin sur l'instance MCP.
 
     Args:
-        mcp: Instance FastMCP
+        mcp: Instance MCPServer
 
     Returns:
         Nombre d'outils enregistrés (8)
     """
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=False))
     async def admin_create_token(
         name: Annotated[
             str,
@@ -116,7 +116,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "admin")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def admin_list_tokens(
         name_contains: Annotated[
             str,
@@ -183,7 +183,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "admin")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
     async def admin_revoke_token(
         token_hash: Annotated[
             str,
@@ -219,7 +219,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "admin")
 
-    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True))
     async def admin_delete_token(
         token_hash: Annotated[
             str,
@@ -261,7 +261,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "admin")
 
-    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=False))
+    @mcp.tool(annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=False))
     async def admin_purge_tokens(
         revoked_only: Annotated[
             bool,
@@ -328,7 +328,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "admin")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=True))
     async def admin_update_token(
         token_hash: Annotated[
             str,
@@ -435,7 +435,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "admin")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=True))
     async def admin_bulk_update_tokens(
         names: Annotated[
             str,
@@ -590,7 +590,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "admin")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
     async def admin_gc_notes(
         space_id: Annotated[
             str,

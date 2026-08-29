@@ -30,8 +30,8 @@ import re
 from datetime import datetime, timezone
 from typing import Annotated
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.server import MCPServer
+from mcp_types import ToolAnnotations
 from pydantic import Field
 
 
@@ -96,18 +96,18 @@ def _validate_bank_filename(filename: str) -> dict | None:
     return None
 
 
-def register(mcp: FastMCP) -> int:
+def register(mcp: MCPServer) -> int:
     """
     Enregistre les 11 outils bank sur l'instance MCP.
 
     Args:
-        mcp: Instance FastMCP
+        mcp: Instance MCPServer
 
     Returns:
         Nombre d'outils enregistrés (11)
     """
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def bank_read(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
         filename: Annotated[
@@ -179,7 +179,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def bank_read_all(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
     ) -> dict:
@@ -253,7 +253,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def bank_list(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
     ) -> dict:
@@ -326,7 +326,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=False))
     async def bank_consolidate(
         space_id: Annotated[
             str, Field(description="Identifiant de l'espace à consolider")
@@ -440,7 +440,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def bank_consolidation_status(
         job_id: Annotated[
             str, Field(description="Identifiant du job de consolidation")
@@ -477,7 +477,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def bank_consolidation_queues(
         space_ids: Annotated[
             str,
@@ -588,7 +588,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def bank_stale_spaces(
         min_notes: Annotated[
             int,
@@ -768,7 +768,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "bank")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=True))
     async def bank_repair(
         space_id: Annotated[
             str, Field(description="Identifiant de l'espace à réparer")
@@ -965,7 +965,7 @@ def register(mcp: FastMCP) -> int:
             if lock is not None:
                 lock.release()
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=True))
     async def bank_write(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
         filename: Annotated[
@@ -1140,7 +1140,7 @@ def register(mcp: FastMCP) -> int:
             if lock is not None:
                 lock.release()
 
-    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True))
     async def bank_delete(
         space_id: Annotated[str, Field(description="Identifiant de l'espace")],
         filename: Annotated[str, Field(description="Nom du fichier bank à supprimer")],
@@ -1269,7 +1269,7 @@ def register(mcp: FastMCP) -> int:
             if lock is not None:
                 lock.release()
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=True))
     async def bank_compact(
         space_id: Annotated[
             str, Field(description="Identifiant de l'espace à compacter")

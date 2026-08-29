@@ -2,11 +2,11 @@
 """
 Regression tests for MCP initialize/serverInfo version reporting.
 
-FastMCP defaults the low-level server version to the installed `mcp` package
-version when the application does not set it explicitly. Live Memory must expose
-its own VERSION value instead.
+Live Memory must expose its own VERSION value rather than the installed
+`mcp` package version.
 """
 
+import asyncio
 from importlib.metadata import version as package_version
 from pathlib import Path
 
@@ -19,7 +19,7 @@ def test_mcp_server_info_version_uses_live_memory_version():
     expected = version_file.read_text(encoding="utf-8").strip()
     sdk_version = package_version("mcp")
 
-    actual = server.mcp._mcp_server.version
+    actual = server.mcp._lowlevel_server.version
 
     assert actual == expected
     assert actual == live_mem.__version__
@@ -30,7 +30,7 @@ def test_mcp_server_info_version_uses_live_memory_version():
 
 
 def test_startup_catalog_lists_every_registered_tool_with_a_description():
-    tools = server.mcp._tool_manager.list_tools()
+    tools = asyncio.run(server.mcp.list_tools())
     categories = server._group_tool_names([tool.name for tool in tools])
     announced = [name for names in categories.values() for name in names]
 

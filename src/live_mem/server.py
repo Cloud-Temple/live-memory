@@ -3,7 +3,7 @@
 Serveur MCP Live Memory — Point d'entrée principal.
 
 Ce fichier :
-1. Crée l'instance FastMCP
+1. Crée l'instance MCPServer v2
 2. Enregistre les outils MCP via tools/ (modulaire, par catégorie)
 3. Assemble la chaîne de middlewares ASGI
 4. Démarre le serveur Uvicorn
@@ -27,7 +27,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 from .config import get_settings
 
@@ -61,6 +62,8 @@ logging.root.setLevel(logging.INFO)
 # Réduire le bruit des librairies tierces
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx2").setLevel(logging.WARNING)
+logging.getLogger("httpcore2").setLevel(logging.WARNING)
 logging.getLogger("boto3").setLevel(logging.WARNING)
 logging.getLogger("botocore").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -107,13 +110,13 @@ def _group_tool_names(tool_names: list[str]) -> dict[str, list[str]]:
 
 
 # =============================================================================
-# Instance FastMCP
+# Instance MCPServer v2
 # =============================================================================
 
 settings = get_settings()
 
 @asynccontextmanager
-async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
+async def _lifespan(app: MCPServer) -> AsyncIterator[None]:
     """
     Gère le cycle de vie du serveur MCP.
 
@@ -127,16 +130,11 @@ async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
         await close_consolidator_if_initialized()
 
 
-mcp = FastMCP(
+mcp = MCPServer(
     name=settings.mcp_server_name,
-    host=settings.mcp_server_host,
-    port=settings.mcp_server_port,
+    version=_read_version(),
     lifespan=_lifespan,
 )
-# FastMCP 1.27.0 does not expose a constructor-level version argument.
-# Without this explicit low-level assignment, MCP initialize/serverInfo.version
-# falls back to the SDK package version ("mcp"), not Live Memory's VERSION file.
-mcp._mcp_server.version = _read_version()
 
 # =============================================================================
 # Enregistrement des outils — délégué aux modules tools/
@@ -184,7 +182,15 @@ def create_app():
 
     # L'app de base est le Streamable HTTP handler du SDK MCP
     # Endpoint unique : POST/GET /mcp (remplace /sse + /messages)
-    app = mcp.streamable_http_app()
+    app = mcp.streamable_http_app(
+        host=settings.mcp_server_host,
+        max_request_body_size=4 * 1024 * 1024,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=settings.mcp_transport_allowed_hosts,
+            allowed_origins=settings.mcp_transport_allowed_origins,
+        ),
+    )
 
     # Empiler les middlewares (dernier ajouté = premier exécuté)
     # Ordre d'exécution : RequestId → Metrics → Auth → Audit → Logging → ResponseLimit → Static → MCP
@@ -230,7 +236,9 @@ def main():
         )
 
     # Lister les outils disponibles et les grouper par catégorie
-    tools = mcp._tool_manager.list_tools()
+    import asyncio
+
+    tools = asyncio.run(mcp.list_tools())
     tool_names = [t.name for t in tools]
 
     categories = _group_tool_names(tool_names)
@@ -288,7 +296,6 @@ def main():
     # Depuis v1.5.0, space_ids=[] signifie "aucun accès" (au lieu de "tous").
     # Cette migration one-shot assigne tous les espaces existants aux tokens
     # non-admin qui avaient space_ids=[].
-    import asyncio
     async def _run_migration():
         from .core.space import get_space_service
         from .core.tokens import get_token_service

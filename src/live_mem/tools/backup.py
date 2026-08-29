@@ -18,8 +18,8 @@ Voir S3_DATA_MODEL.md pour l'arborescence.
 import re
 from typing import Annotated
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.server import MCPServer
+from mcp_types import ToolAnnotations
 from pydantic import Field
 
 
@@ -90,18 +90,18 @@ def _parse_backup_id(backup_id: str) -> tuple[str | None, str | None, dict | Non
     return sid, ts, None
 
 
-def register(mcp: FastMCP) -> int:
+def register(mcp: MCPServer) -> int:
     """
     Enregistre les 5 outils backup sur l'instance MCP.
 
     Args:
-        mcp: Instance FastMCP
+        mcp: Instance MCPServer
 
     Returns:
         Nombre d'outils enregistrés (5)
     """
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=False))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=False))
     async def backup_create(
         space_id: Annotated[
             str,
@@ -164,7 +164,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "backup")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def backup_list(
         space_id: Annotated[
             str,
@@ -234,7 +234,7 @@ def register(mcp: FastMCP) -> int:
 
     @mcp.tool(
         annotations=ToolAnnotations(
-            readOnlyHint=False, destructiveHint=True, idempotentHint=False
+            read_only_hint=False, destructive_hint=True, idempotent_hint=False
         )
     )
     async def backup_restore(
@@ -303,7 +303,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "backup")
 
-    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def backup_download(
         backup_id: Annotated[
             str,
@@ -342,7 +342,7 @@ def register(mcp: FastMCP) -> int:
 
             return safe_error(e, "backup")
 
-    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
+    @mcp.tool(annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True))
     async def backup_delete(
         backup_id: Annotated[
             str,
