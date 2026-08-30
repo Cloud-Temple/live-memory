@@ -416,7 +416,7 @@ remains strict on integrity checks.
 | Tool               | Parameters                                           | Description                                                                                               |
 | ------------------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `graph_connect`    | `space_id`, `url`, `token`, `memory_id`, `ontology?` | Connects a space to Graph Memory. Tests connection, creates memory if needed. Default ontology: `general` |
-| `graph_push`       | `space_id`                                           | Synchronizes bank → graph. Smart delete + re-ingest, orphan cleanup. ~30s/file                            |
+| `graph_push`       | `space_id`, `include_volatile?=false`                | Synchronizes non-volatile bank files → graph. Smart delete + re-ingest, orphan cleanup. ~30s/file         |
 | `graph_status`     | `space_id`                                           | Connection status + graph stats (documents, entities, relations, top entities, documents list)            |
 | `graph_disconnect` | `space_id`                                           | Disconnects (data remains in graph)                                                                       |
 
@@ -457,7 +457,7 @@ remains strict on integrity checks.
 >
 > Therefore, **`graph_push` is NOT a routine action**: pushing the full bank into the graph teaches it transient content that a later compaction strands as stale. Routine flows should ingest **canonical repository documents** directly into Graph Memory from the agent / tooling layer, using stable `source_path` keys. `graph_push` remains available for one-off bootstrap and explicit debug / migration only.
 >
-> In particular, `activeContext.md` and `progress.md` **must never** end up in Graph Memory. A future revision (tracked in [`DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md`](DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md)) will turn this into a server-side guardrail. See [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md) for the agent-side template.
+> By default, `graph_push` skips volatile bank files listed by `GRAPH_PUSH_VOLATILE_FILES` (`activeContext.md,progress.md`). An operator can pass `include_volatile=true` for explicit debug / migration pushes only; this requires `manage`/`admin` permission and emits an audit log. See [`WORKSPACE_CLINE_ADVANCE_RULES.md`](WORKSPACE_CLINE_ADVANCE_RULES.md) for the agent-side template.
 
 Live Memory can push its Memory Bank into a [Graph Memory](https://github.com/Cloud-Temple/graph-memory) instance for long-term memory. The knowledge graph extracts entities, relations, and embeddings from bank files.
 

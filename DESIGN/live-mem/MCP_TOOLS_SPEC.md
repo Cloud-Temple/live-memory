@@ -547,15 +547,21 @@ Synchronizes the bank into Graph Memory. Deletes old documents and re-ingests up
 
 ```python
 @mcp.tool()
-async def graph_push(space_id: str) -> dict:
+async def graph_push(space_id: str, include_volatile: bool = False) -> dict:
 ```
 
 **Behavior**:
 - The space must first be connected via `graph_connect`
+- Skips volatile bank files by default (`GRAPH_PUSH_VOLATILE_FILES`, default:
+  `activeContext.md,progress.md`)
+- `include_volatile=True` re-includes volatile files for explicit debug /
+  migration only, requires `manage`/`admin`, and emits an audit log
 - Intelligent delete + re-ingestion (graph recalculation)
 - Orphan cleanup (files removed from the bank)
 - ~10-30s per file (LLM entity/relation extraction + embeddings)
 - Updates metrics in `_meta.json`
+- Response keeps `pushed` as the numeric counter and adds `pushed_files`,
+  `skipped_volatile`, and a `warning` when files are skipped
 
 ---
 

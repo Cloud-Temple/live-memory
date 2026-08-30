@@ -33,16 +33,56 @@ import time
 import base64
 import asyncio
 import logging
+import unicodedata
 from datetime import datetime, timezone
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 import httpx2
 
+from ..config import get_settings
 from .storage import get_storage, bank_relpath
 from .models import GraphMemoryConfig
 
 logger = logging.getLogger("live_mem.graph_bridge")
+audit_logger = logging.getLogger("live_mem.audit")
+
+
+def _parse_graph_push_volatile_files(value: str | None = None) -> set[str]:
+    """Parse the CSV volatile-file policy into normalized basenames."""
+    if value is None:
+        value = get_settings().graph_push_volatile_files
+
+    files: set[str] = set()
+    for raw in value.split(","):
+        normalized = _volatile_policy_key(raw)
+        if normalized:
+            files.add(normalized)
+    return files
+
+
+def _volatile_policy_key(filename: str) -> str:
+    """Normalize a bank relpath for volatile-policy matching."""
+    clean = unicodedata.normalize("NFC", str(filename).strip()).replace("\\", "/")
+    basename = clean.rsplit("/", 1)[-1].strip()
+    return basename
+
+
+def _split_volatile_bank_files(
+    bank_files: dict[str, str],
+    volatile_files: set[str],
+) -> tuple[dict[str, str], list[str]]:
+    """Return pushable bank files and skipped volatile filenames."""
+    pushable: dict[str, str] = {}
+    skipped: list[str] = []
+
+    for filename, content in bank_files.items():
+        if _volatile_policy_key(filename) in volatile_files:
+            skipped.append(filename)
+        else:
+            pushable[filename] = content
+
+    return pushable, skipped
 
 
 # ─────────────────────────────────────────────────────────────
@@ -384,7 +424,12 @@ class GraphBridgeService:
     # PUSH — Pousser la bank dans graph-memory
     # ─────────────────────────────────────────────────────────
 
-    async def push(self, space_id: str) -> dict:
+    async def push(
+        self,
+        space_id: str,
+        include_volatile: bool = False,
+        audit_caller: str | None = None,
+    ) -> dict:
         """
         Pousse les fichiers bank du space dans graph-memory.
 
@@ -402,6 +447,8 @@ class GraphBridgeService:
 
         Args:
             space_id: Identifiant du space live-memory
+            include_volatile: Inclure explicitement les fichiers bank volatiles
+            audit_caller: Nom de l'appelant à tracer si include_volatile=True
 
         Returns:
             {"status": "ok", "pushed": N, "deleted": N, "errors": N, ...}
@@ -435,6 +482,12 @@ class GraphBridgeService:
         bank_files = {
             bank_relpath(item["key"], space_id): item["content"] for item in bank_data
         }
+        volatile_files = _parse_graph_push_volatile_files()
+        push_bank_files, skipped_volatile = (
+            (bank_files, [])
+            if include_volatile
+            else _split_volatile_bank_files(bank_files, volatile_files)
+        )
 
         if not bank_files:
             return {
@@ -442,9 +495,29 @@ class GraphBridgeService:
                 "space_id": space_id,
                 "message": "Aucun fichier bank à pousser",
                 "pushed": 0,
+                "pushed_files": [],
+                "skipped_volatile": [],
                 "deleted": 0,
                 "errors": 0,
             }
+
+        if include_volatile:
+            volatile_in_scope = [
+                filename
+                for filename in bank_files
+                if _volatile_policy_key(filename) in volatile_files
+            ]
+            audit_logger.info(
+                json.dumps(
+                    {
+                        "event": "graph_push_volatile_optin",
+                        "caller": audit_caller or "unknown",
+                        "space_id": space_id,
+                        "files": volatile_in_scope,
+                    },
+                    ensure_ascii=False,
+                )
+            )
 
         # Connexion à graph-memory
         gm = GraphMemoryClient(config.url, config.token, timeout=180.0)
@@ -463,10 +536,12 @@ class GraphBridgeService:
                     existing_docs.add(doc.get("filename", ""))
 
             logger.info(
-                "Push '%s' → '%s' : %d fichiers bank, %d docs existants",
+                "Push '%s' → '%s' : %d fichiers bank, %d poussables, %d volatiles sautés, %d docs existants",
                 space_id,
                 memory_id,
                 len(bank_files),
+                len(push_bank_files),
+                len(skipped_volatile),
                 len(existing_docs),
             )
 
@@ -474,7 +549,7 @@ class GraphBridgeService:
             calls = []
             call_metadata = []  # Pour tracker quel appel fait quoi
 
-            for filename, content in bank_files.items():
+            for filename, content in push_bank_files.items():
                 # Si le document existe → supprimer d'abord
                 if filename in existing_docs:
                     calls.append(
@@ -504,6 +579,9 @@ class GraphBridgeService:
                 call_metadata.append(("ingest", filename))
 
             # 3. Nettoyage des orphelins
+            # Important: orphan cleanup stays scoped to the full bank, not the
+            # filtered push set. Otherwise a default push would delete already
+            # ingested volatile docs solely because this guard skipped re-ingest.
             orphan_docs = existing_docs - set(bank_files.keys())
             for orphan in orphan_docs:
                 calls.append(
@@ -518,10 +596,11 @@ class GraphBridgeService:
                 call_metadata.append(("clean", orphan))
 
             # 4. Exécuter tout le batch dans une seule session
-            results = await gm.call_tools_batch(calls)
+            results = await gm.call_tools_batch(calls) if calls else []
 
             # 5. Analyser les résultats
             pushed = 0
+            pushed_files = []
             deleted_before_reingest = 0
             cleaned = 0
             errors = 0
@@ -553,6 +632,7 @@ class GraphBridgeService:
                 else:
                     if action == "ingest":
                         pushed += 1
+                        pushed_files.append(filename)
                         logger.info("Ingéré '%s'", filename)
                     elif action == "delete":
                         deleted_before_reingest += 1
@@ -586,11 +666,22 @@ class GraphBridgeService:
             "space_id": space_id,
             "memory_id": memory_id,
             "pushed": pushed,
+            "pushed_files": pushed_files,
+            "skipped_volatile": skipped_volatile,
             "deleted_before_reingest": deleted_before_reingest,
             "cleaned_orphans": cleaned,
             "errors": errors,
             "duration_seconds": duration,
         }
+
+        if skipped_volatile:
+            result["warning"] = (
+                "Volatile bank files were skipped by default; pass "
+                "include_volatile=True with manage/admin permission for explicit "
+                "debug or migration pushes."
+            )
+        if not pushed_files and skipped_volatile and errors == 0:
+            result["message"] = "No non-volatile bank files to push"
 
         if error_details:
             result["error_details"] = error_details

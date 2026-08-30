@@ -20,6 +20,8 @@ Voir core/graph_bridge.py pour la logique métier et le client MCP Streamable HT
 """
 
 import ipaddress
+import json
+import logging
 from typing import Annotated, Optional
 from urllib.parse import urlparse
 
@@ -34,6 +36,7 @@ from pydantic import Field
 # metadata cloud 169.254.169.254, ...). L'URL persiste ensuite dans
 # `_meta.json` et est ré-utilisée à chaque graph_push.
 _ALLOWED_GM_SCHEMES = ("http", "https")
+_audit_logger = logging.getLogger("live_mem.audit")
 
 
 def _validate_gm_url(url: str) -> Optional[str]:
@@ -203,6 +206,16 @@ def register(mcp: MCPServer) -> int:
         space_id: Annotated[
             str, Field(description="Identifiant du space live-memory à synchroniser")
         ],
+        include_volatile: Annotated[
+            bool,
+            Field(
+                default=False,
+                description=(
+                    "Inclure explicitement les fichiers bank volatiles "
+                    "(activeContext.md, progress.md par défaut). Requiert manage/admin."
+                ),
+            ),
+        ] = False,
     ) -> dict:
         """
         ⚠️ **Advanced / debug tool — NOT for routine flows.**
@@ -254,11 +267,11 @@ def register(mcp: MCPServer) -> int:
           stabilised bank,
         - explicit debug / migration scenarios under operator control.
 
-        In particular, `activeContext.md` and `progress.md` **must not**
-        end up in Graph Memory. A future revision (tracked in
-        `DESIGN/live-mem/EVOLUTION_LIVE_GRAPH_INTEGRATION.md`) will turn this
-        into a server-side guardrail. For now, the contract is doctrinal:
-        do not invoke this tool as part of session-end consolidation.
+        By default, volatile bank files (`activeContext.md`, `progress.md`,
+        configurable via `GRAPH_PUSH_VOLATILE_FILES`) are skipped and returned
+        in `skipped_volatile`. `include_volatile=True` is an explicit
+        debug / migration opt-in, requires manage/admin permission, and emits
+        an audit log.
 
         See `WORKSPACE_CLINE_ADVANCE_RULES.md`, README "Live ↔ Graph
         Memory" section, and `DESIGN/live-mem/ARCHITECTURE.md` for the
@@ -266,11 +279,18 @@ def register(mcp: MCPServer) -> int:
 
         Args:
             space_id: Identifiant du space live-memory
+            include_volatile: Inclure explicitement les fichiers volatiles
+                              (manage/admin uniquement)
 
         Returns:
             Métriques de push : fichiers poussés, nettoyés, erreurs, durée
         """
-        from ..auth.context import check_access, check_write_permission
+        from ..auth.context import (
+            check_access,
+            check_manage_permission,
+            check_write_permission,
+            current_token_info,
+        )
         from ..core.graph_bridge import get_graph_bridge
 
         try:
@@ -282,7 +302,31 @@ def register(mcp: MCPServer) -> int:
             if write_err:
                 return write_err
 
-            return await get_graph_bridge().push(space_id)
+            caller = "unknown"
+            token_info = current_token_info.get() or {}
+            if token_info.get("client_name"):
+                caller = token_info["client_name"]
+
+            if include_volatile:
+                manage_err = check_manage_permission()
+                if manage_err:
+                    return manage_err
+                _audit_logger.info(
+                    json.dumps(
+                        {
+                            "event": "graph_push_include_volatile_requested",
+                            "caller": caller,
+                            "space_id": space_id,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+
+            return await get_graph_bridge().push(
+                space_id,
+                include_volatile=include_volatile,
+                audit_caller=caller,
+            )
         except Exception as e:
             from ..auth.context import safe_error
 
