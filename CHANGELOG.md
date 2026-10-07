@@ -7,6 +7,12 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Development
+
+- Install the canonical Cloud Temple agent rules with provenance and a
+  conformity workflow; configure the existing `live-mem` working-memory space
+  on `my-live-memory` and document the Mission prerequisite scope.
+
 ---
 
 ## [2.9.5] — 2026-08-29

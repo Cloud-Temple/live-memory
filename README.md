@@ -11,6 +11,11 @@
 
 🇫🇷 [Version française](README.fr.md)
 
+Repository agents start from [AGENTS.md](AGENTS.md), the canonical rules and
+[repository configuration](AGENTIC_RULES/project.config.yml).
+[Project context](DESIGN/live-mem/INSTRUCTIONS_PROJET.md) documents the existing
+working-memory attachment and the Mission coordination scope.
+
 ---
 
 ## 📋 Table of Contents
