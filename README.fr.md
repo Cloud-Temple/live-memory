@@ -11,6 +11,11 @@
 
 🇬🇧 [English version](README.md)
 
+Les agents du dépôt démarrent avec [AGENTS.md](AGENTS.md), les règles canoniques
+et la [configuration du dépôt](AGENTIC_RULES/project.config.yml).
+Le [contexte projet](DESIGN/live-mem/INSTRUCTIONS_PROJET.md) décrit le
+rattachement mémoire existant et le périmètre de coordination Mission.
+
 ---
 
 ## 📋 Table des matières
