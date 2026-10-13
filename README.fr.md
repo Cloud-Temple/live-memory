@@ -258,6 +258,46 @@ consolidation et le compactage hiérarchique.
 | `LLMAAS_MERGE_TEMPERATURE` | `0.1`            | Température de la fusion des sections dupliquées. Mettre `1` pour les modèles qui n'acceptent que leur température par défaut |
 | `PROXY_URL`               | _(aucun)_         | Proxy HTTP sortant (ex. `http://10.0.0.1:3128`). **Variable maison** (pas `HTTP_PROXY`) — injectée manuellement dans boto3 (S3) et httpx (LLM). Non supportée pour les connexions Graph Memory. |
 
+### Utiliser un autre fournisseur compatible OpenAI
+
+Live Memory est testé avec le LLMaaS Cloud Temple, mais tout fournisseur qui
+expose `/v1/chat/completions` peut servir la consolidation. Vérifier d'abord :
+
+- **Un seul endpoint pour les deux modèles.** Consolidation et compactage
+  partagent `LLMAAS_API_URL` et `LLMAAS_API_KEY`. `LLMAAS_COMPACTION_MODEL` doit
+  exister chez ce même fournisseur ; le laisser vide pour réutiliser
+  `LLMAAS_MODEL`.
+- **Températures.** Trois appels envoient une température : la consolidation
+  (`LLMAAS_TEMPERATURE`), le compactage (`LLMAAS_COMPACTION_TEMPERATURE`) et la
+  fusion des sections dupliquées (`LLMAAS_MERGE_TEMPERATURE`). Certains modèles
+  n'acceptent que leur valeur par défaut (`1`) : régler les trois en conséquence.
+- **Limite de sortie.** `LLMAAS_MAX_TOKENS` ne doit pas dépasser la sortie
+  maximale du modèle, sinon chaque appel de consolidation est refusé.
+- **`max_tokens` est obligatoire.** Les appels utilisent le paramètre
+  `max_tokens`. Les modèles qui le refusent et exigent `max_completion_tokens`
+  (par exemple les modèles de raisonnement OpenAI) ne sont pas pris en charge.
+- **Sonde de santé.** `/health` liste `/v1/models` avec un simple jeton bearer.
+  Un fournisseur qui exige des en-têtes supplémentaires sur cette route remonte
+  `llmaas: error` et un statut global `degraded` (HTTP 200) ; la consolidation
+  n'est pas affectée.
+- **Données.** Le fournisseur configuré reçoit les notes live et le contenu de
+  la Bank. Le choisir selon vos exigences de protection des données.
+
+Exemple vérifié avec Anthropic `claude-haiku-5-5` (contexte 1M tokens, 128 000
+tokens de sortie, température `1` uniquement) :
+
+```env
+LLMAAS_API_URL=https://api.anthropic.com/v1
+LLMAAS_API_KEY=votre_cle_anthropic
+LLMAAS_MODEL=claude-haiku-5-5
+LLMAAS_COMPACTION_MODEL=claude-haiku-5-5
+LLMAAS_CONTEXT_WINDOW=500000
+LLMAAS_MAX_TOKENS=128000
+LLMAAS_TEMPERATURE=1
+LLMAAS_COMPACTION_TEMPERATURE=1
+LLMAAS_MERGE_TEMPERATURE=1
+```
+
 ### Variables optionnelles — Consolidation et compaction
 
 | Variable                  | Défaut            | Description                     |
@@ -837,6 +877,12 @@ docker compose logs waf --tail 20
 ### La consolidation échoue
 
 - Vérifiez les credentials LLMaaS dans `.env`
+- HTTP 400 mentionnant `temperature` : le modèle n'accepte que certaines
+  valeurs ; régler `LLMAAS_TEMPERATURE`, `LLMAAS_COMPACTION_TEMPERATURE` et
+  `LLMAAS_MERGE_TEMPERATURE` sur une valeur acceptée (souvent `1`)
+- HTTP 400 mentionnant `max_tokens` : abaisser `LLMAAS_MAX_TOKENS` à la limite
+  de sortie du modèle ; si le modèle exige `max_completion_tokens`, il n'est
+  pas pris en charge (voir [Utiliser un autre fournisseur compatible OpenAI](#utiliser-un-autre-fournisseur-compatible-openai))
 - Le timeout par défaut est de 1800s (30 minutes) pour accepter les modèles de consolidation plus lents mais plus qualitatifs
 - `bank_consolidate` retourne un accusé de job async (`running` ou `queued`) avec `next_action="return_to_user_without_polling"` ; appelez-le une seule fois et ne surveillez/pollez pas sauf demande explicite
 - `bank_consolidation_status(job_id)` reste disponible pour des checks de statut manuels uniquement

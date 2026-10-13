@@ -13,9 +13,20 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (default `0.0`) and `LLMAAS_MERGE_TEMPERATURE` (default `0.1`) replace the
   values hardcoded in the Map/Reduce compaction and duplicate-section merge
   calls. Defaults keep the previous behaviour. Models that only accept their
-  default temperature (e.g. `claude-haiku-5-5`, OpenAI reasoning models) can
-  now run every call path by setting the three temperatures to `1`. Both
-  values are validated in `[0.0, 2.0]` at startup (#76).
+  default temperature (e.g. `claude-haiku-5-5`) can now run every call path
+  by setting the three temperatures to `1`. Both values are validated in
+  `[0.0, 2.0]` at startup (#76).
+
+### Documentation
+
+- **Non-LLMaaS providers** — README (EN/FR) and `.env.example` now describe
+  how to run on another OpenAI-compatible provider: one endpoint serves both
+  the consolidation and compaction models, temperatures must match the
+  model's constraints, `LLMAAS_MAX_TOKENS` must not exceed the model's output
+  limit, `/health` may report `degraded` when the provider's `/v1/models`
+  needs extra headers, and models that reject `max_tokens` (they require
+  `max_completion_tokens`, e.g. OpenAI reasoning models) are not supported.
+  Troubleshooting covers the matching HTTP 400 errors (#76).
 
 ### Development
 
