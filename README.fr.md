@@ -254,6 +254,8 @@ consolidation et le compactage hiérarchique.
 | `LLMAAS_CONTEXT_WINDOW`   | `131072`          | Context window TOTAL du modèle (input + output combinés, en tokens). Qwen3 235B = 128K |
 | `LLMAAS_MAX_TOKENS`       | `16384`           | Budget de SORTIE max par requête (en tokens). Le consolidateur l'ajuste dynamiquement : `output = min(MAX_TOKENS, CONTEXT_WINDOW - input)` |
 | `LLMAAS_TEMPERATURE`      | `0.3`             | Créativité du LLM (0.0 = déterministe, 1.0 = très créatif) |
+| `LLMAAS_COMPACTION_TEMPERATURE` | `0.0`       | Température des appels Map/Reduce du compactage. Mettre `1` pour les modèles qui n'acceptent que leur température par défaut |
+| `LLMAAS_MERGE_TEMPERATURE` | `0.1`            | Température de la fusion des sections dupliquées. Mettre `1` pour les modèles qui n'acceptent que leur température par défaut |
 | `PROXY_URL`               | _(aucun)_         | Proxy HTTP sortant (ex. `http://10.0.0.1:3128`). **Variable maison** (pas `HTTP_PROXY`) — injectée manuellement dans boto3 (S3) et httpx (LLM). Non supportée pour les connexions Graph Memory. |
 
 ### Variables optionnelles — Consolidation et compaction

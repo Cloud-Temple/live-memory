@@ -254,6 +254,8 @@ hierarchical compaction.
 | `LLMAAS_CONTEXT_WINDOW`   | `131072`          | TOTAL context window of the model (input + output combined, in tokens). Qwen3 235B = 128K |
 | `LLMAAS_MAX_TOKENS`       | `16384`           | Max OUTPUT tokens per request. The consolidator adjusts dynamically: `output = min(MAX_TOKENS, CONTEXT_WINDOW - input)` |
 | `LLMAAS_TEMPERATURE`      | `0.3`             | LLM creativity (0.0 = deterministic, 1.0 = very creative) |
+| `LLMAAS_COMPACTION_TEMPERATURE` | `0.0`       | Temperature of the Map/Reduce compaction calls. Set to `1` for models that only accept their default temperature |
+| `LLMAAS_MERGE_TEMPERATURE` | `0.1`            | Temperature of the duplicate-section merge calls. Set to `1` for models that only accept their default temperature |
 | `PROXY_URL`               | _(none)_          | Outbound HTTP proxy (e.g. `http://10.0.0.1:3128`). **Custom variable** (not `HTTP_PROXY`) — injected manually into boto3 (S3) and httpx (LLM). Not supported for Graph Memory connections. |
 
 ### Optional Variables — Consolidation and Compaction

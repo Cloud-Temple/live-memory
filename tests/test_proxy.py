@@ -180,6 +180,36 @@ class TestConsolidatorServiceProxy:
         assert svc._model == "consolidation-model"
         assert svc._compaction_model == "consolidation-model"
 
+    @pytest.mark.parametrize(
+        ("overrides", "expected"),
+        [
+            ({}, (0.3, 0.0, 0.1)),
+            (
+                {
+                    "llmaas_temperature": 1.0,
+                    "llmaas_compaction_temperature": 1.0,
+                    "llmaas_merge_temperature": 1.0,
+                },
+                (1.0, 1.0, 1.0),
+            ),
+        ],
+    )
+    def test_temperatures_are_wired_from_settings(self, overrides, expected):
+        settings = _make_settings(**overrides)
+        with (
+            patch("live_mem.core.consolidator.get_settings", return_value=settings),
+            patch("live_mem.core.consolidator.AsyncOpenAI"),
+        ):
+            from live_mem.core.consolidator import ConsolidatorService
+
+            svc = ConsolidatorService()
+
+        assert (
+            svc._temperature,
+            svc._compaction_temperature,
+            svc._merge_temperature,
+        ) == expected
+
     def test_close_calls_aclose_and_resets_to_none(self):
         """close() doit appeler aclose() sur _http_client et le remettre à None."""
         svc = self._make_consolidator("http://proxy.example.com:3128")

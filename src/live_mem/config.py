@@ -104,6 +104,10 @@ class Settings(BaseSettings):
     )
     llmaas_max_tokens: int = 16384  # Max tokens de SORTIE demandés à l'API
     llmaas_temperature: float = 0.3
+    # Températures des appels secondaires. Les défauts reproduisent les valeurs
+    # historiques ; les surcharger pour les modèles qui n'acceptent que 1.
+    llmaas_compaction_temperature: float = 0.0  # Map/Reduce extractif
+    llmaas_merge_temperature: float = 0.1  # Fusion des sections dupliquées
 
     # ─── Proxy HTTP sortant ───────────────────────────────────
     # Variable custom (pas HTTP_PROXY/HTTPS_PROXY) pour ne pas affecter
@@ -293,10 +297,13 @@ class Settings(BaseSettings):
             )
 
         # Temperature range
-        if not (0.0 <= self.llmaas_temperature <= 2.0):
-            errors.append(
-                f"LLMAAS_TEMPERATURE={self.llmaas_temperature} out of range [0.0, 2.0]"
-            )
+        for env_name, value in (
+            ("LLMAAS_TEMPERATURE", self.llmaas_temperature),
+            ("LLMAAS_COMPACTION_TEMPERATURE", self.llmaas_compaction_temperature),
+            ("LLMAAS_MERGE_TEMPERATURE", self.llmaas_merge_temperature),
+        ):
+            if not (0.0 <= value <= 2.0):
+                errors.append(f"{env_name}={value} out of range [0.0, 2.0]")
 
         # Proxy URL format (optionnel — si renseigné doit être une URL valide)
         if self.proxy_url and not self.proxy_url.startswith(("http://", "https://")):

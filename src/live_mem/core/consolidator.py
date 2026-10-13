@@ -616,6 +616,8 @@ class ConsolidatorService:
         self._context_window = settings.llmaas_context_window
         self._max_tokens = settings.llmaas_max_tokens
         self._temperature = settings.llmaas_temperature
+        self._compaction_temperature = settings.llmaas_compaction_temperature
+        self._merge_temperature = settings.llmaas_merge_temperature
         self._max_notes = settings.consolidation_max_notes
         self._batch_size = settings.consolidation_batch_size
         # LM2-18 fix : cooldown anti-spam (voir _last_consolidation_started)
@@ -2750,7 +2752,7 @@ CONSIGNE : Fusionne ces versions en UNE SEULE version cohérente.
                 model=self._model,
                 messages=[{"role": "user", "content": prompt}],  # type: ignore[list-item]
                 max_tokens=4096,
-                temperature=0.1,  # Basse température pour la fusion
+                temperature=self._merge_temperature,  # LLMAAS_MERGE_TEMPERATURE
             )
 
             merged = response.choices[0].message.content or ""
@@ -2891,7 +2893,7 @@ indiqué et tu peux laisser du budget inutilisé."""
                 "model": self._compaction_model,
                 "messages": messages,
                 "max_tokens": max_tokens,
-                "temperature": 0,
+                "temperature": self._compaction_temperature,
             }
             if self._compaction_model.lower().startswith("qwen"):
                 request["extra_body"] = {"enable_thinking": False}

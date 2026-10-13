@@ -76,6 +76,8 @@ def _service(max_size: int = 4096) -> ConsolidatorService:
     service._max_tokens = 4096
     service._context_window = 131072
     service._temperature = 0.3
+    service._compaction_temperature = 0.0
+    service._merge_temperature = 0.1
     service._model = "test-model"
     service._compaction_model = "test-model"
     service._client = AsyncMock()
@@ -621,6 +623,26 @@ async def test_thinking_option_is_sent_only_to_qwen(model, expected_extra_body):
     assert kwargs["model"] != service._model
     assert kwargs["max_tokens"] == 123
     assert kwargs["temperature"] == 0
+    assert output == "- synthèse"
+    assert details["finish_reason"] == "stop"
+
+
+@pytest.mark.asyncio
+async def test_compaction_call_sends_configured_temperature():
+    # Models such as claude-haiku-5-5 reject any temperature other than 1.
+    service = _service()
+    service._temperature = 0.3
+    service._compaction_temperature = 1.0
+    service._client.chat.completions.create.return_value = _llm_plan_response(
+        content="- synthèse"
+    )
+
+    output, details = await service._call_hierarchical_llm(
+        [{"role": "system", "content": "contrat"}], "test", 123
+    )
+
+    kwargs = service._client.chat.completions.create.await_args.kwargs
+    assert kwargs["temperature"] == 1.0
     assert output == "- synthèse"
     assert details["finish_reason"] == "stop"
 

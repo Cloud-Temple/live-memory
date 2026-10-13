@@ -15,6 +15,7 @@ from live_mem.core.consolidator import ConsolidatorService
 def _service() -> ConsolidatorService:
     service = object.__new__(ConsolidatorService)
     service._model = "test-model"
+    service._merge_temperature = 0.1
     service._client = AsyncMock()
     return service
 
@@ -317,3 +318,23 @@ async def test_legacy_split_edit_preserves_duplicates_and_canonicalizes():
     assert "- décision B" in canonical
     assert "- ajout split" in canonical
     assert note_key not in storage.objects
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configured", [0.1, 1.0])
+async def test_merge_call_sends_configured_temperature(configured):
+    # Models such as claude-haiku-5-5 reject any temperature other than 1.
+    service = _service()
+    service._merge_temperature = configured
+    service._client.chat.completions.create.return_value = _response(
+        "- décision A\n- décision B\n"
+    )
+
+    merged = await service._merge_sections_via_llm(
+        "## Hors plan / En attente", ["- décision A\n", "- décision B\n"]
+    )
+
+    kwargs = service._client.chat.completions.create.await_args.kwargs
+    assert kwargs["temperature"] == configured
+    assert kwargs["model"] == "test-model"
+    assert merged == "- décision A\n- décision B"

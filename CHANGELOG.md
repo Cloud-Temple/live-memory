@@ -7,6 +7,16 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Configurable secondary LLM temperatures** — `LLMAAS_COMPACTION_TEMPERATURE`
+  (default `0.0`) and `LLMAAS_MERGE_TEMPERATURE` (default `0.1`) replace the
+  values hardcoded in the Map/Reduce compaction and duplicate-section merge
+  calls. Defaults keep the previous behaviour. Models that only accept their
+  default temperature (e.g. `claude-haiku-5-5`, OpenAI reasoning models) can
+  now run every call path by setting the three temperatures to `1`. Both
+  values are validated in `[0.0, 2.0]` at startup (#76).
+
 ### Development
 
 - Install the canonical Cloud Temple agent rules with provenance and a
