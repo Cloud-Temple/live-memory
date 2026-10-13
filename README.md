@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.9.5-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.9.6-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -842,7 +842,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dependencies & project config (uv)
 ├── uv.lock                    # uv lockfile
-├── VERSION                    # 2.9.5
+├── VERSION                    # 2.9.6
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -926,4 +926,4 @@ Developed by **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.9.5 — Shared working memory for collaborative AI agents*
+*Live Memory v2.9.6 — Shared working memory for collaborative AI agents*
