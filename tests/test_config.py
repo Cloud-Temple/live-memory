@@ -180,6 +180,39 @@ class TestTemperatureValidation:
         _make_settings(llmaas_temperature=0.0)
         _make_settings(llmaas_temperature=2.0)
 
+    def test_secondary_temperature_defaults_keep_historical_values(self):
+        s = _make_settings()
+        assert s.llmaas_compaction_temperature == 0.0
+        assert s.llmaas_merge_temperature == 0.1
+
+    @pytest.mark.parametrize(
+        ("field", "env_name"),
+        [
+            ("llmaas_compaction_temperature", "LLMAAS_COMPACTION_TEMPERATURE"),
+            ("llmaas_merge_temperature", "LLMAAS_MERGE_TEMPERATURE"),
+        ],
+    )
+    @pytest.mark.parametrize("value", [-0.1, 2.1])
+    def test_secondary_temperature_out_of_range(self, field, env_name, value):
+        with pytest.raises(ValueError, match=env_name):
+            _make_settings(**{field: value})
+
+    @pytest.mark.parametrize(
+        "field", ["llmaas_compaction_temperature", "llmaas_merge_temperature"]
+    )
+    def test_secondary_temperature_boundaries(self, field):
+        assert getattr(_make_settings(**{field: 0.0}), field) == 0.0
+        assert getattr(_make_settings(**{field: 2.0}), field) == 2.0
+
+    def test_secondary_temperatures_are_read_from_documented_env_names(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("LLMAAS_COMPACTION_TEMPERATURE", "1")
+        monkeypatch.setenv("LLMAAS_MERGE_TEMPERATURE", "1")
+        s = Settings(_env_file=None)
+        assert s.llmaas_compaction_temperature == 1.0
+        assert s.llmaas_merge_temperature == 1.0
+
 
 class TestResponseLimitValidation:
     def test_response_limit_too_low(self):
