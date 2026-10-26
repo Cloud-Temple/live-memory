@@ -9,8 +9,8 @@ par la clé `review.reviewer_provider` de `project.config.yml`.
 
 | Clé | Fournisseur | Modèle | Contrainte d'invocation |
 | --- | --- | --- | --- |
-| `claude` | Anthropic | `claude fable 5.1 high` | Session distincte, lecture seule, invocation non interactive et bornée. |
-| `codex` | OpenAI | `gpt 5.6 astra high` | Les outils MCP n'apparaissent pas dans la liste visible du modèle et restent appelables par leur nom ; voir les règles d'emploi. |
+| `claude` | Anthropic | `claude opus 5.5 high` | Session distincte, lecture seule, invocation non interactive et bornée. |
+| `codex` | OpenAI | `gpt 6.1 sol high` | Les outils MCP n'apparaissent pas dans la liste visible du modèle et restent appelables par leur nom ; voir les règles d'emploi. |
 | `llmaas` | Cloud Temple LLMaaS (SecNumCloud) | `nemotron-3-super:120b` | Modèle de raisonnement avancé, endpoint `api.ai.cloud-temple.com`. |
 
 Un seul modèle par fournisseur, pour que la revue soit reproductible et que deux
@@ -28,8 +28,13 @@ dépôts ne produisent pas des verdicts issus de configurations différentes.
   indisponible tant que cela n'a pas été vérifié. Une indisponibilité constatée
   se signale, elle ne se contourne pas par une auto-relecture présentée comme
   indépendante.
-- **Ne pas forcer le niveau de raisonnement du relecteur.** Laisser le niveau haut
-  défini par le modèle retenu. Un niveau bas produit des verdicts rendus sans que
+- **Ne pas abaisser le niveau de raisonnement du relecteur.** Le pilote transmet
+  explicitement le niveau `high` du tableau dans les paramètres de l'outil,
+  selon son schéma réel (`effort` ou `reasoningEffort`, par exemple), puis vérifie
+  le réglage retourné. Un libellé dans le prompt ne configure pas l'outil et son
+  défaut peut être bas. Si le niveau demandé n'est pas disponible ou vérifiable,
+  signaler la limite sans affirmer qu'il a été appliqué.
+  Un niveau bas produit des verdicts rendus sans que
   les règles du dépôt aient été ouvertes, et parfois un blocage annoncé sans qu'un
   seul appel ait été tenté, ce qui est indiscernable d'un vrai blocage. Si une
   contrainte technique existe pour un usage précis, la nommer avec son périmètre

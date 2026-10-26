@@ -15,7 +15,7 @@
 # un champ non traité, donc bloquant ; un champ venu d'une génération postérieure
 # est simplement absent et vaut disabled. MAIN_RULES.md fait foi sur ce point.
 
-schema_version: 2
+schema_version: 3
 
 project:
   # Nom court du dépôt, tel qu'il apparaît sur GitHub.
@@ -39,6 +39,7 @@ memory:
     server: my-live-memory
     # Espace mémoire du projet, casse exacte.
     space_id: live-mem
+    consolidation_check_interval_hours: 24
   graph:
     # Index sémantique durable. Porter disabled sur les deux clés si le projet
     # ne l'utilise pas ; ne pas retirer la section Graph Memory des règles.
