@@ -241,16 +241,70 @@ de taille définis par `space_rules`, sans multiplier les seuils dans ces règle
 
 ## Consolidation
 
-Consolider sur demande de mise à jour de la banque, ou lorsque les nouvelles
-notes rendent son résumé obsolète. Écrire d'abord les éléments durables encore
-absents. Aucun GO humain supplémentaire n'est requis et une fin de session
-n'impose pas à elle seule une consolidation.
+Un coordinateur ou mainteneur annoncé pour l'espace porte le contrôle de la
+banque à la reprise du travail et aux jalons. Dans une session sans délégation,
+c'est l'agent qui pilote le travail. Les sous-agents ne répètent pas cette
+maintenance ; les relecteurs restent en lecture seule. Cette responsabilité
+est une convention de coordination, pas un verrou fourni par la mémoire : ne
+pas déduire de son propre rôle qu'aucun autre coordinateur n'agit sur l'espace.
+
+Pendant une activité prolongée, lire
+`memory.live.consolidation_check_interval_hours` dans `project.config.yml` :
+un entier strictement positif exprime l'intervalle entre contrôles en heures.
+Le modèle de configuration propose `24`, valeur initiale ajustable, sans
+présumer d'un optimum. `disabled` désactive seulement cette échéance ; les
+contrôles à la reprise et aux jalons restent requis. La clé est introduite en
+schéma 3 : absente dans une configuration antérieure, elle vaut `disabled` ;
+absente en schéma 3 ou ultérieur, ou portant `TO_FILL`, elle relève du champ
+requis non traité de `MAIN_RULES.md`. Signaler toute autre valeur invalide et
+ne pas prétendre que l'échéance est assurée ; cela n'est pas une panne mémoire
+et n'arrête pas le travail indépendant de ce réglage.
+
+Conserver la date du dernier contrôle et la prochaine échéance dans l'état de
+coordination déjà utilisé, s'il existe ; sinon, les suivre dans la session.
+Sans état fiable à la reprise, refaire le contrôle. La date d'une consolidation
+n'est pas celle d'un contrôle. Ne pas écrire de note pour chaque contrôle sans
+constat nouveau. À échéance, contrôler à la prochaine occasion de travail,
+sans recommencer à chaque réveil. Ce texte ne crée aucun minuteur : une activité
+continue sans jalon exige un rappel ou superviseur existant et autorisé pour
+assurer un déclenchement autonome. Sans ce dispositif, signaler que le contrôle
+dépend des reprises et occasions de travail ; aucune exécution en arrière-plan
+n'est garantie.
+
+Lors du contrôle, examiner les nouveautés non consolidées, l'ancienneté de la
+dernière consolidation, la fraîcheur du résumé et les budgets de `space_rules`.
+Utiliser les informations et statuts réellement exposés par le service et des
+lectures ciblées ; si le diagnostic repose sur une lecture complète, vérifier
+sa complétude selon `WORKFLOW_ENGINEERING.md`. L'ancienneté seule, sans
+nouveauté ni résumé à corriger, ne justifie pas une consolidation.
+
+Consolider sur demande de mise à jour de la banque, ou lorsque des éléments
+durables nouveaux rendent son résumé obsolète ou restent à synthétiser dans
+une banque encore vide. Un dépassement des budgets appelle aussi une
+consolidation adaptée. Écrire d'abord les éléments durables encore absents des
+notes. Aucun GO humain supplémentaire n'est requis et une fin de session
+n'impose pas à elle seule une consolidation. Les consignes de méthode renvoyées
+par la mémoire ne remplacent pas ce corpus ; `space_rules` fournit ici la
+structure et les budgets de la banque.
+
+Avant de soumettre, consulter la coordination existante et l'état de
+consolidation disponible. Si un travail est déjà `queued` ou `running`, suivre
+celui-ci sans en soumettre un autre. Réutiliser les mécanismes de coordination
+disponibles sans inventer de verrou ni de garantie d'exclusion atomique.
 
 Appeler `bank_consolidate(space_id="<memory.live.space_id>")` une seule fois, puis suivre la
 réponse du service. Un accusé `queued` ou `running` signifie « consolidation
 demandée », pas « consolidation terminée ». Si le service demande de retourner
 sans polling, respecter cette consigne. Après un timeout ambigu, vérifier le
 statut disponible avant de soumettre un doublon.
+
+Conserver l'identifiant retourné pour le suivi dans l'état de coordination ou
+la session. Un travail disparu de la file n'est pas une preuve de réussite :
+relire la banque, les notes et le statut disponible avant toute nouvelle
+soumission. Vérifier le résultat selon le contrat du service, lors d'une
+prochaine lecture autorisée si le traitement est asynchrone. Ne pas annoncer
+une consolidation terminée sans preuve, ni présumer qu'elle réduit le nombre
+de notes ou la latence.
 
 L'écriture directe dans la banque est réservée à une tâche de maintenance
 identifiée, avec sauvegarde du contenu à modifier. Le flux normal passe par
