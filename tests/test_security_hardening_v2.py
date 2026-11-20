@@ -784,9 +784,9 @@ class TestMCPV2DependencyBounds:
         return PYPROJECT.read_text(encoding="utf-8")
 
     def test_mcp_is_bounded_to_v2_from_the_audited_release(self, pyproject_content):
-        assert '"mcp[cli]>=2.1.1,<3"' in pyproject_content
+        assert '"mcp[cli]>=2.2.0,<3"' in pyproject_content
 
-    def test_httpx2_uses_the_mcp_211_minimum(self, pyproject_content):
+    def test_httpx2_has_a_bounded_v2_range(self, pyproject_content):
         assert '"httpx2>=2.5.0,<3"' in pyproject_content
 
     def test_httpx_sse_removed(self, pyproject_content):
@@ -1618,4 +1618,4 @@ def test_sanity_imports_dont_break_existing_code():
     from live_mem.auth import context, middleware
 
     # Version courante du package
-    assert live_mem.__version__ == "2.9.6"
+    assert live_mem.__version__ == "2.9.7"

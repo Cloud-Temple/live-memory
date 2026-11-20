@@ -145,7 +145,7 @@ live-mem      = WORKING Memory (live notes → LLM → Memory Bank)
 | Scriptable CLI     | `Click`                 | Command-line interface             |
 | Interactive Shell  | `prompt_toolkit`        | Autocompletion, history            |
 | Display            | `Rich`                  | Tables, panels, colors, Markdown   |
-| MCP Client         | MCP SDK v2.1.1          | CLI + Graph Bridge → server        |
+| MCP Client         | MCP SDK v2.2.0          | CLI + Graph Bridge → server        |
 | Auth               | Bearer Token            | Token-based authentication         |
 | S3 Client          | `boto3`                 | S3 storage (hybrid SigV2/V4)       |
 | LLM Client         | `openai` (AsyncOpenAI)  | LLMaaS API calls                   |

@@ -22,7 +22,7 @@ Live Memory is deployed via Docker Compose with 2 services:
 
 ### MCP v2 transport security
 
-The delivery lockfile freezes `mcp==2.1.1` and `mcp-types==2.1.1`. The v2
+The delivery lockfile freezes `mcp==2.2.0` and `mcp-types==2.2.0`. The v2
 Streamable HTTP endpoint validates `Host`, and validates `Origin` when it is
 present. Set `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` to the exact public
 values served by Caddy; the `:*` suffix is allowed only for local development

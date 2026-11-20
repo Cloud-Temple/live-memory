@@ -1,10 +1,16 @@
 # 🧠 Live Memory — MCP Knowledge Live memory Service
 
+> [!IMPORTANT]
+> **Live Memory est en fin de vie.** La version `2.9.7` est la dernière publication.
+> [Hivemind](https://github.com/Lesur-ai/hivemind) remplace Live Memory et poursuit
+> son développement. Ce dépôt est conservé en lecture seule pour référence
+> historique. Voir le [journal des changements](CHANGELOG.md#297--2026-11-20).
+
 > **Mémoire de travail partagée pour agents IA collaboratifs**
 
 [![CI](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml/badge.svg)](https://github.com/Cloud-Temple/live-memory/actions/workflows/build.yml)
 [![Docker](https://img.shields.io/badge/ghcr.io-cloud--temple%2Flive--memory-blue?logo=docker)](https://ghcr.io/cloud-temple/live-memory)
-[![Version](https://img.shields.io/badge/version-2.9.6-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.9.7-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)]()
 [![MCP](https://img.shields.io/badge/protocol-MCP-purple.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
@@ -718,7 +724,7 @@ async def example():
 ### Installation de la CLI
 
 ```bash
-pip install click rich prompt-toolkit 'mcp[cli]>=2.1.1,<3' 'httpx2>=2.5.0,<3'
+pip install click rich prompt-toolkit 'mcp[cli]>=2.2.0,<3' 'httpx2>=2.5.0,<3'
 export MCP_URL=http://localhost:8080
 export MCP_TOKEN=votre_token
 ```
@@ -853,7 +859,7 @@ live-memory/
 ├── Dockerfile
 ├── pyproject.toml             # Dépendances et config projet (uv)
 ├── uv.lock                    # lockfile uv
-├── VERSION                    # 2.9.6
+├── VERSION                    # 2.9.7
 ├── CHANGELOG.md
 └── FAQ.md
 ```
@@ -938,4 +944,4 @@ Développé par **Christophe Lesur**.
 
 ---
 
-*Live Memory v2.9.6 — Mémoire de travail partagée pour agents IA collaboratifs*
+*Live Memory v2.9.7 — Mémoire de travail partagée pour agents IA collaboratifs*
