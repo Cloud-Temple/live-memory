@@ -12,11 +12,11 @@ requires-python = ">=3.11"
 # LM2-27 fix : httpx-sse retiré (introuvable dans le code source, surface
 # d'attaque inutile depuis la migration Streamable HTTP).
 dependencies = [
-    "mcp[cli]>=2.1.1,<3",    # SDK MCP v2 ; livraison figée dans uv.lock sur 2.1.1
-    "httpx2>=2.5.0,<3",      # transport client exigé par MCP 2.1.1
+    "mcp[cli]>=2.2.0,<3",    # Version minimale corrigée du SDK MCP v2
+    "httpx2>=2.5.0,<3",      # Transport HTTP du SDK MCP v2
     "uvicorn>=0.32.0",
     "pydantic>=2.0",
-    "pydantic-settings>=2.0",
+    "pydantic-settings>=2.14.2",
     "click>=8.1",
     "rich>=13.0",
     "prompt-toolkit>=3.0",

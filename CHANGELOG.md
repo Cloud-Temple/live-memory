@@ -9,6 +9,36 @@ Based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.9.7] — 2026-11-20
+
+### Deprecated
+
+- **Final Live Memory release.** [Hivemind](https://github.com/Lesur-ai/hivemind)
+  supersedes Live Memory. This repository is retained for historical reference
+  as a read-only GitHub archive. Ongoing development and maintenance continue
+  in Hivemind.
+
+### Security
+
+- Updated the MCP SDK and its matching type package to 2.2.0. This release
+  includes upstream fixes for client credential handling, bearer-token audience
+  validation, and Streamable HTTP session management.
+- Updated affected Python dependencies in the delivery lockfile: AnyIO 4.14.2,
+  certifi 2026.10.18, cryptography 50.0.0, OpenTelemetry API 1.45.2,
+  pydantic-settings 2.14.2, PyJWT 2.15.1, python-multipart 0.0.31,
+  Starlette 1.3.1, and urllib3 2.8.0.
+- Updated the browser's vendored DOMPurify to 3.4.18.
+
+### Upgrade
+
+- Configure the CLI and Graph Memory bridge with the final MCP endpoint URL.
+  SDK 2.2 rejects redirects to a different host and redirects that change
+  the HTTP method.
+- Live Memory 2.9.7 requires no storage migration. Use Hivemind for new
+  deployments and consult its documentation before moving existing data.
+
+---
+
 ## [2.9.6] — 2026-10-13
 
 ### Added

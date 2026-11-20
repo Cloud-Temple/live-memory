@@ -12,7 +12,7 @@ directement par live-mem, pour :
 | Fichier         | Version | Source                                                                  | SHA-384 (base64)                                                       |
 | --------------- | ------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `marked.min.js` | 12.0.2  | <https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js>              | `/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi`     |
-| `purify.min.js` | 3.1.6   | <https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js>       | `+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a`     |
+| `purify.min.js` | 3.4.18  | <https://cdn.jsdelivr.net/npm/dompurify@3.4.18/dist/purify.min.js>      | `lkArbWjiZKuE+bzKbj1vOEF7DKYBDNvgwZMCt5OH8bdRB92zpzyNska9Q/XKPHQD`     |
 
 ## Procédure de mise à jour
 
